@@ -4,6 +4,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension_util.hpp"
+#include "duckdb/main/database.hpp"
 
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 #include <duckdb/planner/filter/null_filter.hpp>
@@ -632,6 +633,53 @@ uintptr_t PredicateVisitor::VisitFilter(const string &col_name, const TableFilte
 	default:
 		return ~0;
 	}
+}
+
+void LoggerCallback::Initialize(DatabaseInstance &db_p) {
+    auto &instance = GetInstance();
+    unique_lock<mutex> lck(instance.lock);
+    instance.db = db_p.shared_from_this();
+}
+
+void LoggerCallback::CallbackEvent(ffi::Event event) {
+    auto &instance = GetInstance();
+    auto db_locked = instance.db.lock();
+    if (db_locked) {
+        auto transformed_log_level = GetDuckDBLogLevel(event.level);
+        auto log_type = KernelUtils::FromDeltaString(event.target);
+        string constructed_log_message;
+        Logger::Log(log_type.c_str(), *db_locked, transformed_log_level, [&]() {
+            auto message = KernelUtils::FromDeltaString(event.message);
+            auto file = KernelUtils::FromDeltaString(event.file);
+
+            if (!file.empty()) {
+                constructed_log_message = StringUtil::Format("%s@%u : %s ", file, event.line, message);
+            } else {
+                constructed_log_message = message;
+            }
+
+            return constructed_log_message.c_str();
+        });
+    }
+}
+
+LogLevel LoggerCallback::GetDuckDBLogLevel(ffi::Level level) {
+    switch (level) {
+        case ffi::Level::TRACE:
+        case ffi::Level::DEBUGGING:
+            return LogLevel::DEBUGGING;
+        case ffi::Level::INFO:
+            return LogLevel::INFO;
+        case ffi::Level::WARN:
+            return LogLevel::WARN;
+        case ffi::Level::ERROR:
+            return LogLevel::ERROR;
+    }
+}
+
+LoggerCallback &LoggerCallback::GetInstance() {
+    static LoggerCallback instance;
+    return instance;
 }
 
 }; // namespace duckdb

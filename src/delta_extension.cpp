@@ -2,6 +2,7 @@
 
 #include "delta_extension.hpp"
 
+#include "delta_utils.hpp"
 #include "delta_functions.hpp"
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
@@ -62,6 +63,9 @@ static void LoadInternal(DatabaseInstance &instance) {
 	                          "Adds the filtered files to the explain output. Warning: this may change performance of "
 	                          "delta scan during explain analyze queries.",
 	                          LogicalType::BOOLEAN, Value(true));
+
+    LoggerCallback::Initialize(instance);
+    ffi::enable_event_tracing(LoggerCallback::CallbackEvent, ffi::Level::TRACE);
 }
 
 void DeltaExtension::Load(DuckDB &db) {

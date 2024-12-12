@@ -15,6 +15,7 @@
 // TODO: clean up this file as we go
 
 namespace duckdb {
+class DatabaseInstance;
 
 class ExpressionVisitor : public ffi::EngineExpressionVisitor {
 	using FieldList = vector<unique_ptr<ParsedExpression>>;
@@ -334,6 +335,25 @@ private:
 	uintptr_t VisitIsNotNull(const string &col_name, ffi::KernelExpressionVisitorState *state);
 
 	uintptr_t VisitFilter(const string &col_name, const TableFilter &filter, ffi::KernelExpressionVisitorState *state);
+};
+
+// Singleton class to forward logs to DuckDB
+class LoggerCallback {
+public:
+    //! Singleton GetInstance
+    static LoggerCallback& GetInstance();
+    static void Initialize(DatabaseInstance &db);
+    static void CallbackLogLine(ffi::KernelStringSlice log_line);
+    static void CallbackEvent(ffi::Event log_line);
+
+
+    static LogLevel GetDuckDBLogLevel(ffi::Level);
+
+protected:
+    LoggerCallback() {}
+
+    mutex lock;
+    weak_ptr<DatabaseInstance> db;
 };
 
 } // namespace duckdb
