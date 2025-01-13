@@ -42,8 +42,3 @@ statement error
 set delta_kernel_logging=false;
 ----
 Invalid Input Error: Can not disable 'delta_kernel_logging' after enabling it
-
-mode output_result
-
-statement ok
-FROM duckdb_logs WHERE starts_with(type, 'delta.Kernel')
