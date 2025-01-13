@@ -10,6 +10,7 @@
 #include "duckdb/storage/storage_extension.hpp"
 #include "storage/delta_catalog.hpp"
 #include "storage/delta_transaction_manager.hpp"
+#include "duckdb/main/config.hpp"
 
 namespace duckdb {
 
@@ -60,12 +61,16 @@ static void LoadInternal(DatabaseInstance &instance) {
 	config.storage_extensions["delta"] = make_uniq<DeltaStorageExtension>();
 
 	config.AddExtensionOption("delta_scan_explain_files_filtered",
-	                          "Adds the filtered files to the explain output. Warning: this may change performance of "
+	                          "Adds the filtered files to the explain output. Warning: this may impact performance of "
 	                          "delta scan during explain analyze queries.",
 	                          LogicalType::BOOLEAN, Value(true));
 
+    config.AddExtensionOption("delta_kernel_logging",
+                              "Forwards the internal logging of the Delta Kernel to the duckdb logger. Warning: this may impact "
+                              "performance even with DuckDB logging disabled.",
+                              LogicalType::BOOLEAN, Value(false), LoggerCallback::DuckDBSettingCallBack);
+
     LoggerCallback::Initialize(instance);
-    ffi::enable_event_tracing(LoggerCallback::CallbackEvent, ffi::Level::TRACE);
 }
 
 void DeltaExtension::Load(DuckDB &db) {

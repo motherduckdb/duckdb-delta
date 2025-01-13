@@ -1,0 +1,49 @@
+# name: test/sql/delta_kernel_rs/logging.test
+# description: test that delta kernel log entries are properly propagated to the DuckDB logger
+# group: [delta_kernel_rs]
+
+require parquet
+
+require delta
+
+require-env DELTA_KERNEL_TESTS_PATH
+
+statement ok
+set enable_logging=true;
+
+statement ok
+SELECT * FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/basic_partitioned')
+
+# No kernel logging available yet: we need to set delta_kernel_logging=true
+query I
+SELECT count(*) FROM duckdb_logs WHERE starts_with(type, 'delta.Kernel')
+----
+0
+
+statement ok
+set delta_kernel_logging=true;
+
+statement ok
+set logging_level = 'TRACE';
+
+statement ok
+SELECT * FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/basic_partitioned')
+
+# Now we have log!
+query I
+SELECT count(*) > 50 FROM duckdb_logs WHERE starts_with(type, 'delta.Kernel')
+----
+true
+
+statement ok
+set delta_kernel_logging=true;
+
+statement error
+set delta_kernel_logging=false;
+----
+Invalid Input Error: Can not disable 'delta_kernel_logging' after enabling it
+
+mode output_result
+
+statement ok
+FROM duckdb_logs WHERE starts_with(type, 'delta.Kernel')
