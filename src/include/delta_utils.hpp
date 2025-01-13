@@ -340,23 +340,22 @@ private:
 // Singleton class to forward logs to DuckDB
 class LoggerCallback {
 public:
+	//! The Callback for the DuckDB setting to hook up Delta Kernel Logging to the DuckDB logger
+	static void DuckDBSettingCallBack(ClientContext &context, SetScope scope, Value &parameter);
 
-    //! The Callback for the DuckDB setting to hook up Delta Kernel Logging to the DuckDB logger
-    static void DuckDBSettingCallBack(ClientContext &context, SetScope scope, Value &parameter);
+	//! Singleton GetInstance
+	static LoggerCallback &GetInstance();
+	static void Initialize(DatabaseInstance &db);
+	static void CallbackEvent(ffi::Event log_line);
 
-    //! Singleton GetInstance
-    static LoggerCallback& GetInstance();
-    static void Initialize(DatabaseInstance &db);
-    static void CallbackEvent(ffi::Event log_line);
-
-
-    static LogLevel GetDuckDBLogLevel(ffi::Level);
+	static LogLevel GetDuckDBLogLevel(ffi::Level);
 
 protected:
-    LoggerCallback() {}
+	LoggerCallback() {
+	}
 
-    mutex lock;
-    weak_ptr<DatabaseInstance> db;
+	mutex lock;
+	weak_ptr<DatabaseInstance> db;
 };
 
 } // namespace duckdb

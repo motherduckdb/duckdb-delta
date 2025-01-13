@@ -65,12 +65,13 @@ static void LoadInternal(DatabaseInstance &instance) {
 	                          "delta scan during explain analyze queries.",
 	                          LogicalType::BOOLEAN, Value(true));
 
-    config.AddExtensionOption("delta_kernel_logging",
-                              "Forwards the internal logging of the Delta Kernel to the duckdb logger. Warning: this may impact "
-                              "performance even with DuckDB logging disabled.",
-                              LogicalType::BOOLEAN, Value(false), LoggerCallback::DuckDBSettingCallBack);
+	config.AddExtensionOption(
+	    "delta_kernel_logging",
+	    "Forwards the internal logging of the Delta Kernel to the duckdb logger. Warning: this may impact "
+	    "performance even with DuckDB logging disabled.",
+	    LogicalType::BOOLEAN, Value(false), LoggerCallback::DuckDBSettingCallBack);
 
-    LoggerCallback::Initialize(instance);
+	LoggerCallback::Initialize(instance);
 }
 
 void DeltaExtension::Load(DuckDB &db) {
