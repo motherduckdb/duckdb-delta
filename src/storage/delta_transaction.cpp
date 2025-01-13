@@ -1,9 +1,17 @@
 #include "storage/delta_transaction.hpp"
+
+#include "functions/delta_scan/delta_scan.hpp"
+#include "functions/delta_scan/delta_multi_file_list.hpp"
+
+#include <duckdb/main/client_data.hpp>
+
 #include "storage/delta_catalog.hpp"
-#include "duckdb/parser/parsed_data/create_view_info.hpp"
-#include "duckdb/catalog/catalog_entry/index_catalog_entry.hpp"
+#include "duckdb/main/client_properties.hpp"
+#include "duckdb/common/arrow/arrow_converter.hpp"
+#include "duckdb/common/arrow/arrow_appender.hpp"
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
 #include "functions/delta_scan/delta_scan.hpp"
+#include "storage/delta_insert.hpp"
 #include "storage/delta_table_entry.hpp"
 
 namespace duckdb {
@@ -18,17 +26,195 @@ DeltaTransaction::~DeltaTransaction() {
 void DeltaTransaction::Start() {
 	transaction_state = DeltaTransactionState::TRANSACTION_NOT_YET_STARTED;
 }
-void DeltaTransaction::Commit() {
+
+static void *allocate_string(const struct ffi::KernelStringSlice slice) {
+    return new string(slice.ptr, slice.len);
+}
+
+struct CommitInfo {
+    static vector<LogicalType> GetTypes() {
+        return {LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR)};
+    };
+    static vector<string> GetNames() {
+        return {"engineCommitInfo"};
+    };
+
+    CommitInfo() {
+        buffer.Initialize(Allocator::DefaultAllocator(), GetTypes());
+    }
+
+    void Append(Value commit_info_map) {
+        idx_t current_size = buffer.size();
+        idx_t current_capacity = buffer.GetCapacity();
+
+        if (current_size == current_capacity) {
+            buffer.SetCapacity(2*current_capacity);
+        }
+
+        buffer.SetValue(0, current_size, commit_info_map);
+        buffer.SetCardinality(current_size+1);
+    }
+
+    ffi::ArrowFFIData ToArrow(optional_ptr<ClientContext> context) {
+        ffi::ArrowFFIData ffi_data;
+        unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;
+        ClientProperties props("UTC", ArrowOffsetSize::REGULAR, false, false, false, ArrowFormatVersion::V1_0, context);
+        ArrowConverter::ToArrowArray(buffer, (ArrowArray*)(&ffi_data.array), props, extension_types);
+        ArrowConverter::ToArrowSchema((ArrowSchema*)(&ffi_data.schema), GetTypes(), GetNames(), props);
+        return ffi_data;
+    }
+
+    DataChunk buffer;
+};
+
+struct WriteMetaData {
+    static vector<LogicalType> GetTypes() {
+        return {
+            LogicalType::VARCHAR,
+            LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR),
+            LogicalType::BIGINT,
+            LogicalType::BIGINT,
+            LogicalType::BOOLEAN,
+        };
+    };
+    static vector<string> GetNames() {
+        return {
+            "path",
+            "partitionValues",
+            "size",
+            "modificationTime",
+            "dataChange"
+        };
+    };
+
+    WriteMetaData() {
+        buffer = make_uniq<DataChunk>();
+        buffer->Initialize(Allocator::DefaultAllocator(), GetTypes());
+    }
+
+    WriteMetaData(DeltaMultiFileList &snapshot, vector<DeltaDataFile> &outstanding_appends) : WriteMetaData() {
+        for (const auto &file : outstanding_appends) {
+            auto table_path = snapshot.GetPaths()[0];
+            auto file_without_double_slash = StringUtil::Replace(file.file_name, "\\", "/");
+            // auto file_split = StringUtil::Split(file, "/");
+            // auto file_name = file_split[file_split.size()-1];
+            auto file_name = file.file_name.substr(table_path.path.size());
+            InsertionOrderPreservingMap<string> partitions = {};
+
+            // TODO: probably horribly wrong
+            for (const auto &part : file.partition_values) {
+                partitions.insert({snapshot.GetPartitionColumns()[part.partition_column_idx], part.partition_value});
+            }
+
+            Append(file_name, Value::MAP(partitions), file.row_count, Timestamp::GetCurrentTimestamp().value, true);
+        }
+    }
+
+    void Append(const string &path, Value partition_values, idx_t size, idx_t modification_time, bool data_change) {
+        idx_t current_size = buffer->size();
+        idx_t current_capacity = buffer->GetCapacity();
+
+        if (current_size == current_capacity) {
+            buffer->SetCapacity(2*current_capacity);
+        }
+
+        buffer->SetValue(0, current_size, path);
+        buffer->SetValue(1, current_size, partition_values);
+        buffer->SetValue(2, current_size, Value::BIGINT(size));
+        buffer->SetValue(3, current_size, Value::BIGINT(modification_time));
+        buffer->SetValue(4, current_size, data_change);
+        buffer->SetCardinality(current_size+1);
+    }
+
+    ffi::ArrowFFIData ToArrow(ClientContext &context) {
+        ffi::ArrowFFIData ffi_data;
+        unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;
+        ClientProperties props("UTC", ArrowOffsetSize::REGULAR, false, false, false, ArrowFormatVersion::V1_0, context);
+        ArrowConverter::ToArrowArray(*buffer, (ArrowArray*)(&ffi_data.array), props, extension_types);
+        ArrowConverter::ToArrowSchema((ArrowSchema*)(&ffi_data.schema), GetTypes(), GetNames(), props);
+        return ffi_data;
+    }
+
+    unique_ptr<DataChunk> buffer;
+};
+
+unique_ptr<SchemaVisitor::FieldList> DeltaTransaction::GetWriteSchema(ClientContext &context) {
+    if (transaction_state == DeltaTransactionState::TRANSACTION_NOT_YET_STARTED) {
+        InitializeTransaction(context);
+    }
+
+    auto write_context = ffi::get_write_context(kernel_transaction.get());
+    auto result = SchemaVisitor::VisitWriteContextSchema(write_context);
+    return result;
+}
+
+void DeltaTransaction::Commit(ClientContext &context) {
 	if (transaction_state == DeltaTransactionState::TRANSACTION_STARTED) {
 		transaction_state = DeltaTransactionState::TRANSACTION_FINISHED;
-		// NOP: we only support read-only transactions currently
+
+	    if (!outstanding_appends.empty()) {
+	        auto write_context = ffi::get_write_context(kernel_transaction.get());
+	        auto write_path = ffi::get_write_path(write_context, allocate_string);
+
+	        string write_path_string;
+	        if (write_path) {
+	            write_path_string = *(string*)write_path;
+	            delete (string*)write_path;
+	        }
+
+	        // Create metadata from the current outstanding appends
+	        WriteMetaData write_metadata(*table_entry->snapshot, outstanding_appends);
+	        // Convert write metadata to ArrowFFI
+	        auto write_metadata_ffi = write_metadata.ToArrow(context);
+            // Convert to Delta Kernel EngineData
+	        KernelEngineData write_metadata_engine_data = table_entry->snapshot->TryUnpackKernelResult(ffi::get_engine_data(write_metadata_ffi.array, &write_metadata_ffi.schema, table_entry->snapshot->extern_engine.get()));
+
+	        // Add the write data to the commit
+	        ffi::add_files(kernel_transaction.get(), write_metadata_engine_data.release());
+
+	        table_entry->snapshot->TryUnpackKernelResult(ffi::commit(kernel_transaction.release(), table_entry->snapshot->extern_engine.get()));
+	    }
 	}
 }
+
 void DeltaTransaction::Rollback() {
 	if (transaction_state == DeltaTransactionState::TRANSACTION_STARTED) {
 		transaction_state = DeltaTransactionState::TRANSACTION_FINISHED;
 		// NOP: we only support read-only transactions currently
+	    // TODO: can we delete files we've written when aborting?
 	}
+}
+
+void DeltaTransaction::InitializeTransaction(ClientContext &context) {
+    if (access_mode == AccessMode::READ_ONLY) {
+        throw InvalidInputException("Can not append to a read only table");
+    }
+    transaction_state = DeltaTransactionState::TRANSACTION_STARTED;
+
+    // Start the kernel transaction
+    string path =  table_entry->snapshot->GetPaths()[0].path;
+    auto path_slice = KernelUtils::ToDeltaString(path);
+    auto new_kernel_transaction = table_entry->snapshot->TryUnpackKernelResult(ffi::transaction(path_slice, table_entry->snapshot->extern_engine.get()));
+
+    // Create commit info
+    CommitInfo commit_info;
+    commit_info.Append(Value::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR, {Value("engineInfo")}, {Value("DuckDB")}));
+    auto commit_info_arrow = commit_info.ToArrow(context);
+
+    // Convert arrow to Engine Data
+    KernelEngineData commit_info_engine_data = table_entry->snapshot->TryUnpackKernelResult(ffi::get_engine_data(commit_info_arrow.array, &commit_info_arrow.schema, table_entry->snapshot->extern_engine.get()));
+
+    string engine_info = "DuckDB";
+    kernel_transaction = table_entry->snapshot->TryUnpackKernelResult(ffi::with_engine_info(new_kernel_transaction, KernelUtils::ToDeltaString(engine_info), table_entry->snapshot->extern_engine.get()));
+}
+
+void DeltaTransaction::Append(ClientContext &context, const vector<DeltaDataFile> &append_files) {
+    if (transaction_state == DeltaTransactionState::TRANSACTION_NOT_YET_STARTED) {
+        InitializeTransaction(context);
+    }
+
+    // Append the newly inserted data
+    outstanding_appends.insert(outstanding_appends.end(), append_files.begin(), append_files.end());
 }
 
 DeltaTransaction &DeltaTransaction::Get(ClientContext &context, Catalog &catalog) {
@@ -37,6 +223,11 @@ DeltaTransaction &DeltaTransaction::Get(ClientContext &context, Catalog &catalog
 
 AccessMode DeltaTransaction::GetAccessMode() const {
 	return access_mode;
+}
+
+bool DeltaTransaction::HasOutstandingAppends() const {
+    unique_lock<mutex> lck(lock);
+    return !outstanding_appends.empty();
 }
 
 optional_ptr<DeltaTableEntry> DeltaTransaction::GetTableEntry(idx_t version) {

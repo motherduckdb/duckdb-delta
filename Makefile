@@ -41,6 +41,10 @@ include extension-ci-tools/makefiles/duckdb_extension.Makefile
 include benchmark/benchmark.Makefile
 
 # Generate some test data to test with
+# Note: make sure the JAVA_HOME var is set correctly and a venv is configured, e.g:
+#   python3 -m venv venv
+#	. ./venv/bin/activate
+#   export JAVA_HOME=/opt/homebrew/Cellar/openjdk@11/11.0.27/libexec/openjdk.jdk/Contents/Home
 generate-data:
 	python3 -m pip install delta-spark duckdb pandas deltalake pyspark typing-extensions pyarrow
 	python3 scripts/data_generator/generate_test_data.py

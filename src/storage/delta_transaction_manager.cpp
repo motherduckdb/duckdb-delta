@@ -18,7 +18,11 @@ Transaction &DeltaTransactionManager::StartTransaction(ClientContext &context) {
 
 ErrorData DeltaTransactionManager::CommitTransaction(ClientContext &context, Transaction &transaction) {
 	auto &delta_transaction = transaction.Cast<DeltaTransaction>();
-	delta_transaction.Commit();
+    try {
+        delta_transaction.Commit(context);
+    } catch (std::exception &ex) {
+        return ErrorData(ex);
+    }
 	lock_guard<mutex> l(transaction_lock);
 	transactions.erase(transaction);
 	return ErrorData();

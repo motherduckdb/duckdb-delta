@@ -1,0 +1,82 @@
+# name: test/sql/generated/writing/append/basic_append.test
+# description: test appending to some generated tables
+
+require parquet
+
+require delta
+
+# Copy test data over to tmp test dir because we'll be inserting stuff
+statement ok
+from copy_dir('data/generated/simple_table', '__TEST_DIR__/late_materialization/simple_table');
+from copy_dir('data/generated/simple_table_partitioned', '__TEST_DIR__/late_materialization/simple_table_partitioned');
+from copy_dir('data/generated/simple_table_column_mapped', '__TEST_DIR__/late_materialization/simple_table_column_mapped');
+
+statement ok
+ATTACH '__TEST_DIR__/late_materialization/simple_table/delta_lake' AS simple_table (TYPE delta);
+
+query II
+select count(*), sum(i) FROM simple_table;
+----
+10	45
+
+query II
+select count(*), sum(i) FROM read_parquet('__TEST_DIR__/late_materialization/simple_table/delta_lake/**/*.parquet', hive_partitioning=0);
+----
+10	45
+
+statement ok
+INSERT INTO simple_table VALUES (5);
+
+query II
+select count(*), sum(i) FROM simple_table;
+----
+11	50
+
+statement ok
+ATTACH '__TEST_DIR__/late_materialization/simple_table_partitioned/delta_lake' AS simple_table_partitioned (TYPE delta);
+
+query III
+select count(*), sum(i), sum(part) FROM simple_table_partitioned;
+----
+10	45	5
+
+# We write in hive_partitioned format, so this should also pick things up
+query III
+select count(*), sum(i), sum(part) FROM read_parquet('__TEST_DIR__/late_materialization/simple_table_partitioned/delta_lake/**/*.parquet', hive_partitioning=1);
+----
+10	45	5
+
+statement ok
+INSERT INTO simple_table_partitioned VALUES (5, 1);
+
+query III
+select count(*), sum(i), sum(part) FROM simple_table_partitioned;
+----
+11	50	6
+
+# We write in hive_partitioned format, so this should also pick things up
+query III
+select count(*), sum(i), sum(part) FROM read_parquet('__TEST_DIR__/late_materialization/simple_table_partitioned/delta_lake/**/*.parquet', hive_partitioning=1);
+----
+11	50	6
+
+# The files should not contain the partition values though
+query IIIIII
+DESCRIBE FROM read_parquet('__TEST_DIR__/late_materialization/simple_table_partitioned/delta_lake/**/*.parquet', hive_partitioning=0);
+----
+i	BIGINT	YES	NULL	NULL	NULL
+
+statement ok
+ATTACH '__TEST_DIR__/late_materialization/simple_table_column_mapped/delta_lake' AS simple_table_column_mapped (TYPE delta);
+
+query IIII
+select count(*), sum(i), sum(part), sum(new_col) FROM simple_table_column_mapped;
+----
+10	45	5	1337
+
+# Note: this test is deliberately fragile to notify us when writing to column mapping as a feature **is** supported by kernel:
+# 		at that point we need to implement it to avoid corrupting tables when writing to them 
+statement error
+INSERT INTO simple_table_column_mapped VALUES (5, 1, 1337);
+----
+Unsupported: Unknown WriterFeatures: "checkConstraints", "generatedColumns", "typeWidening-preview", "changeDataFeed", "columnMapping". Supported WriterFeatures: "appendOnly", "deletionVectors", "invariants", "timestampNtz"

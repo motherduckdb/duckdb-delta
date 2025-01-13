@@ -97,10 +97,6 @@ DatabaseSize DeltaCatalog::GetDatabaseSize(ClientContext &context) {
 	return size;
 }
 
-PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
-                                           optional_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException("DeltaCatalog PlanInsert");
-}
 PhysicalOperator &DeltaCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
                                                   LogicalCreateTable &op, PhysicalOperator &plan) {
 	throw NotImplementedException("DeltaCatalog PlanCreateTableAs");

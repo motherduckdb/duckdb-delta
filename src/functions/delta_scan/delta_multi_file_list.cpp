@@ -767,6 +767,7 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
 		}
 	}
 
+    // TODO clean up this mess with a copy constructor?
 	filtered_list->table_filters = std::move(result_filter_set);
 	filtered_list->names = names;
 	filtered_list->types = types;
@@ -1032,6 +1033,8 @@ vector<MultiFileColumnDefinition> &DeltaMultiFileList::GetLazyLoadedGlobalColumn
 	EnsureScanInitialized();
 	return lazy_loaded_schema;
 }
+
+
 
 unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {
 	auto result = make_uniq<DeltaMultiFileReader>();

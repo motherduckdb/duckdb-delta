@@ -23,5 +23,7 @@ private:
 
 	//! Scalar Functions
 	static ScalarFunctionSet GetExpressionFunction(DatabaseInstance &instance);
+
+    static ScalarFunctionSet GetWriteFileFunction(DatabaseInstance &instance);
 };
 } // namespace duckdb

@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "delta_utils.hpp"
 #include "duckdb/transaction/transaction.hpp"
 
 namespace duckdb {
@@ -15,6 +16,8 @@ class DeltaCatalog;
 class DeltaSchemaEntry;
 class DeltaTableEntry;
 class DeltaMultiFileList;
+struct DeltaDataFile;
+struct MultiFileColumnDefinition;
 
 enum class DeltaTransactionState { TRANSACTION_NOT_YET_STARTED, TRANSACTION_STARTED, TRANSACTION_FINISHED };
 
@@ -24,22 +27,26 @@ public:
 	~DeltaTransaction() override;
 
 	void Start();
-	void Commit();
+	void Commit(ClientContext &context);
 	void Rollback();
+
+    void Append(ClientContext &context, const vector<DeltaDataFile> &append_files);
 
 	static DeltaTransaction &Get(ClientContext &context, Catalog &catalog);
 	AccessMode GetAccessMode() const;
 
-	void SetReadWrite() override {
-		throw NotImplementedException("Can not start read-write transaction");
-	};
+    bool HasOutstandingAppends() const;
 
-public:
-    optional_ptr<DeltaTableEntry> GetTableEntry(idx_t version);
+	optional_ptr<DeltaTableEntry> GetTableEntry(idx_t version);
+
 	DeltaTableEntry &InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry, idx_t version);
+    unique_ptr<SchemaVisitor::FieldList> GetWriteSchema(ClientContext &context);
+
+protected:
+    void InitializeTransaction(ClientContext &context);
 
 private:
-	mutex lock;
+	mutable mutex lock;
 
     //! Cached table entry (without a specified version)
     unique_ptr<DeltaTableEntry> table_entry;
@@ -48,7 +55,12 @@ private:
 
 	//	DeltaConnection connection;
 	DeltaTransactionState transaction_state;
-	AccessMode access_mode;
+
+    const AccessMode access_mode;
+
+    vector<DeltaDataFile> outstanding_appends;
+
+    KernelExclusiveTransaction kernel_transaction;
 };
 
 } // namespace duckdb

@@ -16,8 +16,41 @@ from delta_rs_generator import *
 from pyspark_generator import *
 
 ################################################
+### Simple tables for simple tests
+################################################
+
+## really simple
+con = duckdb.connect()
+con.query(f"COPY (SELECT i FROM range(0,10) tbl(i)) TO '{TMP_PATH}/simple_table.parquet'")
+generate_test_data_pyspark(BASE_PATH, 'simple_table', 'simple_table', f'{TMP_PATH}/simple_table.parquet')
+
+## really simple partitioned
+con = duckdb.connect()
+con.query(f"COPY (SELECT i, i%2 as part FROM range(0,10) tbl(i)) TO '{TMP_PATH}/simple_table_partitioned.parquet'")
+generate_test_data_pyspark(BASE_PATH,'simple_table_partitioned', 'simple_table_partitioned', f'{TMP_PATH}/simple_table_partitioned.parquet', partition_column='part')
+
+## really simple column mapped
+## Table with simple evolution: adding a column
+base_query = 'SELECT i, i%2 as part FROM range(0,9) tbl(i);'
+queries = [
+    'ALTER TABLE simple_table_column_mapped ADD COLUMN new_col BIGINT;',
+    'INSERT INTO simple_table_column_mapped VALUES (9, 1, 1337);'
+]
+generate_test_data_pyspark_by_queries(BASE_PATH,'simple_table_column_mapped', 'simple_table_column_mapped', base_query, queries)
+
+################################################
 ### TPC-H
 ################################################
+
+## TPC-H SF0 PYSPARK
+if (not os.path.isdir(BASE_PATH + '/tpch_sf0')):
+    con = duckdb.connect()
+    con.query(f"call dbgen(sf=0); EXPORT DATABASE '{TMP_PATH}/tpch_sf0_export' (FORMAT parquet)")
+    for table in ["customer","lineitem","nation","orders","part","partsupp","region","supplier"]:
+        generate_test_data_pyspark(BASE_PATH,f"tpch_sf0_{table}", f'tpch_sf0/{table}', f'{TMP_PATH}/tpch_sf0_export/{table}.parquet')
+    con.query(f"attach '{BASE_PATH + '/tpch_sf0/duckdb.db'}' as duckdb_out")
+    for table in ["customer","lineitem","nation","orders","part","partsupp","region","supplier"]:
+        con.query(f"create table duckdb_out.{table} as from {table}")
 
 ## TPC-H SF0.01 PYSPARK
 if (not os.path.isdir(BASE_PATH + '/tpch_sf0_01')):
@@ -42,6 +75,12 @@ if (not os.path.isdir(BASE_PATH + '/tpch_sf1')):
 ################################################
 ### TPC-DS
 ################################################
+
+## TPC-DS SF0 (schema only)
+con = duckdb.connect()
+con.query(f"call dsdgen(sf=0); EXPORT DATABASE '{TMP_PATH}/tpcds_sf0_export' (FORMAT parquet)")
+for table in ["call_center","catalog_page","catalog_returns","catalog_sales","customer","customer_demographics","customer_address","date_dim","household_demographics","inventory","income_band","item","promotion","reason","ship_mode","store","store_returns","store_sales","time_dim","warehouse","web_page","web_returns","web_sales","web_site"]:
+    generate_test_data_pyspark(BASE_PATH,f"tpcds_sf0_{table}", f'tpcds_sf0/{table}', f'{TMP_PATH}/tpcds_sf0_export/{table}.parquet')
 
 ## TPC-DS SF0.01 full dataset
 con = duckdb.connect()

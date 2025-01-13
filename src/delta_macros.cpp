@@ -44,6 +44,10 @@ JOIN
     tpcds_queries() as tpcds_queries on tpcds_queries."query"=query_string
 )";
 
+static constexpr auto FILE_COPY_MACRO = R"(
+    select write_blob("dst_dir" || filename[length("src_dir")+1:], content) from read_blob( "src_dir" || '/**')
+)";
+
 void DeltaMacros::RegisterTableMacro(DatabaseInstance &db, const string &name, const string &query,
                                      const vector<string> &params, const child_list_t<Value> &named_params) {
 	Parser parser;
@@ -89,6 +93,7 @@ void DeltaMacros::RegisterMacros(DatabaseInstance &instance) {
 	// Register Table Macros
 	RegisterTableMacro(instance, "delta_filter_pushdown_log", DELTA_FILTER_PUSHDOWN_MACRO, {}, {});
 	RegisterTableMacro(instance, "delta_filter_pushdown_log_tpcds", DELTA_FILTER_PUSHDOWN_MACRO_TPCDS, {}, {});
+	RegisterTableMacro(instance, "copy_dir", FILE_COPY_MACRO, {"src_dir", "dst_dir"}, {});
 }
 
 }; // namespace duckdb
