@@ -4,6 +4,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/main/extension_util.hpp"
+#include "duckdb/main/database.hpp"
 
 #include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
 #include <duckdb/planner/filter/null_filter.hpp>
@@ -171,7 +172,7 @@ void ExpressionVisitor::VisitPrimitiveLiteralDouble(void *state, uintptr_t sibli
 }
 
 void ExpressionVisitor::VisitTimestampLiteral(void *state, uintptr_t sibling_list_id, int64_t value) {
-	auto expression = make_uniq<ConstantExpression>(Value::TIMESTAMPTZ(static_cast<timestamp_t>(value)));
+	auto expression = make_uniq<ConstantExpression>(Value::TIMESTAMPTZ(timestamp_tz_t(value)));
 	static_cast<ExpressionVisitor *>(state)->AppendToList(sibling_list_id, std::move(expression));
 }
 
@@ -631,6 +632,75 @@ uintptr_t PredicateVisitor::VisitFilter(const string &col_name, const TableFilte
 		return VisitIsNotNull(col_name, state);
 	default:
 		return ~0;
+	}
+}
+
+void LoggerCallback::Initialize(DatabaseInstance &db_p) {
+	auto &instance = GetInstance();
+	unique_lock<mutex> lck(instance.lock);
+    if (instance.db.expired()) {
+        instance.db = db_p.shared_from_this();
+    }
+}
+
+void LoggerCallback::CallbackEvent(ffi::Event event) {
+	auto &instance = GetInstance();
+	auto db_locked = instance.db.lock();
+	if (db_locked) {
+		auto transformed_log_level = GetDuckDBLogLevel(event.level);
+		string constructed_log_message;
+		Logger::Log("delta.Kernel", *db_locked, transformed_log_level, [&]() {
+			auto log_type = KernelUtils::FromDeltaString(event.target);
+			auto message = KernelUtils::FromDeltaString(event.message);
+			auto file = KernelUtils::FromDeltaString(event.file);
+			if (!file.empty()) {
+				constructed_log_message = StringUtil::Format("[%s] %s@%u : %s ", log_type, file, event.line, message);
+			} else {
+				constructed_log_message = message;
+			}
+
+			return constructed_log_message.c_str();
+		});
+	}
+}
+
+LogLevel LoggerCallback::GetDuckDBLogLevel(ffi::Level level) {
+	switch (level) {
+	case ffi::Level::TRACE:
+		return LogLevel::LOG_TRACE;
+	case ffi::Level::DEBUGGING:
+		return LogLevel::LOG_DEBUG;
+	case ffi::Level::INFO:
+		return LogLevel::LOG_INFO;
+	case ffi::Level::WARN:
+		return LogLevel::LOG_WARN;
+	case ffi::Level::ERROR:
+		return LogLevel::LOG_ERROR;
+	}
+}
+
+LoggerCallback &LoggerCallback::GetInstance() {
+	static LoggerCallback instance;
+	return instance;
+}
+
+void LoggerCallback::DuckDBSettingCallBack(ClientContext &context, SetScope scope, Value &parameter) {
+	Value current_setting;
+	auto res = context.TryGetCurrentSetting("delta_kernel_logging", current_setting);
+
+	if (res.GetScope() == SettingScope::INVALID) {
+		throw InternalException("Failed to find setting 'delta_kernel_logging'");
+	}
+
+	if (current_setting.GetValue<bool>() && !parameter.GetValue<bool>()) {
+		throw InvalidInputException("Can not disable 'delta_kernel_logging' after enabling it. You can disable DuckDB "
+		                            "logging with SET enable_logging=false, but there will still be some performance "
+		                            "overhead from 'delta_kernel_logging'"
+		                            "that can only be mitigated by restarting DuckDB");
+	}
+
+	if (!current_setting.GetValue<bool>() && parameter.GetValue<bool>()) {
+		ffi::enable_event_tracing(LoggerCallback::CallbackEvent, ffi::Level::TRACE);
 	}
 }
 

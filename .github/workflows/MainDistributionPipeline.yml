@@ -16,14 +16,12 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
-      # pip install duckdb==1.1.4.dev2005
-      duckdb_version: b470dea7ee
+      duckdb_version: main
       ci_tools_version: main
       extension_name: delta
       enable_rust: true
-      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw;linux_amd64_musl'
       extra_toolchains: 'python3'
-      vcpkg_commit: c82f74667287d3dc386bce81e44964370c91a289
 
   duckdb-stable-deploy:
     name: Deploy extension binaries
@@ -32,6 +30,6 @@ jobs:
     secrets: inherit
     with:
       extension_name: delta
+      duckdb_version: main
       ci_tools_version: main
-      duckdb_version: b470dea7ee
-      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw'
+      exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw;linux_amd64_musl'
