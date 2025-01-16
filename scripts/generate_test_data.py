@@ -32,7 +32,7 @@ def generate_test_data_delta_rs_multi(path, init, tables, splits = 1):
 
     os.makedirs(f"{generated_path}")
 
-    # First we write a DuckDB file TODO: this should go in 10 appends as well?
+    # First we write a DuckDB file TODO: this should go in N appends as well?
     con = duckdb.connect(f"{generated_path}/duckdb.db")
 
     con.sql(init)
@@ -40,14 +40,21 @@ def generate_test_data_delta_rs_multi(path, init, tables, splits = 1):
     # Then we write the parquet files
     for table in tables:
         total_count = con.sql(f"select count(*) from ({table['query']})").fetchall()[0][0]
-        tuples_per_file = math.ceil(total_count / splits)
+        # At least 1 tuple per file
+        if total_count < splits:
+            splits = total_count
+        tuples_per_file = total_count // splits
+        remainder = total_count % splits
 
         file_no = 0
+        write_from = 0
         while file_no < splits:
             os.makedirs(f"{generated_path}/{table['name']}/parquet", exist_ok=True)
         # Write DuckDB's reference data
-            con.sql(f"COPY ({table['query']} where rowid >= {(file_no) * tuples_per_file} and rowid < {(file_no+1) * tuples_per_file}) to '{generated_path}/{table['name']}/parquet/data_{file_no}.parquet' (FORMAT parquet)")
+            write_to = write_from + tuples_per_file + (1 if file_no < remainder else 0)
+            con.sql(f"COPY ({table['query']} where rowid >= {write_from} and rowid < {write_to}) to '{generated_path}/{table['name']}/parquet/data_{file_no}.parquet' (FORMAT parquet)")
             file_no += 1
+            write_from = write_to
 
     for table in tables:
         con = duckdb.connect(f"{generated_path}/duckdb.db")
@@ -173,7 +180,7 @@ generate_test_data_delta_rs("simple_partitioned_with_structs", query, "part")
 
 ## Partitioned table with all types we can file skip on
 for type in ["bool", "int", "tinyint", "smallint", "bigint", "float", "double", "varchar"]:
-    query = f"CREATE table test_table as select i::{type} as value, i::{type} as part from range(0,2) tbl(i)"
+    query = f"CREATE table test_table as select i::{type} as value1, (i)::{type} as value2, (i)::{type} as value3, i::{type} as part from range(0,5) tbl(i)"
     generate_test_data_delta_rs(f"test_file_skipping/{type}", query, "part")
 
 ## Simple table with deletion vector

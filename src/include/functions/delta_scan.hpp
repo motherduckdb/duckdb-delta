@@ -12,6 +12,13 @@
 #include "duckdb/common/multi_file_reader.hpp"
 
 namespace duckdb {
+struct DeltaSnapshot;
+
+struct DeltaFunctionInfo : public TableFunctionInfo {
+	shared_ptr<DeltaSnapshot> snapshot;
+	string expected_path;
+	string table_name;
+};
 
 struct DeltaFileMetaData {
 	DeltaFileMetaData() {};
@@ -36,7 +43,7 @@ struct DeltaFileMetaData {
 //! The DeltaSnapshot implements the MultiFileList API to allow injecting it into the regular DuckDB parquet scan
 struct DeltaSnapshot : public MultiFileList {
 	DeltaSnapshot(ClientContext &context, const string &path);
-	string GetPath();
+	string GetPath() const;
 	static string ToDuckDBPath(const string &raw_path);
 	static string ToDeltaPath(const string &raw_path);
 
@@ -51,14 +58,17 @@ public:
 	idx_t GetTotalFileCount() override;
 
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
+	idx_t GetVersion();
+	DeltaFileMetaData &GetMetaData(idx_t index) const;
 
 protected:
 	//! Get the i-th expanded file
 	string GetFile(idx_t i) override;
 
 protected:
-	// TODO: How to guarantee we only call this after the filter pushdown?
-	void InitializeFiles();
+	string GetFileInternal(idx_t i);
+	void InitializeSnapshot();
+	void InitializeScan();
 
 	template <class T>
 	T TryUnpackKernelResult(ffi::ExternResult<T> result) {
@@ -66,12 +76,20 @@ protected:
 		    result, StringUtil::Format("While trying to read from delta table: '%s'", paths[0]));
 	}
 
-	// TODO: change back to protected
-public:
+	static void VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
+	                      const struct ffi::KernelBoolSlice selection_vec);
+	static void VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
+	                          const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+	                          const struct ffi::CStringMap *partition_values);
+
+protected:
+	mutable mutex lock;
+
 	idx_t version;
 
 	//! Delta Kernel Structures
-	KernelSnapshot snapshot;
+	shared_ptr<SharedKernelSnapshot> snapshot;
+
 	KernelExternEngine extern_engine;
 	KernelScan scan;
 	KernelGlobalScanState global_state;
@@ -79,12 +97,16 @@ public:
 
 	//! Names
 	vector<string> names;
+	vector<LogicalType> types;
+	bool have_bound = false;
 
 	//! Metadata map for files
 	vector<unique_ptr<DeltaFileMetaData>> metadata;
 
 	//! Current file list resolution state
-	bool initialized = false;
+	bool initialized_snapshot = false;
+	bool initialized_scan = false;
+
 	bool files_exhausted = false;
 	vector<string> resolved_files;
 	TableFilterSet table_filters;
@@ -105,9 +127,9 @@ struct DeltaMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 };
 
 struct DeltaMultiFileReader : public MultiFileReader {
-	static unique_ptr<MultiFileReader> CreateInstance();
+	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
 	//! Return a DeltaSnapshot
-	unique_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
+	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
 	                                         FileGlobOptions options) override;
 
 	//! Override the regular parquet bind using the MultiFileReader Bind. The bind from these are what DuckDB's file
@@ -121,7 +143,7 @@ struct DeltaMultiFileReader : public MultiFileReader {
 
 	void CreateNameMapping(const string &file_name, const vector<LogicalType> &local_types,
 	                       const vector<string> &local_names, const vector<LogicalType> &global_types,
-	                       const vector<string> &global_names, const vector<column_t> &global_column_ids,
+	                       const vector<string> &global_names, const vector<ColumnIndex> &global_column_ids,
 	                       MultiFileReaderData &reader_data, const string &initial_file,
 	                       optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
@@ -129,12 +151,12 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
 	                      const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
 	                      const vector<LogicalType> &global_types, const vector<string> &global_names,
-	                      const vector<column_t> &global_column_ids) override;
+	                      const vector<ColumnIndex> &global_column_ids) override;
 
 	void FinalizeBind(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
 	                  const string &filename, const vector<string> &local_names,
 	                  const vector<LogicalType> &global_types, const vector<string> &global_names,
-	                  const vector<column_t> &global_column_ids, MultiFileReaderData &reader_data,
+	                  const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
 	                  ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	//! Override the FinalizeChunk method
@@ -145,6 +167,10 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	//! Override the ParseOption call to parse delta_scan specific options
 	bool ParseOption(const string &key, const Value &val, MultiFileReaderOptions &options,
 	                 ClientContext &context) override;
+
+	// A snapshot can be injected into the multifilereader, this ensures the GetMultiFileList can return this snapshot
+	// (note that the path should match the one passed to CreateFileList)
+	shared_ptr<DeltaSnapshot> snapshot;
 };
 
 } // namespace duckdb

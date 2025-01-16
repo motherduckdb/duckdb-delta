@@ -1,4 +1,5 @@
 #include "functions/delta_scan.hpp"
+#include "storage/delta_catalog.hpp"
 
 #include "delta_functions.hpp"
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
@@ -15,11 +16,10 @@
 #include "duckdb/parser/parsed_expression.hpp"
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/main/query_profiler.hpp"
+#include "duckdb/main/client_data.hpp"
 
-#include <duckdb/main/client_data.hpp>
-#include <numeric>
 #include <regex>
-#include <string>
 
 namespace duckdb {
 
@@ -46,9 +46,9 @@ string url_decode(string input) {
 	return result;
 }
 
-static void visit_callback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
-                           const ffi::Stats *stats, const ffi::DvInfo *dv_info,
-                           const struct ffi::CStringMap *partition_values) {
+void DeltaSnapshot::VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
+                                  const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                                  const struct ffi::CStringMap *partition_values) {
 	auto context = (DeltaSnapshot *)engine_context;
 	auto path_string = context->GetPath();
 	StringUtil::RTrim(path_string, "/");
@@ -91,9 +91,9 @@ static void visit_callback(ffi::NullableCvoid engine_context, struct ffi::Kernel
 	context->metadata.back()->partition_map = std::move(constant_map);
 }
 
-static void visit_data(void *engine_context, ffi::ExclusiveEngineData *engine_data,
-                       const struct ffi::KernelBoolSlice selection_vec) {
-	ffi::visit_scan_data(engine_data, selection_vec, engine_context, visit_callback);
+void DeltaSnapshot::VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
+                              const struct ffi::KernelBoolSlice selection_vec) {
+	ffi::visit_scan_data(engine_data, selection_vec, engine_context, VisitCallback);
 }
 
 string ParseAccountNameFromEndpoint(const string &endpoint) {
@@ -238,7 +238,6 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 	// Here you would need to add the logic for setting the builder options for Azure
 	// This is just a placeholder and will need to be replaced with the actual logic
 	if (secret_type == "s3" || secret_type == "gcs" || secret_type == "r2") {
-
 		string key_id, secret, session_token, region, endpoint, url_style;
 		bool use_ssl = true;
 		secret_reader.TryGetSecretKey("key_id", key_id);
@@ -276,10 +275,14 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 			}
 
 			if (StringUtil::StartsWith(endpoint, "http://")) {
-				ffi::set_builder_option(builder, KernelUtils::ToDeltaString("allow_http"), KernelUtils::ToDeltaString("true"));
+				ffi::set_builder_option(builder, KernelUtils::ToDeltaString("allow_http"),
+				                        KernelUtils::ToDeltaString("true"));
 			}
 			ffi::set_builder_option(builder, KernelUtils::ToDeltaString("aws_endpoint"),
 			                        KernelUtils::ToDeltaString(endpoint));
+		} else if (StringUtil::StartsWith(path, "gs://") || StringUtil::StartsWith(path, "gcs://")) {
+			ffi::set_builder_option(builder, KernelUtils::ToDeltaString("aws_endpoint"),
+			                        KernelUtils::ToDeltaString("https://storage.googleapis.com"));
 		}
 
 		ffi::set_builder_option(builder, KernelUtils::ToDeltaString("aws_region"), KernelUtils::ToDeltaString(region));
@@ -361,7 +364,8 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 		}
 		// Set the use_emulator option for when the azurite test server is used
 		if (account_name == "devstoreaccount1" || connection_string.find("devstoreaccount1") != string::npos) {
-			ffi::set_builder_option(builder, KernelUtils::ToDeltaString("use_emulator"), KernelUtils::ToDeltaString("true"));
+			ffi::set_builder_option(builder, KernelUtils::ToDeltaString("use_emulator"),
+			                        KernelUtils::ToDeltaString("true"));
 		}
 		if (!account_name.empty()) {
 			ffi::set_builder_option(builder, KernelUtils::ToDeltaString("account_name"),
@@ -371,7 +375,8 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 			ffi::set_builder_option(builder, KernelUtils::ToDeltaString("azure_endpoint"),
 			                        KernelUtils::ToDeltaString(endpoint));
 		}
-		ffi::set_builder_option(builder, KernelUtils::ToDeltaString("container_name"), KernelUtils::ToDeltaString(bucket));
+		ffi::set_builder_option(builder, KernelUtils::ToDeltaString("container_name"),
+		                        KernelUtils::ToDeltaString(bucket));
 	}
 	return builder;
 }
@@ -380,7 +385,7 @@ DeltaSnapshot::DeltaSnapshot(ClientContext &context_p, const string &path)
     : MultiFileList({ToDeltaPath(path)}, FileGlobOptions::ALLOW_EMPTY), context(context_p) {
 }
 
-string DeltaSnapshot::GetPath() {
+string DeltaSnapshot::GetPath() const {
 	return GetPaths()[0];
 }
 
@@ -410,22 +415,44 @@ string DeltaSnapshot::ToDeltaPath(const string &raw_path) {
 }
 
 void DeltaSnapshot::Bind(vector<LogicalType> &return_types, vector<string> &names) {
-	if (!initialized) {
-		InitializeFiles();
+	unique_lock<mutex> lck(lock);
+
+	if (have_bound) {
+		names = this->names;
+		return_types = this->types;
+		return;
 	}
-	auto schema = SchemaVisitor::VisitSnapshotSchema(snapshot.get());
+
+	if (!initialized_snapshot) {
+		InitializeSnapshot();
+	}
+
+	unique_ptr<SchemaVisitor::FieldList> schema;
+
+	{
+		auto snapshot_ref = snapshot->GetLockingRef();
+		schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr());
+	}
+
 	for (const auto &field : *schema) {
 		names.push_back(field.first);
 		return_types.push_back(field.second);
 	}
 	// Store the bound names for resolving the complex filter pushdown later
+	have_bound = true;
 	this->names = names;
+	this->types = return_types;
 }
 
-string DeltaSnapshot::GetFile(idx_t i) {
-	if (!initialized) {
-		InitializeFiles();
+string DeltaSnapshot::GetFileInternal(idx_t i) {
+	if (!initialized_snapshot) {
+		InitializeSnapshot();
 	}
+
+	if (!initialized_scan) {
+		InitializeScan();
+	}
+
 	// We already have this file
 	if (i < resolved_files.size()) {
 		return resolved_files[i];
@@ -436,7 +463,7 @@ string DeltaSnapshot::GetFile(idx_t i) {
 	}
 
 	while (i >= resolved_files.size()) {
-		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), this, visit_data);
+		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), this, VisitData);
 
 		auto have_scan_data = TryUnpackKernelResult(have_scan_data_res);
 
@@ -447,38 +474,46 @@ string DeltaSnapshot::GetFile(idx_t i) {
 		}
 	}
 
-	// The kernel scan visitor should have resolved a file OR returned
-	if (i >= resolved_files.size()) {
-		throw IOException("Delta Kernel seems to have failed to resolve a new file");
-	}
-
 	return resolved_files[i];
 }
 
-void DeltaSnapshot::InitializeFiles() {
+string DeltaSnapshot::GetFile(idx_t i) {
+	// TODO: profile this: we should be able to use atomics here to optimize
+	unique_lock<mutex> lck(lock);
+	return GetFileInternal(i);
+}
+
+void DeltaSnapshot::InitializeSnapshot() {
 	auto path_slice = KernelUtils::ToDeltaString(paths[0]);
 
-	// Register engine
 	auto interface_builder = CreateBuilder(context, paths[0]);
 	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
 
-	// Initialize Snapshot
-	snapshot = TryUnpackKernelResult(ffi::snapshot(path_slice, extern_engine.get()));
+	if (!snapshot) {
+		snapshot = make_shared_ptr<SharedKernelSnapshot>(
+		    TryUnpackKernelResult(ffi::snapshot(path_slice, extern_engine.get())));
+	}
+
+	initialized_snapshot = true;
+}
+
+void DeltaSnapshot::InitializeScan() {
+	auto snapshot_ref = snapshot->GetLockingRef();
 
 	// Create Scan
 	PredicateVisitor visitor(names, &table_filters);
-	scan = TryUnpackKernelResult(ffi::scan(snapshot.get(), extern_engine.get(), &visitor));
+	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
 
 	// Create GlobalState
 	global_state = ffi::get_global_scan_state(scan.get());
 
 	// Set version
-	this->version = ffi::version(snapshot.get());
+	this->version = ffi::version(snapshot_ref.GetPtr());
 
 	// Create scan data iterator
 	scan_data_iterator = TryUnpackKernelResult(ffi::kernel_scan_data_init(extern_engine.get(), scan.get()));
 
-	initialized = true;
+	initialized_scan = true;
 }
 
 unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &context,
@@ -486,45 +521,101 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
                                                                MultiFilePushdownInfo &info,
                                                                vector<unique_ptr<Expression>> &filters) {
 	FilterCombiner combiner(context);
-	for (const auto &filter : filters) {
-		combiner.AddFilter(filter->Copy());
-	}
-	auto filterstmp = combiner.GenerateTableScanFilters(info.column_ids);
 
-	// TODO: can/should we figure out if this filtered anything?
+	if (filters.empty()) {
+		return nullptr;
+	}
+
+	for (auto riter = filters.rbegin(); riter != filters.rend(); ++riter) {
+		combiner.AddFilter(riter->get()->Copy());
+	}
+
+	auto filterstmp = combiner.GenerateTableScanFilters(info.column_indexes);
+
 	auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
 	filtered_list->table_filters = std::move(filterstmp);
 	filtered_list->names = names;
+
+	// Copy over the snapshot, this avoids reparsing metadata
+	{
+		unique_lock<mutex> lck(lock);
+		filtered_list->snapshot = snapshot;
+	}
+
+	auto &profiler = QueryProfiler::Get(context);
+
+	// Note: this is potentially quite expensive: we are creating 2 scans of the snapshot and fully materializing both
+	// file lists Therefore this is only done when profile is enabled. This is enable by default in debug mode or for
+	// EXPLAIN ANALYZE queries
+	// TODO: check locking behaviour below
+	if (profiler.IsEnabled()) {
+		Value result;
+		if (!context.TryGetCurrentSetting("delta_scan_explain_files_filtered", result)) {
+			throw InternalException("Failed to find 'delta_scan_explain_files_filtered' option!");
+		} else if (result.GetValue<bool>()) {
+			auto old_total = GetTotalFileCount();
+			auto new_total = filtered_list->GetTotalFileCount();
+
+			if (old_total != new_total) {
+				string filters_info;
+				bool first_item = true;
+				for (auto &f : filtered_list->table_filters.filters) {
+					auto &column_index = f.first;
+					auto &filter = f.second;
+					if (column_index < names.size()) {
+						if (!first_item) {
+							filters_info += "\n";
+						}
+						first_item = false;
+						auto &col_name = names[column_index];
+						filters_info += filter->ToString(col_name);
+					}
+				}
+
+				info.extra_info.file_filters = filters_info;
+			}
+
+			if (!info.extra_info.total_files.IsValid()) {
+				info.extra_info.total_files = old_total;
+			} else if (info.extra_info.total_files.GetIndex() < old_total) {
+				throw InternalException(
+				    "Error encountered when analyzing filtered out files for delta scan: total_files inconsistent!");
+			}
+
+			if (!info.extra_info.filtered_files.IsValid() || info.extra_info.filtered_files.GetIndex() >= new_total) {
+				info.extra_info.filtered_files = new_total;
+			} else {
+				throw InternalException(
+				    "Error encountered when analyzing filtered out files for delta scan: filtered_files inconsistent!");
+			}
+		}
+	}
 
 	return std::move(filtered_list);
 }
 
 vector<string> DeltaSnapshot::GetAllFiles() {
+	unique_lock<mutex> lck(lock);
 	idx_t i = resolved_files.size();
 	// TODO: this can probably be improved
-	while (!GetFile(i).empty()) {
+	while (!GetFileInternal(i).empty()) {
 		i++;
 	}
 	return resolved_files;
 }
 
 FileExpandResult DeltaSnapshot::GetExpandResult() {
-	// GetFile(1) will ensure at least the first 2 files are expanded if they are available
-	GetFile(1);
-
-	if (resolved_files.size() > 1) {
-		return FileExpandResult::MULTIPLE_FILES;
-	} else if (resolved_files.size() == 1) {
-		return FileExpandResult::SINGLE_FILE;
-	}
-
-	return FileExpandResult::NO_FILES;
+	// We avoid exposing the ExpandResult to DuckDB here because we want to materialize the Snapshot as late as
+	// possible: materializing too early (GetExpandResult is called *before* filter pushdown by the Parquet scanner),
+	// will lead into needing to create 2 scans of the snapshot TODO: we need to investigate if this is actually a
+	// sensible decision with some benchmarking, its currently based on intuition.
+	return FileExpandResult::MULTIPLE_FILES;
 }
 
 idx_t DeltaSnapshot::GetTotalFileCount() {
-	// TODO: this can probably be improved
+	unique_lock<mutex> lck(lock);
 	idx_t i = resolved_files.size();
-	while (!GetFile(i).empty()) {
+	while (!GetFileInternal(i).empty()) {
 		i++;
 	}
 	return resolved_files.size();
@@ -533,6 +624,9 @@ idx_t DeltaSnapshot::GetTotalFileCount() {
 unique_ptr<NodeStatistics> DeltaSnapshot::GetCardinality(ClientContext &context) {
 	// This also ensures all files are expanded
 	auto total_file_count = DeltaSnapshot::GetTotalFileCount();
+
+	// TODO: internalize above
+	unique_lock<mutex> lck(lock);
 
 	if (total_file_count == 0) {
 		return make_uniq<NodeStatistics>(0, 0);
@@ -554,8 +648,24 @@ unique_ptr<NodeStatistics> DeltaSnapshot::GetCardinality(ClientContext &context)
 	return nullptr;
 }
 
-unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance() {
-	return std::move(make_uniq<DeltaMultiFileReader>());
+idx_t DeltaSnapshot::GetVersion() {
+	unique_lock<mutex> lck(lock);
+	return version;
+}
+
+DeltaFileMetaData &DeltaSnapshot::GetMetaData(idx_t index) const {
+	unique_lock<mutex> lck(lock);
+	return *metadata[index];
+}
+
+unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {
+	auto result = make_uniq<DeltaMultiFileReader>();
+
+	if (table_function.function_info) {
+		result->snapshot = table_function.function_info->Cast<DeltaFunctionInfo>().snapshot;
+	}
+
+	return std::move(result);
 }
 
 bool DeltaMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &files,
@@ -602,9 +712,9 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_options,
                                         const MultiFileReaderBindData &options, const string &filename,
                                         const vector<string> &local_names, const vector<LogicalType> &global_types,
-                                        const vector<string> &global_names, const vector<column_t> &global_column_ids,
-                                        MultiFileReaderData &reader_data, ClientContext &context,
-                                        optional_ptr<MultiFileReaderGlobalState> global_state) {
+                                        const vector<string> &global_names,
+                                        const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
+                                        ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
 	MultiFileReader::FinalizeBind(file_options, options, filename, local_names, global_types, global_names,
 	                              global_column_ids, reader_data, context, global_state);
 
@@ -626,16 +736,16 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
 	// Get the metadata for this file
 	D_ASSERT(global_state->file_list);
 	const auto &snapshot = dynamic_cast<const DeltaSnapshot &>(*global_state->file_list);
-	auto &file_metadata = snapshot.metadata[reader_data.file_list_idx.GetIndex()];
+	auto &file_metadata = snapshot.GetMetaData(reader_data.file_list_idx.GetIndex());
 
-	if (!file_metadata->partition_map.empty()) {
+	if (!file_metadata.partition_map.empty()) {
 		for (idx_t i = 0; i < global_column_ids.size(); i++) {
-			column_t col_id = global_column_ids[i];
+			column_t col_id = global_column_ids[i].GetPrimaryIndex();
 			if (IsRowIdColumnId(col_id)) {
 				continue;
 			}
-			auto col_partition_entry = file_metadata->partition_map.find(global_names[col_id]);
-			if (col_partition_entry != file_metadata->partition_map.end()) {
+			auto col_partition_entry = file_metadata.partition_map.find(global_names[col_id]);
+			if (col_partition_entry != file_metadata.partition_map.end()) {
 				auto &current_type = global_types[col_id];
 				if (current_type == LogicalType::BLOB) {
 					reader_data.constant_map.emplace_back(i, Value::BLOB_RAW(col_partition_entry->second));
@@ -648,10 +758,18 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
 	}
 }
 
-unique_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
+shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
                                                                FileGlobOptions options) {
 	if (paths.size() != 1) {
 		throw BinderException("'delta_scan' only supports single path as input");
+	}
+
+	if (snapshot) {
+		// TODO: assert that we are querying the same path as this injected snapshot
+		// This takes the kernel snapshot from the delta snapshot and ensures we use that snapshot for reading
+		if (snapshot) {
+			return snapshot;
+		}
 	}
 
 	return make_uniq<DeltaSnapshot>(context, paths[0]);
@@ -672,7 +790,6 @@ static SelectionVector DuckSVFromDeltaSV(const ffi::KernelBoolSlice &dv, Vector 
 	for (idx_t i = 0; i < count; i++) {
 		auto row_id = row_ids[data.sel->get_index(i)];
 
-		// TODO: why are deletion vectors not spanning whole data?
 		if (row_id >= dv.len || dv.ptr[row_id]) {
 			result.data()[current_select] = i;
 			current_select++;
@@ -700,14 +817,14 @@ unique_ptr<MultiFileReaderGlobalState> DeltaMultiFileReader::InitializeGlobalSta
     duckdb::ClientContext &context, const duckdb::MultiFileReaderOptions &file_options,
     const duckdb::MultiFileReaderBindData &bind_data, const duckdb::MultiFileList &file_list,
     const vector<duckdb::LogicalType> &global_types, const vector<std::string> &global_names,
-    const vector<duckdb::column_t> &global_column_ids) {
+    const vector<ColumnIndex> &global_column_ids) {
 	vector<LogicalType> extra_columns;
 	vector<pair<string, idx_t>> mapped_columns;
 
 	// Create a map of the columns that are in the projection
 	case_insensitive_map_t<idx_t> selected_columns;
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
-		auto global_id = global_column_ids[i];
+		auto global_id = global_column_ids[i].GetPrimaryIndex();
 		if (IsRowIdColumnId(global_id)) {
 			continue;
 		}
@@ -766,7 +883,7 @@ unique_ptr<MultiFileReaderGlobalState> DeltaMultiFileReader::InitializeGlobalSta
 // in the parquet files, we just add null constant columns
 static void CustomMulfiFileNameMapping(const string &file_name, const vector<LogicalType> &local_types,
                                        const vector<string> &local_names, const vector<LogicalType> &global_types,
-                                       const vector<string> &global_names, const vector<column_t> &global_column_ids,
+                                       const vector<string> &global_names, const vector<ColumnIndex> &global_column_ids,
                                        MultiFileReaderData &reader_data, const string &initial_file,
                                        optional_ptr<MultiFileReaderGlobalState> global_state) {
 	D_ASSERT(global_types.size() == global_names.size());
@@ -790,7 +907,7 @@ static void CustomMulfiFileNameMapping(const string &file_name, const vector<Log
 			continue;
 		}
 		// not constant - look up the column in the name map
-		auto global_id = global_column_ids[i];
+		auto global_id = global_column_ids[i].GetPrimaryIndex();
 		if (global_id >= global_types.size()) {
 			throw InternalException(
 			    "MultiFileReader::CreatePositionalMapping - global_id is out of range in global_types for this file");
@@ -831,7 +948,7 @@ static void CustomMulfiFileNameMapping(const string &file_name, const vector<Log
 void DeltaMultiFileReader::CreateNameMapping(const string &file_name, const vector<LogicalType> &local_types,
                                              const vector<string> &local_names, const vector<LogicalType> &global_types,
                                              const vector<string> &global_names,
-                                             const vector<column_t> &global_column_ids,
+                                             const vector<ColumnIndex> &global_column_ids,
                                              MultiFileReaderData &reader_data, const string &initial_file,
                                              optional_ptr<MultiFileReaderGlobalState> global_state) {
 	// First call the base implementation to do most mapping
@@ -879,15 +996,15 @@ void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFile
 
 	// Get the metadata for this file
 	const auto &snapshot = dynamic_cast<const DeltaSnapshot &>(*global_state->file_list);
-	auto &metadata = snapshot.metadata[reader_data.file_list_idx.GetIndex()];
+	auto &metadata = snapshot.GetMetaData(reader_data.file_list_idx.GetIndex());
 
-	if (metadata->selection_vector.ptr && chunk.size() != 0) {
+	if (metadata.selection_vector.ptr && chunk.size() != 0) {
 		D_ASSERT(delta_global_state.file_row_number_idx != DConstants::INVALID_INDEX);
 		auto &file_row_number_column = chunk.data[delta_global_state.file_row_number_idx];
 
 		// Construct the selection vector using the file_row_number column and the raw selection vector from delta
 		idx_t select_count;
-		auto sv = DuckSVFromDeltaSV(metadata->selection_vector, file_row_number_column, chunk.size(), select_count);
+		auto sv = DuckSVFromDeltaSV(metadata.selection_vector, file_row_number_column, chunk.size(), select_count);
 		chunk.Slice(sv, select_count);
 	}
 
@@ -931,11 +1048,17 @@ bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, Mult
 
 	return MultiFileReader::ParseOption(key, val, options, context);
 }
-//
-// DeltaMultiFileReaderBindData::DeltaMultiFileReaderBindData(DeltaSnapshot & delta_snapshot):
-// current_snapshot(delta_snapshot){
-//
-//}
+
+static InsertionOrderPreservingMap<string> DeltaFunctionToString(TableFunctionToStringInput &input) {
+	InsertionOrderPreservingMap<string> result;
+
+	if (input.table_function.function_info) {
+		auto &table_info = input.table_function.function_info->Cast<DeltaFunctionInfo>();
+		result["Table"] = table_info.table_name;
+	}
+
+	return result;
+}
 
 TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance) {
 	// Parquet extension needs to be loaded for this to make sense
@@ -957,6 +1080,8 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance
 		function.statistics = nullptr;
 		function.table_scan_progress = nullptr;
 		function.get_bind_info = nullptr;
+
+		function.to_string = DeltaFunctionToString;
 
 		// Schema param is just confusing here
 		function.named_parameters.erase("schema");
