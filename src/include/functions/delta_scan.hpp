@@ -141,21 +141,21 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	void BindOptions(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
-	void CreateNameMapping(const string &file_name, const vector<LogicalType> &local_types,
-	                       const vector<string> &local_names, const vector<LogicalType> &global_types,
-	                       const vector<string> &global_names, const vector<ColumnIndex> &global_column_ids,
-	                       MultiFileReaderData &reader_data, const string &initial_file,
-	                       optional_ptr<MultiFileReaderGlobalState> global_state) override;
+	void CreateColumnMapping(const string &file_name, const vector<MultiFileReaderColumnDefinition> &local_columns,
+	                         const vector<MultiFileReaderColumnDefinition> &global_columns,
+	                         const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
+	                         const MultiFileReaderBindData &bind_data, const string &initial_file,
+	                         optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	unique_ptr<MultiFileReaderGlobalState>
 	InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
 	                      const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
-	                      const vector<LogicalType> &global_types, const vector<string> &global_names,
+	                      const vector<MultiFileReaderColumnDefinition> &global_columns,
 	                      const vector<ColumnIndex> &global_column_ids) override;
 
 	void FinalizeBind(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
-	                  const string &filename, const vector<string> &local_names,
-	                  const vector<LogicalType> &global_types, const vector<string> &global_names,
+	                  const string &filename, const vector<MultiFileReaderColumnDefinition> &local_columns,
+	                  const vector<MultiFileReaderColumnDefinition> &global_columns,
 	                  const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
 	                  ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
