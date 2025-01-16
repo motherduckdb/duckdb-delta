@@ -638,9 +638,9 @@ uintptr_t PredicateVisitor::VisitFilter(const string &col_name, const TableFilte
 void LoggerCallback::Initialize(DatabaseInstance &db_p) {
 	auto &instance = GetInstance();
 	unique_lock<mutex> lck(instance.lock);
-    if (instance.db.expired()) {
-        instance.db = db_p.shared_from_this();
-    }
+	if (instance.db.expired()) {
+		instance.db = db_p.shared_from_this();
+	}
 }
 
 void LoggerCallback::CallbackEvent(ffi::Event event) {
