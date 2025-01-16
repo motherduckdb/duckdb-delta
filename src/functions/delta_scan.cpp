@@ -772,7 +772,7 @@ shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &co
 		}
 	}
 
-	return make_uniq<DeltaSnapshot>(context, paths[0]);
+	return make_shared_ptr<DeltaSnapshot>(context, paths[0]);
 }
 
 // Generate the correct Selection Vector Based on the Raw delta KernelBoolSlice dv and the row_id_column
