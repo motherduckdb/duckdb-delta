@@ -95,7 +95,7 @@ void DeltaSchemaEntry::Alter(CatalogTransaction transaction, AlterInfo &info) {
 	throw NotImplementedException("Delta tables do not support altering");
 }
 
-bool CatalogTypeIsSupported(CatalogType type) {
+static bool CatalogTypeIsSupported(CatalogType type) {
 	switch (type) {
 	case CatalogType::TABLE_ENTRY:
 		return true;
