@@ -13,7 +13,6 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
-#include "../../duckdb/third_party/catch/catch.hpp"
 #include "functions/delta_scan.hpp"
 
 #include <functional>
