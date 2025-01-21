@@ -643,24 +643,25 @@ void LoggerCallback::Initialize(DatabaseInstance &db_p) {
 	}
 }
 
+static string ConvertLogMessage(ffi::Event event) {
+    auto log_type = KernelUtils::FromDeltaString(event.target);
+    auto message = KernelUtils::FromDeltaString(event.message);
+    auto file = KernelUtils::FromDeltaString(event.file);
+    string constructed_log_message;
+    if (!file.empty()) {
+        constructed_log_message = StringUtil::Format("[%s] %s@%u : %s ", log_type, file, event.line, message);
+    } else {
+        constructed_log_message = message;
+    }
+
+    return constructed_log_message;
+}
 void LoggerCallback::CallbackEvent(ffi::Event event) {
 	auto &instance = GetInstance();
 	auto db_locked = instance.db.lock();
 	if (db_locked) {
 		auto transformed_log_level = GetDuckDBLogLevel(event.level);
-		string constructed_log_message;
-		Logger::Log("delta.Kernel", *db_locked, transformed_log_level, [&]() {
-			auto log_type = KernelUtils::FromDeltaString(event.target);
-			auto message = KernelUtils::FromDeltaString(event.message);
-			auto file = KernelUtils::FromDeltaString(event.file);
-			if (!file.empty()) {
-				constructed_log_message = StringUtil::Format("[%s] %s@%u : %s ", log_type, file, event.line, message);
-			} else {
-				constructed_log_message = message;
-			}
-
-			return constructed_log_message.c_str();
-		});
+		DUCKDB_LOG( *db_locked, "delta.Kernel", transformed_log_level, ConvertLogMessage(event));
 	}
 }
 
