@@ -531,7 +531,7 @@ void DeltaSnapshot::InitializeScan() {
         KernelPartitionVisitorData data;
         while(string_slice_next(string_slice_iterator, &data, KernelPartitionStringVisitor)) {
         }
-
+        partitions = data.partitions;
     }
 	initialized_scan = true;
 }
@@ -680,6 +680,15 @@ DeltaFileMetaData &DeltaSnapshot::GetMetaData(idx_t index) const {
 
 vector<string> DeltaSnapshot::GetPartitionColumns() {
     unique_lock<mutex> lck(lock);
+
+    if (!initialized_snapshot) {
+        InitializeSnapshot();
+    }
+
+    if (!initialized_scan) {
+        InitializeScan();
+    }
+
     return partitions;
 }
 

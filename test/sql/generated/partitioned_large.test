@@ -9,13 +9,19 @@ require delta
 require-env GENERATED_DATA_AVAILABLE
 
 statement ok
-CREATE VIEW t AS SELECT part, sum(i)
+CREATE VIEW t AS SELECT part::INT as part, sum(i) as value
                  FROM delta_scan('./data/generated/simple_partitioned_large/delta_lake', delta_file_number=1)
                  GROUP BY part
+                 ORDER BY part
+
+query II
+EXPLAIN FROM t
+----
+physical_plan	<REGEX>:.*PARTITIONED_AGGREGATE.*
 
 # With a projection and delta constant column
 query II
-FROM t ORDER BY part
+FROM t
 ----
 0	24999500000
 1	24999550000
