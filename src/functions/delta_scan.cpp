@@ -497,6 +497,16 @@ void DeltaSnapshot::InitializeSnapshot() {
 	initialized_snapshot = true;
 }
 
+struct KernelPartitionVisitorData {
+    vector<string> partitions;
+    ErrorData err_data;
+};
+
+static void KernelPartitionStringVisitor(ffi::NullableCvoid engine_context, ffi::KernelStringSlice slice) {
+    auto data = static_cast<KernelPartitionVisitorData *>(engine_context);
+    data->partitions.push_back(KernelUtils::FromDeltaString(slice));
+}
+
 void DeltaSnapshot::InitializeScan() {
 	auto snapshot_ref = snapshot->GetLockingRef();
 
@@ -513,6 +523,16 @@ void DeltaSnapshot::InitializeScan() {
 	// Create scan data iterator
 	scan_data_iterator = TryUnpackKernelResult(ffi::kernel_scan_data_init(extern_engine.get(), scan.get()));
 
+    // Load partitions
+    auto partition_count = ffi::get_partition_column_count(global_state.get());
+    if (partition_count > 0) {
+        auto string_slice_iterator = ffi::get_partition_columns(global_state.get());
+
+        KernelPartitionVisitorData data;
+        while(string_slice_next(string_slice_iterator, &data, KernelPartitionStringVisitor)) {
+        }
+
+    }
 	initialized_scan = true;
 }
 
@@ -658,6 +678,11 @@ DeltaFileMetaData &DeltaSnapshot::GetMetaData(idx_t index) const {
 	return *metadata[index];
 }
 
+vector<string> DeltaSnapshot::GetPartitionColumns() {
+    unique_lock<mutex> lck(lock);
+    return partitions;
+}
+
 unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {
 	auto result = make_uniq<DeltaMultiFileReader>();
 
@@ -700,11 +725,78 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 
 	MultiFileReader::BindOptions(options, files, return_types, names, bind_data);
 
+    // We abuse the hive_partitioning_indexes to forward partitioning information to DuckDB
+    // TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here
+    auto &snapshot = dynamic_cast<DeltaSnapshot &>(files);
+    auto partitions = snapshot.GetPartitionColumns();
+	for (auto &part : partitions) {
+		idx_t hive_partitioning_index;
+		auto lookup = std::find_if(names.begin(), names.end(), [&](const string &col_name) {
+			return StringUtil::CIEquals(col_name, part);
+		});
+		if (lookup != names.end()) {
+			// hive partitioning column also exists in file - override
+			auto idx = NumericCast<idx_t>(lookup - names.begin());
+			hive_partitioning_index = idx;
+			return_types[idx] = options.GetHiveLogicalType(part);
+		} else {
+			// hive partitioning column does not exist in file - add a new column containing the key
+			hive_partitioning_index = names.size();
+			return_types.emplace_back(options.GetHiveLogicalType(part));
+			names.emplace_back(part);
+		}
+		bind_data.hive_partitioning_indexes.emplace_back(part, hive_partitioning_index);
+	}
+
 	auto demo_gen_col_opt = options.custom_options.find("delta_file_number");
 	if (demo_gen_col_opt != options.custom_options.end()) {
 		if (demo_gen_col_opt->second.GetValue<bool>()) {
 			names.push_back("delta_file_number");
 			return_types.push_back(LogicalType::UBIGINT);
+		}
+	}
+}
+
+static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
+                                   const string &filename, const vector<MultiFileReaderColumnDefinition> &local_columns,
+                                   const vector<MultiFileReaderColumnDefinition> &global_columns,
+                                   const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
+                                   ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
+
+	// create a map of name -> column index
+	case_insensitive_map_t<idx_t> name_map;
+	if (file_options.union_by_name) {
+		for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
+			auto &column = local_columns[col_idx];
+			name_map[column.name] = col_idx;
+		}
+	}
+	for (idx_t i = 0; i < global_column_ids.size(); i++) {
+		auto &col_idx = global_column_ids[i];
+		if (col_idx.IsRowIdColumn()) {
+			// row-id
+			reader_data.constant_map.emplace_back(i, Value::BIGINT(42));
+			continue;
+		}
+		auto column_id = col_idx.GetPrimaryIndex();
+		if (column_id == options.filename_idx) {
+			// filename
+			reader_data.constant_map.emplace_back(i, Value(filename));
+			continue;
+		}
+		if (file_options.union_by_name) {
+			auto &column = global_columns[column_id];
+			auto &name = column.name;
+			auto &type = column.type;
+
+			auto entry = name_map.find(name);
+			bool not_present_in_file = entry == name_map.end();
+			if (not_present_in_file) {
+				// we need to project a column with name \"global_name\" - but it does not exist in the current file
+				// push a NULL value of the specified type
+				reader_data.constant_map.emplace_back(i, Value(type));
+				continue;
+			}
 		}
 	}
 }
@@ -715,7 +807,7 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
                                         const vector<MultiFileReaderColumnDefinition> &global_columns,
                                         const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
                                         ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
-	MultiFileReader::FinalizeBind(file_options, options, filename, local_columns, global_columns, global_column_ids,
+	FinalizeBindBaseOverride(file_options, options, filename, local_columns, global_columns, global_column_ids,
 	                              reader_data, context, global_state);
 
 	// Handle custom delta option set in MultiFileReaderOptions::custom_options

@@ -1,0 +1,39 @@
+# name: test/sql/generated/partitioned_large.test
+# description: test partitioning aware operators
+# group: [delta_generated]
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+statement ok
+CREATE VIEW t AS SELECT part, sum(i)
+                 FROM delta_scan('./data/generated/simple_partitioned_large/delta_lake', delta_file_number=1)
+                 GROUP BY part
+
+# With a projection and delta constant column
+query II
+FROM t ORDER BY part
+----
+0	24999500000
+1	24999550000
+2	24999600000
+3	24999650000
+4	24999700000
+5	24999750000
+6	24999800000
+7	24999850000
+8	24999900000
+9	24999950000
+10	25000000000
+11	25000050000
+12	25000100000
+13	25000150000
+14	25000200000
+15	25000250000
+16	25000300000
+17	25000350000
+18	25000400000
+19	25000450000

@@ -60,6 +60,7 @@ public:
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
 	idx_t GetVersion();
 	DeltaFileMetaData &GetMetaData(idx_t index) const;
+    vector<string> GetPartitionColumns();
 
 protected:
 	//! Get the i-th expanded file
@@ -94,6 +95,9 @@ protected:
 	KernelScan scan;
 	KernelGlobalScanState global_state;
 	KernelScanDataIterator scan_data_iterator;
+
+    vector<string> partitions;
+
 
 	//! Names
 	vector<string> names;
