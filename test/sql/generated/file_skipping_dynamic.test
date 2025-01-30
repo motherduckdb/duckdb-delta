@@ -1,0 +1,35 @@
+# name: test/sql/generated/file_skipping_dynamic.test
+# description: Test dynamic filter pushdown
+# group: [delta_generated]
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+statement ok
+set enable_logging=true;
+
+statement ok
+set delta_kernel_logging=true;
+
+statement ok
+set logging_level = 'TRACE';
+
+statement ok
+CREATE TABLE test AS SELECT 2 d;
+
+query III
+SELECT value1, value2, value3
+FROM delta_scan('./data/generated/test_file_skipping/int/delta_lake')
+WHERE value2 = (SELECT min(d) from test)
+----
+2	2	2
+
+mode output_result
+
+query I
+SELECT message from duckdb_logs where type = 'delta.DynamicFilterPushdown';
+----
+value2=2

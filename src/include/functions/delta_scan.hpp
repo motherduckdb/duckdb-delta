@@ -53,6 +53,14 @@ public:
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;
+
+    unique_ptr<MultiFileList>
+    DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options, const vector<string> &names,
+                          const vector<LogicalType> &types, const vector<column_t> &column_ids,
+                          TableFilterSet &filters) const override;
+
+    unique_ptr<DeltaSnapshot> PushdownInternal(ClientContext &context, TableFilterSet filters) const;
+
 	vector<string> GetAllFiles() override;
 	FileExpandResult GetExpandResult() override;
 	idx_t GetTotalFileCount() override;

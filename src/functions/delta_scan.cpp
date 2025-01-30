@@ -14,6 +14,7 @@
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/parser/parsed_expression.hpp"
+#include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/binder.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/main/query_profiler.hpp"
@@ -536,6 +537,20 @@ void DeltaSnapshot::InitializeScan() {
 	initialized_scan = true;
 }
 
+unique_ptr<DeltaSnapshot> DeltaSnapshot::PushdownInternal(ClientContext &context, TableFilterSet filters) const {
+    auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
+    filtered_list->table_filters = std::move(filters);
+    filtered_list->names = names;
+
+    // Copy over the snapshot, this avoids reparsing metadata
+    {
+        unique_lock<mutex> lck(lock);
+        filtered_list->snapshot = snapshot;
+    }
+
+    return filtered_list;
+}
+
 unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &context,
                                                                const MultiFileReaderOptions &options,
                                                                MultiFilePushdownInfo &info,
@@ -550,19 +565,9 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 		combiner.AddFilter(riter->get()->Copy());
 	}
 
-	auto filterstmp = combiner.GenerateTableScanFilters(info.column_indexes);
+    auto filtered_list = PushdownInternal(context, combiner.GenerateTableScanFilters(info.column_indexes));
 
-	auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
-	filtered_list->table_filters = std::move(filterstmp);
-	filtered_list->names = names;
-
-	// Copy over the snapshot, this avoids reparsing metadata
-	{
-		unique_lock<mutex> lck(lock);
-		filtered_list->snapshot = snapshot;
-	}
-
-	auto &profiler = QueryProfiler::Get(context);
+    auto &profiler = QueryProfiler::Get(context);
 
 	// Note: this is potentially quite expensive: we are creating 2 scans of the snapshot and fully materializing both
 	// file lists Therefore this is only done when profile is enabled. This is enable by default in debug mode or for
@@ -612,6 +617,55 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 	}
 
 	return std::move(filtered_list);
+}
+
+unique_ptr<MultiFileList>
+DeltaSnapshot::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+                                         const vector<string> &names, const vector<LogicalType> &types,
+                                         const vector<column_t> &column_ids, TableFilterSet &filters) const {
+    if (filters.filters.size() == 0) {
+        return nullptr;
+    }
+
+    // TODO: should we use column_ids? PROBABLY yet because test is failing
+
+    TableFilterSet filters_copy;
+    for (auto & filter : filters.filters) {
+        filters_copy.PushFilter(ColumnIndex(filter.first), filter.second->Copy());
+    }
+
+    auto new_snap = PushdownInternal(context, std::move(filters_copy));
+
+    DUCKDB_LOG_INFO(context, "delta.DynamicFilterPushdown", [&](){
+        // TODO: clean this mess
+        auto this_not_const = const_cast<DeltaSnapshot*>(this);
+
+        auto old_total = this_not_const->GetTotalFileCount();
+        auto new_total = new_snap->GetTotalFileCount();
+
+        if (old_total != new_total) {
+            string filters_info;
+            bool first_item = true;
+            for (auto &f : new_snap->table_filters.filters) {
+                auto &column_index = f.first;
+                auto &filter = f.second;
+                if (column_index < names.size()) {
+                    if (!first_item) {
+                        filters_info += ", ";
+                    }
+                    first_item = false;
+                    auto &col_name = names[column_index];
+                    filters_info += filter->ToString(col_name);
+                }
+            }
+
+            return filters_info;
+        }
+
+        return string();
+    }());
+
+    return std::move(new_snap);
 }
 
 vector<string> DeltaSnapshot::GetAllFiles() {
