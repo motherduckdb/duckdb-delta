@@ -647,7 +647,7 @@ DeltaSnapshot::DynamicFilterPushdown(ClientContext &context, const MultiFileRead
             string filters_info;
             bool first_item = true;
             for (auto &f : new_snap->table_filters.filters) {
-                auto &column_index = f.first;
+                auto &column_index = column_ids[f.first];
                 auto &filter = f.second;
                 if (column_index < names.size()) {
                     if (!first_item) {
