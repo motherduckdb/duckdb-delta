@@ -575,7 +575,7 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids, const char* pushdown_type, optional_ptr<MultiFilePushdownInfo> mfr_info) {
     auto &logger = Logger::Get(context);
     auto log_level = LogLevel::LOG_INFO;
-    auto delta_log_type = "delta.FilterPushdown";
+    auto delta_log_type = "delta.FileSkipping";
 
     // This function both reports the filter pushdown to the explain output (regular pushdown only) and the logger (both regular and dynamic)
     bool should_log = logger.ShouldLog(delta_log_type, log_level);
@@ -637,8 +637,8 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
         struct_fields.push_back({"type", Value(pushdown_type)});
         struct_fields.push_back({"filters", filters_value});
         if (new_total != DConstants::INVALID_INDEX) {
-            struct_fields.push_back({"scanned_files", Value::BIGINT(new_total)});
-            struct_fields.push_back({"total_files", Value::BIGINT(old_total)});
+            struct_fields.push_back({"files_before_filter", Value::BIGINT(old_total)});
+            struct_fields.push_back({"files_after_filter", Value::BIGINT(new_total)});
         }
         auto struct_value = Value::STRUCT(struct_fields);
         logger.WriteLog(delta_log_type, log_level, struct_value.ToString());

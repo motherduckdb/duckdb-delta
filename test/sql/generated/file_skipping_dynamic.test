@@ -12,10 +12,7 @@ statement ok
 set enable_logging=true;
 
 statement ok
-set logging_level = 'TRACE';
-
-statement ok
-CREATE TABLE test AS SELECT 102 d;
+set logging_level = 'INFO';
 
 ### First we try regular pushdown
 query IIII
@@ -28,9 +25,9 @@ WHERE v2=102 and value3=1002
 query II
 SELECT type, message
 FROM duckdb_logs
-WHERE type = 'delta.FilterPushdown'
+WHERE type = 'delta.FileSkipping'
 ----
-delta.FilterPushdown	{'type': regular, 'filters': [value2=102, value3=1002], 'scanned_files': 1, 'total_files': 5}
+delta.FileSkipping	{'type': regular, 'filters': [value2=102, value3=1002], 'files_before_filter': 5, 'files_after_filter': 1}
 
 # Clear logging storage
 statement ok
@@ -47,9 +44,9 @@ WHERE value3 = 1002
 query II
 SELECT type, message
 FROM duckdb_logs
-WHERE type = 'delta.FilterPushdown'
+WHERE type = 'delta.FileSkipping'
 ----
-delta.FilterPushdown	{'type': regular, 'filters': [value3=1002], 'scanned_files': 1, 'total_files': 5}
+delta.FileSkipping	{'type': regular, 'filters': [value3=1002], 'files_before_filter': 5, 'files_after_filter': 1}
 
 # Clear logging storage
 statement ok
@@ -59,16 +56,16 @@ set enable_logging=false;set logging_storage='stdout';set logging_storage='memor
 query IIII
 SELECT value1, value3, value2 as v2, part
 FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
-WHERE v2 = (SELECT min(d) from test)
+WHERE v2 = (SELECT 102)
 ----
 12	1002	102	2
 
 query II
 SELECT type, message
 FROM duckdb_logs
-WHERE type = 'delta.FilterPushdown'
+WHERE type = 'delta.FileSkipping'
 ----
-delta.FilterPushdown	{'type': dynamic, 'filters': [value2=102], 'scanned_files': 1, 'total_files': 5}
+delta.FileSkipping	{'type': dynamic, 'filters': [value2=102], 'files_before_filter': 5, 'files_after_filter': 1}
 
 # Clear logging storage
 statement ok
@@ -85,9 +82,9 @@ WHERE value1 = (SELECT 13)
 query II
 SELECT type, message
 FROM duckdb_logs
-WHERE type = 'delta.FilterPushdown'
+WHERE type = 'delta.FileSkipping'
 ----
-delta.FilterPushdown	{'type': dynamic, 'filters': [value1=13], 'scanned_files': 1, 'total_files': 5}
+delta.FileSkipping	{'type': dynamic, 'filters': [value1=13], 'files_before_filter': 5, 'files_after_filter': 1}
 
 # Clear logging storage
 statement ok
@@ -105,15 +102,58 @@ WHERE part = (SELECT 2)
 query II
 SELECT type, message
 FROM duckdb_logs
-WHERE type = 'delta.FilterPushdown'
+WHERE type = 'delta.FileSkipping'
 ----
 
 # Clear logging storage
 statement ok
 set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
 
-# Finally, we control the output of the filtered files by changing the delta_scan_explain_files_filtered setting
+# Now let's get funky: a dynamic join filter plus a regular filter
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE
+    value1=13 AND v2=(select 103)
+----
+13	1003	103	3
 
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FileSkipping'
+ORDER BY timestamp
+----
+delta.FileSkipping	{'type': regular, 'filters': [value1=13], 'files_before_filter': 5, 'files_after_filter': 1}
+delta.FileSkipping	{'type': dynamic, 'filters': [value2=103], 'files_before_filter': 1, 'files_after_filter': 1}
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Slightly weird case here: pushing down an identical dynamic filter and regular filter will make it show up twice with the second doing nothing
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE
+    value1=13 AND value1=(select 13)
+----
+13	1003	103	3
+
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FileSkipping'
+ORDER BY timestamp
+----
+delta.FileSkipping	{'type': regular, 'filters': [value1=13], 'files_before_filter': 5, 'files_after_filter': 1}
+delta.FileSkipping	{'type': dynamic, 'filters': [value1=13 AND value1=13], 'files_before_filter': 1, 'files_after_filter': 1}
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Now we control the output of the filtered files by changing the delta_scan_explain_files_filtered setting
 statement ok
 set delta_scan_explain_files_filtered=false
 
@@ -135,8 +175,8 @@ WHERE value1 = 12
 query II
 SELECT type, message
 FROM duckdb_logs
-WHERE type = 'delta.FilterPushdown'
-ORDER BY message
+WHERE type = 'delta.FileSkipping'
+ORDER BY timestamp
 ----
-delta.FilterPushdown	{'type': dynamic, 'filters': [value1=12]}
-delta.FilterPushdown	{'type': regular, 'filters': [value1=12]}
+delta.FileSkipping	{'type': dynamic, 'filters': [value1=12]}
+delta.FileSkipping	{'type': regular, 'filters': [value1=12]}
