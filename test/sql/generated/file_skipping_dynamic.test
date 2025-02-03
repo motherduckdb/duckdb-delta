@@ -12,22 +12,131 @@ statement ok
 set enable_logging=true;
 
 statement ok
-set delta_kernel_logging=true;
-
-statement ok
 set logging_level = 'TRACE';
 
 statement ok
-CREATE TABLE test AS SELECT 2 d;
+CREATE TABLE test AS SELECT 102 d;
 
-query III
-SELECT value1, value3, value2 as v2,
-FROM delta_scan('./data/generated/test_file_skipping/int/delta_lake')
+### First we try regular pushdown
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE v2=102 and value3=1002
+----
+12	1002	102	2
+
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FilterPushdown'
+----
+delta.FilterPushdown	{'type': regular, 'filters': [value2=102, value3=1002], 'scanned_files': 1, 'total_files': 5}
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Try other column
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value3 = 1002
+----
+12	1002	102	2
+
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FilterPushdown'
+----
+delta.FilterPushdown	{'type': regular, 'filters': [value3=1002], 'scanned_files': 1, 'total_files': 5}
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+### Now we try dynamic pushdown
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
 WHERE v2 = (SELECT min(d) from test)
 ----
-2	2	2
+12	1002	102	2
 
-query I
-SELECT message from duckdb_logs where type = 'delta.DynamicFilterPushdown';
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FilterPushdown'
 ----
-value2=2
+delta.FilterPushdown	{'type': dynamic, 'filters': [value2=102], 'scanned_files': 1, 'total_files': 5}
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Dynamic pushdown, other column
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value1 = (SELECT 13)
+----
+13	1003	103	3
+
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FilterPushdown'
+----
+delta.FilterPushdown	{'type': dynamic, 'filters': [value1=13], 'scanned_files': 1, 'total_files': 5}
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+### Try partition column
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE part = (SELECT 2)
+----
+12	1002	102	2
+
+# FIXME: the above query does not yet support pushdown because kernel can't do pushdown on partition columns
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FilterPushdown'
+----
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Finally, we control the output of the filtered files by changing the delta_scan_explain_files_filtered setting
+
+statement ok
+set delta_scan_explain_files_filtered=false
+
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value1 = (SELECT 12)
+----
+12	1002	102	2
+
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value1 = 12
+----
+12	1002	102	2
+
+# Now there should be 2 entries without the files filtered in the output
+query II
+SELECT type, message
+FROM duckdb_logs
+WHERE type = 'delta.FilterPushdown'
+ORDER BY message
+----
+delta.FilterPushdown	{'type': dynamic, 'filters': [value1=12]}
+delta.FilterPushdown	{'type': regular, 'filters': [value1=12]}

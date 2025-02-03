@@ -79,6 +79,8 @@ protected:
 	void InitializeSnapshot();
 	void InitializeScan();
 
+    void ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids, const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info);
+
 	template <class T>
 	T TryUnpackKernelResult(ffi::ExternResult<T> result) {
 		return KernelUtils::UnpackResult<T>(

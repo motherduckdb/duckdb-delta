@@ -187,6 +187,11 @@ for type in ["bool", "int", "tinyint", "smallint", "bigint", "float", "double", 
     query = f"CREATE table test_table as select i::{type} as value1, (i)::{type} as value2, (i)::{type} as value3, i::{type} as part from range(0,5) tbl(i)"
     generate_test_data_delta_rs(f"test_file_skipping/{type}", query, "part")
 
+## Partitioned table with all types we can file skip on
+for type in ["int"]:
+    query = f"CREATE table test_table as select i::{type}+10 as value1, (i)::{type}+100 as value2, (i)::{type}+1000 as value3, i::{type} as part from range(0,5) tbl(i)"
+    generate_test_data_delta_rs(f"test_file_skipping_2/{type}", query, "part")
+
 ## Simple table with deletion vector
 con = duckdb.connect()
 con.query(f"COPY (SELECT i as id, ('val' || i::VARCHAR) as value  FROM range(0,1000000) tbl(i))TO '{TMP_PATH}/simple_sf1_with_dv.parquet'")

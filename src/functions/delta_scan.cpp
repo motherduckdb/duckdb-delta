@@ -567,105 +567,111 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 
     auto filtered_list = PushdownInternal(context, combiner.GenerateTableScanFilters(info.column_indexes));
 
-    auto &profiler = QueryProfiler::Get(context);
-
-	// Note: this is potentially quite expensive: we are creating 2 scans of the snapshot and fully materializing both
-	// file lists Therefore this is only done when profile is enabled. This is enable by default in debug mode or for
-	// EXPLAIN ANALYZE queries
-	// TODO: check locking behaviour below
-	if (profiler.IsEnabled()) {
-		Value result;
-		if (!context.TryGetCurrentSetting("delta_scan_explain_files_filtered", result)) {
-			throw InternalException("Failed to find 'delta_scan_explain_files_filtered' option!");
-		} else if (result.GetValue<bool>()) {
-			auto old_total = GetTotalFileCount();
-			auto new_total = filtered_list->GetTotalFileCount();
-
-			if (old_total != new_total) {
-				string filters_info;
-				bool first_item = true;
-				for (auto &f : filtered_list->table_filters.filters) {
-					auto &column_index = f.first;
-					auto &filter = f.second;
-					if (column_index < names.size()) {
-						if (!first_item) {
-							filters_info += "\n";
-						}
-						first_item = false;
-						auto &col_name = names[column_index];
-						filters_info += filter->ToString(col_name);
-					}
-				}
-
-				info.extra_info.file_filters = filters_info;
-			}
-
-			if (!info.extra_info.total_files.IsValid()) {
-				info.extra_info.total_files = old_total;
-			} else if (info.extra_info.total_files.GetIndex() < old_total) {
-				throw InternalException(
-				    "Error encountered when analyzing filtered out files for delta scan: total_files inconsistent!");
-			}
-
-			if (!info.extra_info.filtered_files.IsValid() || info.extra_info.filtered_files.GetIndex() >= new_total) {
-				info.extra_info.filtered_files = new_total;
-			} else {
-				throw InternalException(
-				    "Error encountered when analyzing filtered out files for delta scan: filtered_files inconsistent!");
-			}
-		}
-	}
+    ReportFilterPushdown(context, *filtered_list, info.column_ids, "regular", info);
 
 	return std::move(filtered_list);
+}
+
+void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids, const char* pushdown_type, optional_ptr<MultiFilePushdownInfo> mfr_info) {
+    auto &logger = Logger::Get(context);
+    auto log_level = LogLevel::LOG_INFO;
+    auto delta_log_type = "delta.FilterPushdown";
+
+    // This function both reports the filter pushdown to the explain output (regular pushdown only) and the logger (both regular and dynamic)
+    bool should_log = logger.ShouldLog(delta_log_type, log_level);
+    bool should_report_explain_output = mfr_info != nullptr &&  QueryProfiler::Get(context).IsEnabled();
+
+    // We should neither log, nor report explain output: we're done here!
+    if (!should_report_explain_output && !should_log) {
+        return;
+    }
+
+    Value result;
+    if (!context.TryGetCurrentSetting("delta_scan_explain_files_filtered", result)) {
+        throw InternalException("Failed to find 'delta_scan_explain_files_filtered' option!");
+    }
+    bool delta_scan_explain_files_filtered = result.GetValue<bool>();
+
+    // Report the filter counts
+    idx_t old_total = DConstants::INVALID_INDEX;
+    idx_t new_total = DConstants::INVALID_INDEX;
+    if (delta_scan_explain_files_filtered) {
+        old_total = GetTotalFileCount();
+        new_total = new_list.GetTotalFileCount();
+
+        if (mfr_info) {
+            if (!mfr_info->extra_info.total_files.IsValid()) {
+                mfr_info->extra_info.total_files = old_total;
+            } else if (mfr_info->extra_info.total_files.GetIndex() != old_total) {
+                throw InternalException(
+                    "Error encountered when analyzing filtered out files for delta scan: total_files inconsistent!");
+            }
+
+            if (!mfr_info->extra_info.filtered_files.IsValid() || mfr_info->extra_info.filtered_files.GetIndex() >= new_total) {
+                mfr_info->extra_info.filtered_files = new_total;
+            } else {
+                throw InternalException(
+                    "Error encountered when analyzing filtered out files for delta scan: filtered_files inconsistent!");
+            }
+        }
+    }
+
+    // Report the filters
+    vector<Value> filters_value_list;
+    for (auto &f : new_list.table_filters.filters) {
+        auto &column_index = f.first;
+        auto &filter = f.second;
+        if (column_index < names.size()) {
+            auto &col_name = names[column_index];
+            filters_value_list.push_back(filter->ToString(col_name));
+        }
+    }
+    auto filters_value = Value::LIST(LogicalType::VARCHAR, filters_value_list);
+
+    if (should_report_explain_output) {
+        mfr_info->extra_info.file_filters = filters_value.ToString();
+    }
+
+    if (should_log) {
+        child_list_t<Value> struct_fields;
+        struct_fields.push_back({"type", Value(pushdown_type)});
+        struct_fields.push_back({"filters", filters_value});
+        if (new_total != DConstants::INVALID_INDEX) {
+            struct_fields.push_back({"scanned_files", Value::BIGINT(new_total)});
+            struct_fields.push_back({"total_files", Value::BIGINT(old_total)});
+        }
+        auto struct_value = Value::STRUCT(struct_fields);
+        logger.WriteLog(delta_log_type, log_level, struct_value.ToString());
+    }
 }
 
 unique_ptr<MultiFileList>
 DeltaSnapshot::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
                                          const vector<string> &names, const vector<LogicalType> &types,
                                          const vector<column_t> &column_ids, TableFilterSet &filters) const {
-    if (filters.filters.size() == 0) {
+    if (filters.filters.empty()) {
         return nullptr;
     }
 
-    // TODO: should we use column_ids? PROBABLY yet because test is failing
-
     TableFilterSet filters_copy;
     for (auto & filter : filters.filters) {
-        filters_copy.PushFilter(ColumnIndex(filter.first), filter.second->Copy());
+        auto column_id = column_ids[filter.first];
+        auto previously_pushed_down_filter = this->table_filters.filters.find(column_id);
+        if (previously_pushed_down_filter != filters.filters.end() && filter.second->Equals(*previously_pushed_down_filter->second)) {
+            // Skip filters that we already have pushed down
+            continue;
+        }
+        filters_copy.PushFilter(ColumnIndex(column_id), filter.second->Copy());
     }
 
-    auto new_snap = PushdownInternal(context, std::move(filters_copy));
-
-    DUCKDB_LOG_INFO(context, "delta.DynamicFilterPushdown", [&](){
+    if (!filters_copy.filters.empty()) {
+        auto new_snap = PushdownInternal(context, std::move(filters_copy));
         // TODO: clean this mess
-        auto this_not_const = const_cast<DeltaSnapshot*>(this);
+        const_cast<DeltaSnapshot*>(this)->ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
+        return std::move(new_snap);
+    }
 
-        auto old_total = this_not_const->GetTotalFileCount();
-        auto new_total = new_snap->GetTotalFileCount();
-
-        if (old_total != new_total) {
-            string filters_info;
-            bool first_item = true;
-            for (auto &f : new_snap->table_filters.filters) {
-                auto &column_index = column_ids[f.first];
-                auto &filter = f.second;
-                if (column_index < names.size()) {
-                    if (!first_item) {
-                        filters_info += ", ";
-                    }
-                    first_item = false;
-                    auto &col_name = names[column_index];
-                    filters_info += filter->ToString(col_name);
-                }
-            }
-
-            return filters_info;
-        }
-
-        return string();
-    }());
-
-    return std::move(new_snap);
+    return nullptr;
 }
 
 vector<string> DeltaSnapshot::GetAllFiles() {
