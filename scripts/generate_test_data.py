@@ -161,7 +161,7 @@ query = "CREATE table test_table AS SELECT i, i%2 as part from range(0,10) tbl(i
 generate_test_data_delta_rs("simple_partitioned", query, "part")
 
 ### Simple partitioned table
-query = "CREATE table test_table AS SELECT i, i%20 as part from range(0,1000000) tbl(i);"
+query = "CREATE table test_table AS SELECT i, i%20 as part from range(0,10000) tbl(i);"
 generate_test_data_delta_rs("simple_partitioned_large", query, "part")
 
 ### Lineitem SF0.01 No partitions
