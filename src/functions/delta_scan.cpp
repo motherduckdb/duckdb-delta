@@ -814,12 +814,8 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 			// hive partitioning column also exists in file - override
 			auto idx = NumericCast<idx_t>(lookup - names.begin());
 			hive_partitioning_index = idx;
-			return_types[idx] = options.GetHiveLogicalType(part);
 		} else {
-			// hive partitioning column does not exist in file - add a new column containing the key
-			hive_partitioning_index = names.size();
-			return_types.emplace_back(options.GetHiveLogicalType(part));
-			names.emplace_back(part);
+			throw IOException("Delta Snapshot returned partition column that is not present in the schema");
 		}
 		bind_data.hive_partitioning_indexes.emplace_back(part, hive_partitioning_index);
 	}
