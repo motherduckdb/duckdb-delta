@@ -54,12 +54,12 @@ public:
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;
 
-    unique_ptr<MultiFileList>
-    DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options, const vector<string> &names,
-                          const vector<LogicalType> &types, const vector<column_t> &column_ids,
-                          TableFilterSet &filters) const override;
+	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+	                                                const vector<string> &names, const vector<LogicalType> &types,
+	                                                const vector<column_t> &column_ids,
+	                                                TableFilterSet &filters) const override;
 
-    unique_ptr<DeltaSnapshot> PushdownInternal(ClientContext &context, TableFilterSet filters) const;
+	unique_ptr<DeltaSnapshot> PushdownInternal(ClientContext &context, TableFilterSet filters) const;
 
 	vector<string> GetAllFiles() override;
 	FileExpandResult GetExpandResult() override;
@@ -68,7 +68,7 @@ public:
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
 	idx_t GetVersion();
 	DeltaFileMetaData &GetMetaData(idx_t index) const;
-    vector<string> GetPartitionColumns();
+	vector<string> GetPartitionColumns();
 
 protected:
 	//! Get the i-th expanded file
@@ -76,11 +76,12 @@ protected:
 
 protected:
 	string GetFileInternal(idx_t i) const;
-    idx_t GetTotalFileCountInternal() const;
+	idx_t GetTotalFileCountInternal() const;
 	void InitializeSnapshot() const;
 	void InitializeScan() const;
 
-    void ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids, const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const;
+	void ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids,
+	                          const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const;
 
 	template <class T>
 	T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
@@ -95,10 +96,10 @@ protected:
 	                          const struct ffi::CStringMap *partition_values);
 
 protected:
-    // Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
-    //       const, but not physically.
+	// Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
+	//       const, but not physically.
 	mutable mutex lock;
-    mutable idx_t version;
+	mutable idx_t version;
 
 	//! Delta Kernel Structures
 	mutable shared_ptr<SharedKernelSnapshot> snapshot;
@@ -107,12 +108,12 @@ protected:
 	mutable KernelGlobalScanState global_state;
 	mutable KernelScanDataIterator scan_data_iterator;
 
-    mutable vector<string> partitions;
+	mutable vector<string> partitions;
 
-    //! Current file list resolution state
-    mutable bool initialized_snapshot = false;
-    mutable bool initialized_scan = false;
-    mutable bool files_exhausted = false;
+	//! Current file list resolution state
+	mutable bool initialized_snapshot = false;
+	mutable bool initialized_scan = false;
+	mutable bool files_exhausted = false;
 
 	//! Names
 	vector<string> names;

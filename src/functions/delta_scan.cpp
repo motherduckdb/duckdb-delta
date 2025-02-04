@@ -464,7 +464,7 @@ string DeltaSnapshot::GetFileInternal(idx_t i) const {
 	}
 
 	while (i >= resolved_files.size()) {
-		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), (void*)this, VisitData);
+		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), (void *)this, VisitData);
 
 		auto have_scan_data = TryUnpackKernelResult(have_scan_data_res);
 
@@ -479,11 +479,11 @@ string DeltaSnapshot::GetFileInternal(idx_t i) const {
 }
 
 idx_t DeltaSnapshot::GetTotalFileCountInternal() const {
-    idx_t i = resolved_files.size();
-    while (!GetFileInternal(i).empty()) {
-        i++;
-    }
-    return resolved_files.size();
+	idx_t i = resolved_files.size();
+	while (!GetFileInternal(i).empty()) {
+		i++;
+	}
+	return resolved_files.size();
 }
 
 string DeltaSnapshot::GetFile(idx_t i) {
@@ -507,13 +507,13 @@ void DeltaSnapshot::InitializeSnapshot() const {
 }
 
 struct KernelPartitionVisitorData {
-    vector<string> partitions;
-    ErrorData err_data;
+	vector<string> partitions;
+	ErrorData err_data;
 };
 
 static void KernelPartitionStringVisitor(ffi::NullableCvoid engine_context, ffi::KernelStringSlice slice) {
-    auto data = static_cast<KernelPartitionVisitorData *>(engine_context);
-    data->partitions.push_back(KernelUtils::FromDeltaString(slice));
+	auto data = static_cast<KernelPartitionVisitorData *>(engine_context);
+	data->partitions.push_back(KernelUtils::FromDeltaString(slice));
 }
 
 void DeltaSnapshot::InitializeScan() const {
@@ -532,31 +532,31 @@ void DeltaSnapshot::InitializeScan() const {
 	// Create scan data iterator
 	scan_data_iterator = TryUnpackKernelResult(ffi::kernel_scan_data_init(extern_engine.get(), scan.get()));
 
-    // Load partitions
-    auto partition_count = ffi::get_partition_column_count(global_state.get());
-    if (partition_count > 0) {
-        auto string_slice_iterator = ffi::get_partition_columns(global_state.get());
+	// Load partitions
+	auto partition_count = ffi::get_partition_column_count(global_state.get());
+	if (partition_count > 0) {
+		auto string_slice_iterator = ffi::get_partition_columns(global_state.get());
 
-        KernelPartitionVisitorData data;
-        while(string_slice_next(string_slice_iterator, &data, KernelPartitionStringVisitor)) {
-        }
-        partitions = data.partitions;
-    }
+		KernelPartitionVisitorData data;
+		while (string_slice_next(string_slice_iterator, &data, KernelPartitionStringVisitor)) {
+		}
+		partitions = data.partitions;
+	}
 	initialized_scan = true;
 }
 
 unique_ptr<DeltaSnapshot> DeltaSnapshot::PushdownInternal(ClientContext &context, TableFilterSet filters) const {
-    auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
-    filtered_list->table_filters = std::move(filters);
-    filtered_list->names = names;
+	auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
+	filtered_list->table_filters = std::move(filters);
+	filtered_list->names = names;
 
-    // Copy over the snapshot, this avoids reparsing metadata
-    {
-        unique_lock<mutex> lck(lock);
-        filtered_list->snapshot = snapshot;
-    }
+	// Copy over the snapshot, this avoids reparsing metadata
+	{
+		unique_lock<mutex> lck(lock);
+		filtered_list->snapshot = snapshot;
+	}
 
-    return filtered_list;
+	return filtered_list;
 }
 
 unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &context,
@@ -573,116 +573,122 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 		combiner.AddFilter(riter->get()->Copy());
 	}
 
-    auto filtered_list = PushdownInternal(context, combiner.GenerateTableScanFilters(info.column_indexes));
+	auto filtered_list = PushdownInternal(context, combiner.GenerateTableScanFilters(info.column_indexes));
 
-    ReportFilterPushdown(context, *filtered_list, info.column_ids, "regular", info);
+	ReportFilterPushdown(context, *filtered_list, info.column_ids, "regular", info);
 
 	return std::move(filtered_list);
 }
 
-void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids, const char* pushdown_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const {
-    auto &logger = Logger::Get(context);
-    auto log_level = LogLevel::LOG_INFO;
-    auto delta_log_type = "delta.FileSkipping";
+void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list,
+                                         const vector<column_t> &column_ids, const char *pushdown_type,
+                                         optional_ptr<MultiFilePushdownInfo> mfr_info) const {
+	auto &logger = Logger::Get(context);
+	auto log_level = LogLevel::LOG_INFO;
+	auto delta_log_type = "delta.FileSkipping";
 
-    // This function both reports the filter pushdown to the explain output (regular pushdown only) and the logger (both regular and dynamic)
-    bool should_log = logger.ShouldLog(delta_log_type, log_level);
-    bool should_report_explain_output = mfr_info != nullptr &&  QueryProfiler::Get(context).IsEnabled();
+	// This function both reports the filter pushdown to the explain output (regular pushdown only) and the logger (both
+	// regular and dynamic)
+	bool should_log = logger.ShouldLog(delta_log_type, log_level);
+	bool should_report_explain_output = mfr_info != nullptr && QueryProfiler::Get(context).IsEnabled();
 
-    // We should neither log, nor report explain output: we're done here!
-    if (!should_report_explain_output && !should_log) {
-        return;
-    }
+	// We should neither log, nor report explain output: we're done here!
+	if (!should_report_explain_output && !should_log) {
+		return;
+	}
 
-    Value result;
-    if (!context.TryGetCurrentSetting("delta_scan_explain_files_filtered", result)) {
-        throw InternalException("Failed to find 'delta_scan_explain_files_filtered' option!");
-    }
-    bool delta_scan_explain_files_filtered = result.GetValue<bool>();
+	Value result;
+	if (!context.TryGetCurrentSetting("delta_scan_explain_files_filtered", result)) {
+		throw InternalException("Failed to find 'delta_scan_explain_files_filtered' option!");
+	}
+	bool delta_scan_explain_files_filtered = result.GetValue<bool>();
 
-    // Report the filter counts
-    idx_t old_total = DConstants::INVALID_INDEX;
-    idx_t new_total = DConstants::INVALID_INDEX;
-    if (delta_scan_explain_files_filtered) {
-        // FIXME: This weird call is due to the MultiFileReader::GetTotalFileCount method being non const: API should be reworked to clean this up
-        {
-            unique_lock<mutex> lck(lock);
-            old_total = GetTotalFileCountInternal();
-        }
-        new_total = new_list.GetTotalFileCount();
+	// Report the filter counts
+	idx_t old_total = DConstants::INVALID_INDEX;
+	idx_t new_total = DConstants::INVALID_INDEX;
+	if (delta_scan_explain_files_filtered) {
+		// FIXME: This weird call is due to the MultiFileReader::GetTotalFileCount method being non const: API should be
+		// reworked to clean this up
+		{
+			unique_lock<mutex> lck(lock);
+			old_total = GetTotalFileCountInternal();
+		}
+		new_total = new_list.GetTotalFileCount();
 
-        if (mfr_info) {
-            if (!mfr_info->extra_info.total_files.IsValid()) {
-                mfr_info->extra_info.total_files = old_total;
-            } else if (mfr_info->extra_info.total_files.GetIndex() != old_total) {
-                throw InternalException(
-                    "Error encountered when analyzing filtered out files for delta scan: total_files inconsistent!");
-            }
+		if (mfr_info) {
+			if (!mfr_info->extra_info.total_files.IsValid()) {
+				mfr_info->extra_info.total_files = old_total;
+			} else if (mfr_info->extra_info.total_files.GetIndex() != old_total) {
+				throw InternalException(
+				    "Error encountered when analyzing filtered out files for delta scan: total_files inconsistent!");
+			}
 
-            if (!mfr_info->extra_info.filtered_files.IsValid() || mfr_info->extra_info.filtered_files.GetIndex() >= new_total) {
-                mfr_info->extra_info.filtered_files = new_total;
-            } else {
-                throw InternalException(
-                    "Error encountered when analyzing filtered out files for delta scan: filtered_files inconsistent!");
-            }
-        }
-    }
+			if (!mfr_info->extra_info.filtered_files.IsValid() ||
+			    mfr_info->extra_info.filtered_files.GetIndex() >= new_total) {
+				mfr_info->extra_info.filtered_files = new_total;
+			} else {
+				throw InternalException(
+				    "Error encountered when analyzing filtered out files for delta scan: filtered_files inconsistent!");
+			}
+		}
+	}
 
-    // Report the filters
-    vector<Value> filters_value_list;
-    for (auto &f : new_list.table_filters.filters) {
-        auto &column_index = f.first;
-        auto &filter = f.second;
-        if (column_index < names.size()) {
-            auto &col_name = names[column_index];
-            filters_value_list.push_back(filter->ToString(col_name));
-        }
-    }
-    auto filters_value = Value::LIST(LogicalType::VARCHAR, filters_value_list);
+	// Report the filters
+	vector<Value> filters_value_list;
+	for (auto &f : new_list.table_filters.filters) {
+		auto &column_index = f.first;
+		auto &filter = f.second;
+		if (column_index < names.size()) {
+			auto &col_name = names[column_index];
+			filters_value_list.push_back(filter->ToString(col_name));
+		}
+	}
+	auto filters_value = Value::LIST(LogicalType::VARCHAR, filters_value_list);
 
-    if (should_report_explain_output) {
-        mfr_info->extra_info.file_filters = filters_value.ToString();
-    }
+	if (should_report_explain_output) {
+		mfr_info->extra_info.file_filters = filters_value.ToString();
+	}
 
-    if (should_log) {
-        child_list_t<Value> struct_fields;
-        struct_fields.push_back({"type", Value(pushdown_type)});
-        struct_fields.push_back({"filters", filters_value});
-        if (new_total != DConstants::INVALID_INDEX) {
-            struct_fields.push_back({"files_before_filter", Value::BIGINT(old_total)});
-            struct_fields.push_back({"files_after_filter", Value::BIGINT(new_total)});
-        }
-        auto struct_value = Value::STRUCT(struct_fields);
-        logger.WriteLog(delta_log_type, log_level, struct_value.ToString());
-    }
+	if (should_log) {
+		child_list_t<Value> struct_fields;
+		struct_fields.push_back({"type", Value(pushdown_type)});
+		struct_fields.push_back({"filters", filters_value});
+		if (new_total != DConstants::INVALID_INDEX) {
+			struct_fields.push_back({"files_before_filter", Value::BIGINT(old_total)});
+			struct_fields.push_back({"files_after_filter", Value::BIGINT(new_total)});
+		}
+		auto struct_value = Value::STRUCT(struct_fields);
+		logger.WriteLog(delta_log_type, log_level, struct_value.ToString());
+	}
 }
 
 unique_ptr<MultiFileList>
 DeltaSnapshot::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
-                                         const vector<string> &names, const vector<LogicalType> &types,
-                                         const vector<column_t> &column_ids, TableFilterSet &filters) const {
-    if (filters.filters.empty()) {
-        return nullptr;
-    }
+                                     const vector<string> &names, const vector<LogicalType> &types,
+                                     const vector<column_t> &column_ids, TableFilterSet &filters) const {
+	if (filters.filters.empty()) {
+		return nullptr;
+	}
 
-    TableFilterSet filters_copy;
-    for (auto & filter : filters.filters) {
-        auto column_id = column_ids[filter.first];
-        auto previously_pushed_down_filter = this->table_filters.filters.find(column_id);
-        if (previously_pushed_down_filter != filters.filters.end() && filter.second->Equals(*previously_pushed_down_filter->second)) {
-            // Skip filters that we already have pushed down
-            continue;
-        }
-        filters_copy.PushFilter(ColumnIndex(column_id), filter.second->Copy());
-    }
+	TableFilterSet filters_copy;
+	for (auto &filter : filters.filters) {
+		auto column_id = column_ids[filter.first];
+		auto previously_pushed_down_filter = this->table_filters.filters.find(column_id);
+		if (previously_pushed_down_filter != filters.filters.end() &&
+		    filter.second->Equals(*previously_pushed_down_filter->second)) {
+			// Skip filters that we already have pushed down
+			continue;
+		}
+		filters_copy.PushFilter(ColumnIndex(column_id), filter.second->Copy());
+	}
 
-    if (!filters_copy.filters.empty()) {
-        auto new_snap = PushdownInternal(context, std::move(filters_copy));
-        ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
-        return std::move(new_snap);
-    }
+	if (!filters_copy.filters.empty()) {
+		auto new_snap = PushdownInternal(context, std::move(filters_copy));
+		ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
+		return std::move(new_snap);
+	}
 
-    return nullptr;
+	return nullptr;
 }
 
 vector<string> DeltaSnapshot::GetAllFiles() {
@@ -746,17 +752,17 @@ DeltaFileMetaData &DeltaSnapshot::GetMetaData(idx_t index) const {
 }
 
 vector<string> DeltaSnapshot::GetPartitionColumns() {
-    unique_lock<mutex> lck(lock);
+	unique_lock<mutex> lck(lock);
 
-    if (!initialized_snapshot) {
-        InitializeSnapshot();
-    }
+	if (!initialized_snapshot) {
+		InitializeSnapshot();
+	}
 
-    if (!initialized_scan) {
-        InitializeScan();
-    }
+	if (!initialized_scan) {
+		InitializeScan();
+	}
 
-    return partitions;
+	return partitions;
 }
 
 unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {
@@ -801,15 +807,15 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 
 	MultiFileReader::BindOptions(options, files, return_types, names, bind_data);
 
-    // We abuse the hive_partitioning_indexes to forward partitioning information to DuckDB
-    // TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this generic
-    auto &snapshot = dynamic_cast<DeltaSnapshot &>(files);
-    auto partitions = snapshot.GetPartitionColumns();
+	// We abuse the hive_partitioning_indexes to forward partitioning information to DuckDB
+	// TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this
+	// generic
+	auto &snapshot = dynamic_cast<DeltaSnapshot &>(files);
+	auto partitions = snapshot.GetPartitionColumns();
 	for (auto &part : partitions) {
 		idx_t hive_partitioning_index;
-		auto lookup = std::find_if(names.begin(), names.end(), [&](const string &col_name) {
-			return StringUtil::CIEquals(col_name, part);
-		});
+		auto lookup = std::find_if(names.begin(), names.end(),
+		                           [&](const string &col_name) { return StringUtil::CIEquals(col_name, part); });
 		if (lookup != names.end()) {
 			// hive partitioning column also exists in file - override
 			auto idx = NumericCast<idx_t>(lookup - names.begin());
@@ -832,10 +838,11 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 // Note: this overrides MultifileReader::FinalizeBind removing the lines adding the hive_partitioning indexes
 //       the reason is that we (ab)use those to use them to forward the delta partitioning information.
 static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
-                                   const string &filename, const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                   const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                   const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-                                   ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
+                                     const string &filename,
+                                     const vector<MultiFileReaderColumnDefinition> &local_columns,
+                                     const vector<MultiFileReaderColumnDefinition> &global_columns,
+                                     const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
+                                     ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
 
 	// create a map of name -> column index
 	case_insensitive_map_t<idx_t> name_map;
@@ -882,7 +889,7 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
                                         const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
                                         ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
 	FinalizeBindBaseOverride(file_options, options, filename, local_columns, global_columns, global_column_ids,
-	                              reader_data, context, global_state);
+	                         reader_data, context, global_state);
 
 	// Handle custom delta option set in MultiFileReaderOptions::custom_options
 	auto file_number_opt = file_options.custom_options.find("delta_file_number");
