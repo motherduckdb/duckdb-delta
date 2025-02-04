@@ -445,7 +445,7 @@ void DeltaSnapshot::Bind(vector<LogicalType> &return_types, vector<string> &name
 	this->types = return_types;
 }
 
-string DeltaSnapshot::GetFileInternal(idx_t i) {
+string DeltaSnapshot::GetFileInternal(idx_t i) const {
 	if (!initialized_snapshot) {
 		InitializeSnapshot();
 	}
@@ -464,7 +464,7 @@ string DeltaSnapshot::GetFileInternal(idx_t i) {
 	}
 
 	while (i >= resolved_files.size()) {
-		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), this, VisitData);
+		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), (void*)this, VisitData);
 
 		auto have_scan_data = TryUnpackKernelResult(have_scan_data_res);
 
@@ -478,13 +478,21 @@ string DeltaSnapshot::GetFileInternal(idx_t i) {
 	return resolved_files[i];
 }
 
+idx_t DeltaSnapshot::GetTotalFileCountInternal() const {
+    idx_t i = resolved_files.size();
+    while (!GetFileInternal(i).empty()) {
+        i++;
+    }
+    return resolved_files.size();
+}
+
 string DeltaSnapshot::GetFile(idx_t i) {
 	// TODO: profile this: we should be able to use atomics here to optimize
 	unique_lock<mutex> lck(lock);
 	return GetFileInternal(i);
 }
 
-void DeltaSnapshot::InitializeSnapshot() {
+void DeltaSnapshot::InitializeSnapshot() const {
 	auto path_slice = KernelUtils::ToDeltaString(paths[0]);
 
 	auto interface_builder = CreateBuilder(context, paths[0]);
@@ -508,7 +516,7 @@ static void KernelPartitionStringVisitor(ffi::NullableCvoid engine_context, ffi:
     data->partitions.push_back(KernelUtils::FromDeltaString(slice));
 }
 
-void DeltaSnapshot::InitializeScan() {
+void DeltaSnapshot::InitializeScan() const {
 	auto snapshot_ref = snapshot->GetLockingRef();
 
 	// Create Scan
@@ -572,7 +580,7 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 	return std::move(filtered_list);
 }
 
-void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids, const char* pushdown_type, optional_ptr<MultiFilePushdownInfo> mfr_info) {
+void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids, const char* pushdown_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const {
     auto &logger = Logger::Get(context);
     auto log_level = LogLevel::LOG_INFO;
     auto delta_log_type = "delta.FileSkipping";
@@ -596,7 +604,11 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
     idx_t old_total = DConstants::INVALID_INDEX;
     idx_t new_total = DConstants::INVALID_INDEX;
     if (delta_scan_explain_files_filtered) {
-        old_total = GetTotalFileCount();
+        // FIXME: This weird call is due to the MultiFileReader::GetTotalFileCount method being non const: API should be reworked to clean this up
+        {
+            unique_lock<mutex> lck(lock);
+            old_total = GetTotalFileCountInternal();
+        }
         new_total = new_list.GetTotalFileCount();
 
         if (mfr_info) {
@@ -666,8 +678,7 @@ DeltaSnapshot::DynamicFilterPushdown(ClientContext &context, const MultiFileRead
 
     if (!filters_copy.filters.empty()) {
         auto new_snap = PushdownInternal(context, std::move(filters_copy));
-        // TODO: clean this mess
-        const_cast<DeltaSnapshot*>(this)->ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
+        ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
         return std::move(new_snap);
     }
 
@@ -694,11 +705,7 @@ FileExpandResult DeltaSnapshot::GetExpandResult() {
 
 idx_t DeltaSnapshot::GetTotalFileCount() {
 	unique_lock<mutex> lck(lock);
-	idx_t i = resolved_files.size();
-	while (!GetFileInternal(i).empty()) {
-		i++;
-	}
-	return resolved_files.size();
+	return GetTotalFileCountInternal();
 }
 
 unique_ptr<NodeStatistics> DeltaSnapshot::GetCardinality(ClientContext &context) {
@@ -795,7 +802,7 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 	MultiFileReader::BindOptions(options, files, return_types, names, bind_data);
 
     // We abuse the hive_partitioning_indexes to forward partitioning information to DuckDB
-    // TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here
+    // TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this generic
     auto &snapshot = dynamic_cast<DeltaSnapshot &>(files);
     auto partitions = snapshot.GetPartitionColumns();
 	for (auto &part : partitions) {
@@ -826,6 +833,8 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 	}
 }
 
+// Note: this overrides MultifileReader::FinalizeBind removing the lines adding the hive_partitioning indexes
+//       the reason is that we (ab)use those to use them to forward the delta partitioning information.
 static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
                                    const string &filename, const vector<MultiFileReaderColumnDefinition> &local_columns,
                                    const vector<MultiFileReaderColumnDefinition> &global_columns,

@@ -319,7 +319,7 @@ struct KernelUtils {
 
 class PredicateVisitor : public ffi::EnginePredicate {
 public:
-	PredicateVisitor(const vector<string> &column_names, optional_ptr<TableFilterSet> filters);
+	PredicateVisitor(const vector<string> &column_names, optional_ptr<const TableFilterSet> filters);
 
 private:
 	unordered_map<string, TableFilter *> column_filters;
