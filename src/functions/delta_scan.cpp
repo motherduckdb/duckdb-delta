@@ -646,7 +646,11 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 	auto filters_value = Value::LIST(LogicalType::VARCHAR, filters_value_list);
 
 	if (should_report_explain_output) {
-		mfr_info->extra_info.file_filters = filters_value.ToString();
+	    string files_string;
+	    for (auto &filter : filters_value_list) {
+	        files_string += filter.ToString() + "\n";
+	    }
+	    mfr_info->extra_info.file_filters = files_string.substr(0, files_string.size()-1);
 	}
 
 	if (should_log) {
