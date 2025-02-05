@@ -587,7 +587,7 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
 		return visit_expression_eq(state, left, right);
 
 	default:
-		std::cout << " Unsupported operation: " << (int)filter.comparison_type << std::endl;
+		// TODO: add more types
 		return ~0; // Unsupported operation
 	}
 }

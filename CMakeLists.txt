@@ -14,6 +14,7 @@ include_directories(src/include)
 set(EXTENSION_SOURCES
     src/delta_extension.cpp
     src/delta_functions.cpp
+    src/delta_macros.cpp
     src/delta_utils.cpp
     src/functions/delta_scan.cpp
     src/functions/expression_functions.cpp

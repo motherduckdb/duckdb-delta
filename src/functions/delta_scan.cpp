@@ -547,7 +547,13 @@ void DeltaSnapshot::InitializeScan() const {
 
 unique_ptr<DeltaSnapshot> DeltaSnapshot::PushdownInternal(ClientContext &context, TableFilterSet filters) const {
 	auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
-	filtered_list->table_filters = std::move(filters);
+
+    // Inject pre-existing filters
+    for (auto &entry : table_filters.filters) {
+        filters.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+    }
+
+    filtered_list->table_filters = std::move(filters);
 	filtered_list->names = names;
 
 	// Copy over the snapshot, this avoids reparsing metadata
@@ -573,7 +579,12 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 		combiner.AddFilter(riter->get()->Copy());
 	}
 
-	auto filtered_list = PushdownInternal(context, combiner.GenerateTableScanFilters(info.column_indexes));
+    auto new_filter_set = combiner.GenerateTableScanFilters(info.column_indexes);
+    if (new_filter_set.filters.empty()) {
+        return nullptr;
+    }
+
+	auto filtered_list = PushdownInternal(context, std::move(new_filter_set));
 
 	ReportFilterPushdown(context, *filtered_list, info.column_ids, "regular", info);
 
@@ -585,7 +596,7 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
                                          optional_ptr<MultiFilePushdownInfo> mfr_info) const {
 	auto &logger = Logger::Get(context);
 	auto log_level = LogLevel::LOG_INFO;
-	auto delta_log_type = "delta.FileSkipping";
+	auto delta_log_type = "delta.FilterPushdown";
 
 	// This function both reports the filter pushdown to the explain output (regular pushdown only) and the logger (both
 	// regular and dynamic)
@@ -611,11 +622,17 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 		// reworked to clean this up
 		{
 			unique_lock<mutex> lck(lock);
+		    if (!initialized_snapshot) {
+		        InitializeSnapshot();
+		    }
+		    if (!initialized_scan) {
+		        InitializeScan();
+		    }
 			old_total = GetTotalFileCountInternal();
 		}
 		new_total = new_list.GetTotalFileCount();
 
-		if (mfr_info) {
+		if (should_report_explain_output) {
 			if (!mfr_info->extra_info.total_files.IsValid()) {
 				mfr_info->extra_info.total_files = old_total;
 			} else if (mfr_info->extra_info.total_files.GetIndex() != old_total) {
@@ -633,7 +650,19 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 		}
 	}
 
-	// Report the filters
+    // Report the new filters
+    vector<Value> old_filters_value_list;
+    for (auto &f : table_filters.filters) {
+        auto &column_index = f.first;
+        auto &filter = f.second;
+        if (column_index < names.size()) {
+            auto &col_name = names[column_index];
+            old_filters_value_list.push_back(filter->ToString(col_name));
+        }
+    }
+    auto old_filters_value = Value::LIST(LogicalType::VARCHAR, old_filters_value_list);
+
+	// Report the new filters
 	vector<Value> filters_value_list;
 	for (auto &f : new_list.table_filters.filters) {
 		auto &column_index = f.first;
@@ -655,11 +684,13 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 
 	if (should_log) {
 		child_list_t<Value> struct_fields;
+		struct_fields.push_back({"path", Value(GetPath())});
 		struct_fields.push_back({"type", Value(pushdown_type)});
-		struct_fields.push_back({"filters", filters_value});
+		struct_fields.push_back({"filters_before", old_filters_value});
+		struct_fields.push_back({"filters_after", filters_value});
 		if (new_total != DConstants::INVALID_INDEX) {
-			struct_fields.push_back({"files_before_filter", Value::BIGINT(old_total)});
-			struct_fields.push_back({"files_after_filter", Value::BIGINT(new_total)});
+			struct_fields.push_back({"files_before", Value::BIGINT(old_total)});
+			struct_fields.push_back({"files_after", Value::BIGINT(new_total)});
 		}
 		auto struct_value = Value::STRUCT(struct_fields);
 		logger.WriteLog(delta_log_type, log_level, struct_value.ToString());
@@ -747,6 +778,14 @@ unique_ptr<NodeStatistics> DeltaSnapshot::GetCardinality(ClientContext &context)
 
 idx_t DeltaSnapshot::GetVersion() {
 	unique_lock<mutex> lck(lock);
+    // TODO: does this make sense? we are initializing a scan just to get the version here
+    if (!initialized_snapshot) {
+        InitializeSnapshot();
+    }
+    if (!initialized_scan) {
+        InitializeScan();
+    }
+
 	return version;
 }
 

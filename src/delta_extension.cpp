@@ -4,12 +4,15 @@
 
 #include "delta_utils.hpp"
 #include "delta_functions.hpp"
-#include "duckdb.hpp"
-#include "duckdb/common/exception.hpp"
-#include "duckdb/main/extension_util.hpp"
-#include "duckdb/storage/storage_extension.hpp"
+#include "delta_macros.hpp"
 #include "storage/delta_catalog.hpp"
 #include "storage/delta_transaction_manager.hpp"
+
+#include "duckdb.hpp"
+#include "duckdb/common/exception.hpp"
+#include "duckdb/function/table_macro_function.hpp"
+#include "duckdb/main/extension_util.hpp"
+#include "duckdb/storage/storage_extension.hpp"
 #include "duckdb/main/config.hpp"
 
 namespace duckdb {
@@ -70,6 +73,8 @@ static void LoadInternal(DatabaseInstance &instance) {
 	    "Forwards the internal logging of the Delta Kernel to the duckdb logger. Warning: this may impact "
 	    "performance even with DuckDB logging disabled.",
 	    LogicalType::BOOLEAN, Value(false), LoggerCallback::DuckDBSettingCallBack);
+
+    DeltaMacros::RegisterMacros(instance);
 
 	LoggerCallback::Initialize(instance);
 }

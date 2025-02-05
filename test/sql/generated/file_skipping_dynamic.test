@@ -22,12 +22,11 @@ WHERE v2=102 and value3=1002
 ----
 12	1002	102	2
 
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
 ----
-delta.FileSkipping	{'type': regular, 'filters': [value2=102, value3=1002], 'files_before_filter': 5, 'files_after_filter': 1}
+regular	[]	[value2=102, value3=1002]	5	1
 
 # Clear logging storage
 statement ok
@@ -41,12 +40,11 @@ WHERE value3 = 1002
 ----
 12	1002	102	2
 
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
 ----
-delta.FileSkipping	{'type': regular, 'filters': [value3=1002], 'files_before_filter': 5, 'files_after_filter': 1}
+regular	[]	[value3=1002]	5	1
 
 # Clear logging storage
 statement ok
@@ -60,12 +58,11 @@ WHERE v2 = (SELECT 102)
 ----
 12	1002	102	2
 
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
 ----
-delta.FileSkipping	{'type': dynamic, 'filters': [value2=102], 'files_before_filter': 5, 'files_after_filter': 1}
+dynamic	[]	[value2=102]	5	1
 
 # Clear logging storage
 statement ok
@@ -79,12 +76,11 @@ WHERE value1 = (SELECT 13)
 ----
 13	1003	103	3
 
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
 ----
-delta.FileSkipping	{'type': dynamic, 'filters': [value1=13], 'files_before_filter': 5, 'files_after_filter': 1}
+dynamic	[]	[value1=13]	5	1
 
 # Clear logging storage
 statement ok
@@ -99,11 +95,11 @@ WHERE part = (SELECT 2)
 12	1002	102	2
 
 # FIXME: the above query does not yet support pushdown because kernel can't do pushdown on partition columns
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
 ----
+dynamic	[]	[part=2]	5	5
 
 # Clear logging storage
 statement ok
@@ -118,14 +114,13 @@ WHERE
 ----
 13	1003	103	3
 
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
-ORDER BY timestamp
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+ORDER BY filter_type
 ----
-delta.FileSkipping	{'type': regular, 'filters': [value1=13], 'files_before_filter': 5, 'files_after_filter': 1}
-delta.FileSkipping	{'type': dynamic, 'filters': [value2=103], 'files_before_filter': 1, 'files_after_filter': 1}
+dynamic	[value1=13]	[value1=13, value2=103]	1	1
+regular	[]	[value1=13]	5	1
 
 # Clear logging storage
 statement ok
@@ -140,14 +135,13 @@ WHERE
 ----
 13	1003	103	3
 
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
-ORDER BY timestamp
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+ORDER BY filter_type
 ----
-delta.FileSkipping	{'type': regular, 'filters': [value1=13], 'files_before_filter': 5, 'files_after_filter': 1}
-delta.FileSkipping	{'type': dynamic, 'filters': [value1=13 AND value1=13], 'files_before_filter': 1, 'files_after_filter': 1}
+dynamic	[value1=13]	[value1=13 AND value1=13 AND value1=13]	1	1
+regular	[]	[value1=13]	5	1
 
 # Clear logging storage
 statement ok
@@ -172,11 +166,10 @@ WHERE value1 = 12
 12	1002	102	2
 
 # Now there should be 2 entries without the files filtered in the output
-query II
-SELECT type, message
-FROM duckdb_logs
-WHERE type = 'delta.FileSkipping'
-ORDER BY timestamp
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+ORDER BY filter_type
 ----
-delta.FileSkipping	{'type': dynamic, 'filters': [value1=12]}
-delta.FileSkipping	{'type': regular, 'filters': [value1=12]}
+dynamic	[]	[value1=12]	NULL	NULL
+regular	[]	[value1=12]	NULL	NULL
