@@ -548,12 +548,12 @@ void DeltaSnapshot::InitializeScan() const {
 unique_ptr<DeltaSnapshot> DeltaSnapshot::PushdownInternal(ClientContext &context, TableFilterSet filters) const {
 	auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
 
-    // Inject pre-existing filters
-    for (auto &entry : table_filters.filters) {
-        filters.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
-    }
+	// Inject pre-existing filters
+	for (auto &entry : table_filters.filters) {
+		filters.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+	}
 
-    filtered_list->table_filters = std::move(filters);
+	filtered_list->table_filters = std::move(filters);
 	filtered_list->names = names;
 
 	// Copy over the snapshot, this avoids reparsing metadata
@@ -579,10 +579,10 @@ unique_ptr<MultiFileList> DeltaSnapshot::ComplexFilterPushdown(ClientContext &co
 		combiner.AddFilter(riter->get()->Copy());
 	}
 
-    auto new_filter_set = combiner.GenerateTableScanFilters(info.column_indexes);
-    if (new_filter_set.filters.empty()) {
-        return nullptr;
-    }
+	auto new_filter_set = combiner.GenerateTableScanFilters(info.column_indexes);
+	if (new_filter_set.filters.empty()) {
+		return nullptr;
+	}
 
 	auto filtered_list = PushdownInternal(context, std::move(new_filter_set));
 
@@ -622,12 +622,12 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 		// reworked to clean this up
 		{
 			unique_lock<mutex> lck(lock);
-		    if (!initialized_snapshot) {
-		        InitializeSnapshot();
-		    }
-		    if (!initialized_scan) {
-		        InitializeScan();
-		    }
+			if (!initialized_snapshot) {
+				InitializeSnapshot();
+			}
+			if (!initialized_scan) {
+				InitializeScan();
+			}
 			old_total = GetTotalFileCountInternal();
 		}
 		new_total = new_list.GetTotalFileCount();
@@ -650,17 +650,17 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 		}
 	}
 
-    // Report the new filters
-    vector<Value> old_filters_value_list;
-    for (auto &f : table_filters.filters) {
-        auto &column_index = f.first;
-        auto &filter = f.second;
-        if (column_index < names.size()) {
-            auto &col_name = names[column_index];
-            old_filters_value_list.push_back(filter->ToString(col_name));
-        }
-    }
-    auto old_filters_value = Value::LIST(LogicalType::VARCHAR, old_filters_value_list);
+	// Report the new filters
+	vector<Value> old_filters_value_list;
+	for (auto &f : table_filters.filters) {
+		auto &column_index = f.first;
+		auto &filter = f.second;
+		if (column_index < names.size()) {
+			auto &col_name = names[column_index];
+			old_filters_value_list.push_back(filter->ToString(col_name));
+		}
+	}
+	auto old_filters_value = Value::LIST(LogicalType::VARCHAR, old_filters_value_list);
 
 	// Report the new filters
 	vector<Value> filters_value_list;
@@ -675,11 +675,11 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 	auto filters_value = Value::LIST(LogicalType::VARCHAR, filters_value_list);
 
 	if (should_report_explain_output) {
-	    string files_string;
-	    for (auto &filter : filters_value_list) {
-	        files_string += filter.ToString() + "\n";
-	    }
-	    mfr_info->extra_info.file_filters = files_string.substr(0, files_string.size()-1);
+		string files_string;
+		for (auto &filter : filters_value_list) {
+			files_string += filter.ToString() + "\n";
+		}
+		mfr_info->extra_info.file_filters = files_string.substr(0, files_string.size() - 1);
 	}
 
 	if (should_log) {
@@ -778,13 +778,13 @@ unique_ptr<NodeStatistics> DeltaSnapshot::GetCardinality(ClientContext &context)
 
 idx_t DeltaSnapshot::GetVersion() {
 	unique_lock<mutex> lck(lock);
-    // TODO: does this make sense? we are initializing a scan just to get the version here
-    if (!initialized_snapshot) {
-        InitializeSnapshot();
-    }
-    if (!initialized_scan) {
-        InitializeScan();
-    }
+	// TODO: does this make sense? we are initializing a scan just to get the version here
+	if (!initialized_snapshot) {
+		InitializeSnapshot();
+	}
+	if (!initialized_scan) {
+		InitializeScan();
+	}
 
 	return version;
 }

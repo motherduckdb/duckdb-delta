@@ -74,7 +74,7 @@ static void LoadInternal(DatabaseInstance &instance) {
 	    "performance even with DuckDB logging disabled.",
 	    LogicalType::BOOLEAN, Value(false), LoggerCallback::DuckDBSettingCallBack);
 
-    DeltaMacros::RegisterMacros(instance);
+	DeltaMacros::RegisterMacros(instance);
 
 	LoggerCallback::Initialize(instance);
 }

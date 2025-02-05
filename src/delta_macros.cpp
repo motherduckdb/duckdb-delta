@@ -45,46 +45,50 @@ JOIN
 )";
 
 void DeltaMacros::RegisterTableMacro(DatabaseInstance &db, const string &name, const string &query,
-                               const vector<string> &params, const child_list_t<Value> &named_params) {
-    Parser parser;
-    parser.ParseQuery(query);
-    const auto &stmt = parser.statements.back();
-    auto &node = stmt->Cast<SelectStatement>().node;
+                                     const vector<string> &params, const child_list_t<Value> &named_params) {
+	Parser parser;
+	parser.ParseQuery(query);
+	const auto &stmt = parser.statements.back();
+	auto &node = stmt->Cast<SelectStatement>().node;
 
-    auto func = make_uniq<TableMacroFunction>(std::move(node));
-    for (auto &param : params) {
-        func->parameters.push_back(make_uniq<ColumnRefExpression>(param));
-    }
+	auto func = make_uniq<TableMacroFunction>(std::move(node));
+	for (auto &param : params) {
+		func->parameters.push_back(make_uniq<ColumnRefExpression>(param));
+	}
 
-    for (auto &param : named_params) {
-        func->default_parameters[param.first] = make_uniq<ConstantExpression>(param.second);
-    }
+	for (auto &param : named_params) {
+		func->default_parameters[param.first] = make_uniq<ConstantExpression>(param.second);
+	}
 
-    CreateMacroInfo info(CatalogType::TABLE_MACRO_ENTRY);
-    info.schema = DEFAULT_SCHEMA;
-    info.name = name;
-    info.temporary = true;
-    info.internal = true;
-    info.macros.push_back(std::move(func));
+	CreateMacroInfo info(CatalogType::TABLE_MACRO_ENTRY);
+	info.schema = DEFAULT_SCHEMA;
+	info.name = name;
+	info.temporary = true;
+	info.internal = true;
+	info.macros.push_back(std::move(func));
 
-    ExtensionUtil::RegisterFunction(db, info);
-    }
-
+	ExtensionUtil::RegisterFunction(db, info);
+}
 
 static DefaultMacro delta_macros[] = {
-    {DEFAULT_SCHEMA, "parse_delta_filter_logline", {"x", nullptr}, {{nullptr, nullptr}}, "x::STRUCT(path VARCHAR, type VARCHAR, filters_before VARCHAR[], filters_after VARCHAR[], files_before BIGINT, files_after BIGINT)"},
+    {DEFAULT_SCHEMA,
+     "parse_delta_filter_logline",
+     {"x", nullptr},
+     {{nullptr, nullptr}},
+     "x::STRUCT(path VARCHAR, type VARCHAR, filters_before VARCHAR[], filters_after VARCHAR[], files_before BIGINT, "
+     "files_after BIGINT)"},
 };
 
 void DeltaMacros::RegisterMacros(DatabaseInstance &instance) {
-    // Register Regular macros
-    for (auto & macro : delta_macros) {
-        auto info = DefaultFunctionGenerator::CreateInternalMacroInfo(macro);
-        ExtensionUtil::RegisterFunction(instance, *info);
-    }
+	// Register Regular macros
+	for (auto &macro : delta_macros) {
+		auto info = DefaultFunctionGenerator::CreateInternalMacroInfo(macro);
+		ExtensionUtil::RegisterFunction(instance, *info);
+	}
 
-    // Register Table Macros
-    RegisterTableMacro(instance, "delta_filter_pushdown_log", DELTA_FILTER_PUSHDOWN_MACRO, {},{});
-    RegisterTableMacro(instance, "delta_filter_pushdown_log_tpcds", DELTA_FILTER_PUSHDOWN_MACRO_TPCDS, {},{});
+	// Register Table Macros
+	RegisterTableMacro(instance, "delta_filter_pushdown_log", DELTA_FILTER_PUSHDOWN_MACRO, {}, {});
+	RegisterTableMacro(instance, "delta_filter_pushdown_log_tpcds", DELTA_FILTER_PUSHDOWN_MACRO_TPCDS, {}, {});
 }
 
 }; // namespace duckdb
