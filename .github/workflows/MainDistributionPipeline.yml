@@ -14,9 +14,9 @@ concurrency:
 jobs:
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.2.0
     with:
-      duckdb_version: v1.2-histrionicus
+      duckdb_version: v1.2.0
       ci_tools_version: main
       extension_name: delta
       enable_rust: true
@@ -26,11 +26,11 @@ jobs:
   duckdb-stable-deploy:
     name: Deploy extension binaries
     needs: duckdb-stable-build
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@main
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@v1.2.0
     secrets: inherit
     with:
       extension_name: delta
-      duckdb_version: v1.2-histrionicus
+      duckdb_version: v1.2.0
       ci_tools_version: main
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw;linux_amd64_musl'
       deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
