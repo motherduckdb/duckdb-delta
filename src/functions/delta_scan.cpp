@@ -424,9 +424,7 @@ void DeltaSnapshot::Bind(vector<LogicalType> &return_types, vector<string> &name
 		return;
 	}
 
-	if (!initialized_snapshot) {
-		InitializeSnapshot();
-	}
+    EnsureSnapshotInitialized();
 
 	unique_ptr<SchemaVisitor::FieldList> schema;
 
@@ -446,13 +444,7 @@ void DeltaSnapshot::Bind(vector<LogicalType> &return_types, vector<string> &name
 }
 
 string DeltaSnapshot::GetFileInternal(idx_t i) const {
-	if (!initialized_snapshot) {
-		InitializeSnapshot();
-	}
-
-	if (!initialized_scan) {
-		InitializeScan();
-	}
+	EnsureScanInitialized();
 
 	// We already have this file
 	if (i < resolved_files.size()) {
@@ -545,6 +537,19 @@ void DeltaSnapshot::InitializeScan() const {
 	initialized_scan = true;
 }
 
+void DeltaSnapshot::EnsureSnapshotInitialized() const {
+    if (!initialized_snapshot) {
+        InitializeSnapshot();
+    }
+}
+
+void DeltaSnapshot::EnsureScanInitialized() const {
+    EnsureSnapshotInitialized();
+    if (!initialized_scan) {
+        InitializeScan();
+    }
+}
+
 unique_ptr<DeltaSnapshot> DeltaSnapshot::PushdownInternal(ClientContext &context, TableFilterSet filters) const {
 	auto filtered_list = make_uniq<DeltaSnapshot>(context, paths[0]);
 
@@ -622,12 +627,7 @@ void DeltaSnapshot::ReportFilterPushdown(ClientContext &context, DeltaSnapshot &
 		// reworked to clean this up
 		{
 			unique_lock<mutex> lck(lock);
-			if (!initialized_snapshot) {
-				InitializeSnapshot();
-			}
-			if (!initialized_scan) {
-				InitializeScan();
-			}
+			EnsureScanInitialized();
 			old_total = GetTotalFileCountInternal();
 		}
 		new_total = new_list.GetTotalFileCount();
@@ -778,33 +778,21 @@ unique_ptr<NodeStatistics> DeltaSnapshot::GetCardinality(ClientContext &context)
 
 idx_t DeltaSnapshot::GetVersion() {
 	unique_lock<mutex> lck(lock);
-	// TODO: does this make sense? we are initializing a scan just to get the version here
-	if (!initialized_snapshot) {
-		InitializeSnapshot();
-	}
-	if (!initialized_scan) {
-		InitializeScan();
-	}
-
+    EnsureScanInitialized();
 	return version;
 }
 
 DeltaFileMetaData &DeltaSnapshot::GetMetaData(idx_t index) const {
 	unique_lock<mutex> lck(lock);
+    if (index >= metadata.size()) {
+        throw InternalException("Attempted to fetch metadata for nonexistent file in DeltaSnapshot");
+    }
 	return *metadata[index];
 }
 
 vector<string> DeltaSnapshot::GetPartitionColumns() {
 	unique_lock<mutex> lck(lock);
-
-	if (!initialized_snapshot) {
-		InitializeSnapshot();
-	}
-
-	if (!initialized_scan) {
-		InitializeScan();
-	}
-
+    EnsureScanInitialized();
 	return partitions;
 }
 

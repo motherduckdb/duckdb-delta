@@ -80,6 +80,9 @@ protected:
 	void InitializeSnapshot() const;
 	void InitializeScan() const;
 
+    void EnsureSnapshotInitialized() const;
+    void EnsureScanInitialized() const;
+
 	void ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids,
 	                          const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const;
 
