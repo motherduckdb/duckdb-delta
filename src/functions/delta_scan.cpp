@@ -709,7 +709,7 @@ DeltaSnapshot::DynamicFilterPushdown(ClientContext &context, const MultiFileRead
 	for (auto &filter : filters.filters) {
 		auto column_id = column_ids[filter.first];
 		auto previously_pushed_down_filter = this->table_filters.filters.find(column_id);
-		if (previously_pushed_down_filter != filters.filters.end() &&
+		if (previously_pushed_down_filter != this->table_filters.filters.end() &&
 		    filter.second->Equals(*previously_pushed_down_filter->second)) {
 			// Skip filters that we already have pushed down
 			continue;
