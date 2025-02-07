@@ -488,7 +488,7 @@ vector<bool> KernelUtils::FromDeltaBoolSlice(const struct ffi::KernelBoolSlice s
 	return result;
 }
 
-PredicateVisitor::PredicateVisitor(const vector<string> &column_names, optional_ptr<TableFilterSet> filters) {
+PredicateVisitor::PredicateVisitor(const vector<string> &column_names, optional_ptr<const TableFilterSet> filters) {
 	predicate = this;
 	visitor = (uintptr_t(*)(void *, ffi::KernelExpressionVisitorState *)) & VisitPredicate;
 
@@ -587,7 +587,7 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
 		return visit_expression_eq(state, left, right);
 
 	default:
-		std::cout << " Unsupported operation: " << (int)filter.comparison_type << std::endl;
+		// TODO: add more types
 		return ~0; // Unsupported operation
 	}
 }
@@ -644,24 +644,24 @@ void LoggerCallback::Initialize(DatabaseInstance &db_p) {
 }
 
 static string ConvertLogMessage(ffi::Event event) {
-    auto log_type = KernelUtils::FromDeltaString(event.target);
-    auto message = KernelUtils::FromDeltaString(event.message);
-    auto file = KernelUtils::FromDeltaString(event.file);
-    string constructed_log_message;
-    if (!file.empty()) {
-        constructed_log_message = StringUtil::Format("[%s] %s@%u : %s ", log_type, file, event.line, message);
-    } else {
-        constructed_log_message = message;
-    }
+	auto log_type = KernelUtils::FromDeltaString(event.target);
+	auto message = KernelUtils::FromDeltaString(event.message);
+	auto file = KernelUtils::FromDeltaString(event.file);
+	string constructed_log_message;
+	if (!file.empty()) {
+		constructed_log_message = StringUtil::Format("[%s] %s@%u : %s ", log_type, file, event.line, message);
+	} else {
+		constructed_log_message = message;
+	}
 
-    return constructed_log_message;
+	return constructed_log_message;
 }
 void LoggerCallback::CallbackEvent(ffi::Event event) {
 	auto &instance = GetInstance();
 	auto db_locked = instance.db.lock();
 	if (db_locked) {
 		auto transformed_log_level = GetDuckDBLogLevel(event.level);
-		DUCKDB_LOG( *db_locked, "delta.Kernel", transformed_log_level, ConvertLogMessage(event));
+		DUCKDB_LOG(*db_locked, "delta.Kernel", transformed_log_level, ConvertLogMessage(event));
 	}
 }
 

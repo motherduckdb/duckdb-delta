@@ -37,7 +37,7 @@ EXPLAIN ANALYZE SELECT part
 FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
 WHERE part > 0.5
 ----
-analyzed_plan	<!REGEX>:.*File Filters:.*
+analyzed_plan	<REGEX>:.* Scanning Files: 5/5.*
 
 endloop
 
@@ -55,7 +55,7 @@ EXPLAIN ANALYZE SELECT part
 FROM delta_scan('./data/generated/test_file_skipping/bool/delta_lake')
 WHERE part=false
 ----
-analyzed_plan	<!REGEX>:.*File Filters:.*
+analyzed_plan	<REGEX>:.* Scanning Files: 2/2.*
 
 foreach type int tinyint smallint bigint
 
@@ -86,7 +86,7 @@ EXPLAIN ANALYZE SELECT part
 FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
 WHERE part = 0
 ----
-analyzed_plan	<!REGEX>:.*File Filters:.*
+analyzed_plan	<REGEX>:.* Scanning Files: 5/5.*
 
 endloop
 
@@ -117,7 +117,7 @@ EXPLAIN ANALYZE SELECT part
 FROM delta_scan('./data/generated/test_file_skipping/varchar/delta_lake')
 WHERE part = '0'
 ----
-analyzed_plan	<!REGEX>:.*File Filters:.*
+analyzed_plan	<REGEX>:.* Scanning Files: 5/5.*
 
 # We can remove this from output if precise operator timing is crucial
 statement ok
@@ -131,4 +131,4 @@ WHERE
     value2 = '2' and
     value3 = '2'
 ----
-analyzed_plan	<!REGEX>:.*File Filters:.*
+analyzed_plan	<!REGEX>:.*Scanning Files:.*

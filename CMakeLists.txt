@@ -14,6 +14,7 @@ include_directories(src/include)
 set(EXTENSION_SOURCES
     src/delta_extension.cpp
     src/delta_functions.cpp
+    src/delta_macros.cpp
     src/delta_utils.cpp
     src/functions/delta_scan.cpp
     src/functions/expression_functions.cpp
@@ -140,7 +141,7 @@ ExternalProject_Add(
   # the c++ headers. Currently, when bumping the kernel version, the produced
   # header in ./src/include/delta_kernel_ffi.hpp should be also bumped, applying
   # the fix
-  GIT_TAG v0.6.0
+  GIT_TAG v0.6.1
   # Prints the env variables passed to the cargo build to the terminal, useful
   # in debugging because passing them through CMake is an error-prone mess
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS}

@@ -160,6 +160,10 @@ generate_test_data_delta_rs_multi("delta_rs_tpch_sf0_01", init, tables)
 query = "CREATE table test_table AS SELECT i, i%2 as part from range(0,10) tbl(i);"
 generate_test_data_delta_rs("simple_partitioned", query, "part")
 
+### Simple partitioned table
+query = "CREATE table test_table AS SELECT i, i%20 as part from range(0,10000) tbl(i);"
+generate_test_data_delta_rs("simple_partitioned_large", query, "part")
+
 ### Lineitem SF0.01 No partitions
 query = "call dbgen(sf=0.01);"
 query += "CREATE table test_table AS SELECT * as part from lineitem;"
@@ -182,6 +186,11 @@ generate_test_data_delta_rs("simple_partitioned_with_structs", query, "part")
 for type in ["bool", "int", "tinyint", "smallint", "bigint", "float", "double", "varchar"]:
     query = f"CREATE table test_table as select i::{type} as value1, (i)::{type} as value2, (i)::{type} as value3, i::{type} as part from range(0,5) tbl(i)"
     generate_test_data_delta_rs(f"test_file_skipping/{type}", query, "part")
+
+## Partitioned table with all types we can file skip on
+for type in ["int"]:
+    query = f"CREATE table test_table as select i::{type}+10 as value1, (i)::{type}+100 as value2, (i)::{type}+1000 as value3, i::{type} as part from range(0,5) tbl(i)"
+    generate_test_data_delta_rs(f"test_file_skipping_2/{type}", query, "part")
 
 ## Simple table with deletion vector
 con = duckdb.connect()

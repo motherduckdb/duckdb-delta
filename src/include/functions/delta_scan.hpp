@@ -53,6 +53,14 @@ public:
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;
+
+	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+	                                                const vector<string> &names, const vector<LogicalType> &types,
+	                                                const vector<column_t> &column_ids,
+	                                                TableFilterSet &filters) const override;
+
+	unique_ptr<DeltaSnapshot> PushdownInternal(ClientContext &context, TableFilterSet filters) const;
+
 	vector<string> GetAllFiles() override;
 	FileExpandResult GetExpandResult() override;
 	idx_t GetTotalFileCount() override;
@@ -60,18 +68,26 @@ public:
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
 	idx_t GetVersion();
 	DeltaFileMetaData &GetMetaData(idx_t index) const;
+	vector<string> GetPartitionColumns();
 
 protected:
 	//! Get the i-th expanded file
 	string GetFile(idx_t i) override;
 
 protected:
-	string GetFileInternal(idx_t i);
-	void InitializeSnapshot();
-	void InitializeScan();
+	string GetFileInternal(idx_t i) const;
+	idx_t GetTotalFileCountInternal() const;
+	void InitializeSnapshot() const;
+	void InitializeScan() const;
+
+    void EnsureSnapshotInitialized() const;
+    void EnsureScanInitialized() const;
+
+	void ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids,
+	                          const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const;
 
 	template <class T>
-	T TryUnpackKernelResult(ffi::ExternResult<T> result) {
+	T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
 		return KernelUtils::UnpackResult<T>(
 		    result, StringUtil::Format("While trying to read from delta table: '%s'", paths[0]));
 	}
@@ -83,17 +99,24 @@ protected:
 	                          const struct ffi::CStringMap *partition_values);
 
 protected:
+	// Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
+	//       const, but not physically.
 	mutable mutex lock;
-
-	idx_t version;
+	mutable idx_t version;
 
 	//! Delta Kernel Structures
-	shared_ptr<SharedKernelSnapshot> snapshot;
+	mutable shared_ptr<SharedKernelSnapshot> snapshot;
+	mutable KernelExternEngine extern_engine;
+	mutable KernelScan scan;
+	mutable KernelGlobalScanState global_state;
+	mutable KernelScanDataIterator scan_data_iterator;
 
-	KernelExternEngine extern_engine;
-	KernelScan scan;
-	KernelGlobalScanState global_state;
-	KernelScanDataIterator scan_data_iterator;
+	mutable vector<string> partitions;
+
+	//! Current file list resolution state
+	mutable bool initialized_snapshot = false;
+	mutable bool initialized_scan = false;
+	mutable bool files_exhausted = false;
 
 	//! Names
 	vector<string> names;
@@ -103,11 +126,6 @@ protected:
 	//! Metadata map for files
 	vector<unique_ptr<DeltaFileMetaData>> metadata;
 
-	//! Current file list resolution state
-	bool initialized_snapshot = false;
-	bool initialized_scan = false;
-
-	bool files_exhausted = false;
 	vector<string> resolved_files;
 	TableFilterSet table_filters;
 

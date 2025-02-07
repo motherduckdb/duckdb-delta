@@ -8,7 +8,7 @@ require delta
 
 require-env GENERATED_DATA_AVAILABLE
 
-# Skipped for now: needs further investigation, this is broken on latest deltalake-written table, but works on 
+# Skipped for now: needs further investigation, this is broken on latest deltalake-written table, but works on
 # deltalake==0.18.2
 mode skip
 

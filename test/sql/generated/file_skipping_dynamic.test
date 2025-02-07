@@ -1,0 +1,175 @@
+# name: test/sql/generated/file_skipping_dynamic.test
+# description: Test dynamic filter pushdown
+# group: [delta_generated]
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+statement ok
+set enable_logging=true;
+
+statement ok
+set logging_level = 'INFO';
+
+### First we try regular pushdown
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE v2=102 and value3=1002
+----
+12	1002	102	2
+
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+----
+regular	[]	[value2=102, value3=1002]	5	1
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Try other column
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value3 = 1002
+----
+12	1002	102	2
+
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+----
+regular	[]	[value3=1002]	5	1
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+### Now we try dynamic pushdown
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE v2 = (SELECT 102)
+----
+12	1002	102	2
+
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+----
+dynamic	[]	[value2=102]	5	1
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Dynamic pushdown, other column
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value1 = (SELECT 13)
+----
+13	1003	103	3
+
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+----
+dynamic	[]	[value1=13]	5	1
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+### Try partition column
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE part = (SELECT 2)
+----
+12	1002	102	2
+
+# FIXME: the above query does not yet support pushdown because kernel can't do pushdown on partition columns
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+----
+dynamic	[]	[part=2]	5	5
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Now let's get funky: a dynamic join filter plus a regular filter
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE
+    value1=13 AND v2=(select 103)
+----
+13	1003	103	3
+
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+ORDER BY filter_type
+----
+dynamic	[value1=13]	[value1=13, value2=103]	1	1
+regular	[]	[value1=13]	5	1
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Slightly weird case here: pushing down an identical dynamic filter and regular filter will make it show up twice with the second doing nothing
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE
+    value1=13 AND value1=(select 13)
+----
+13	1003	103	3
+
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+ORDER BY filter_type
+----
+dynamic	[value1=13]	[value1=13 AND value1=13 AND value1=13]	1	1
+regular	[]	[value1=13]	5	1
+
+# Clear logging storage
+statement ok
+set enable_logging=false;set logging_storage='stdout';set logging_storage='memory';set enable_logging=true;
+
+# Now we control the output of the filtered files by changing the delta_scan_explain_files_filtered setting
+statement ok
+set delta_scan_explain_files_filtered=false
+
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value1 = (SELECT 12)
+----
+12	1002	102	2
+
+query IIII
+SELECT value1, value3, value2 as v2, part
+FROM delta_scan('./data/generated/test_file_skipping_2/int/delta_lake')
+WHERE value1 = 12
+----
+12	1002	102	2
+
+# Now there should be 2 entries without the files filtered in the output
+query IIIII
+SELECT filter_type, filters_before, filters_after, files_before, files_after
+FROM delta_filter_pushdown_log()
+ORDER BY filter_type
+----
+dynamic	[]	[value1=12]	NULL	NULL
+regular	[]	[value1=12]	NULL	NULL
