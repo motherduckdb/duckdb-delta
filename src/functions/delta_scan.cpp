@@ -48,72 +48,72 @@ string url_decode(string input) {
 }
 
 void DeltaSnapshot::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
-                              const ffi::Stats *stats, const ffi::DvInfo *dv_info,
-                              const ffi::CStringMap *partition_values) {
-    auto context = (ScanDataCallBackContext*) engine_context;
-    auto &snapshot = context->snapshot;
+                                          const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                                          const ffi::CStringMap *partition_values) {
+	auto context = (ScanDataCallBackContext *)engine_context;
+	auto &snapshot = context->snapshot;
 
-    auto path_string = snapshot.GetPath();
-    StringUtil::RTrim(path_string, "/");
-    path_string += "/" + KernelUtils::FromDeltaString(path);
+	auto path_string = snapshot.GetPath();
+	StringUtil::RTrim(path_string, "/");
+	path_string += "/" + KernelUtils::FromDeltaString(path);
 
-    path_string = url_decode(path_string);
+	path_string = url_decode(path_string);
 
-    // First we append the file to our resolved files
-    snapshot.resolved_files.push_back(DeltaSnapshot::ToDuckDBPath(path_string));
-    snapshot.metadata.emplace_back(make_uniq<DeltaFileMetaData>());
+	// First we append the file to our resolved files
+	snapshot.resolved_files.push_back(DeltaSnapshot::ToDuckDBPath(path_string));
+	snapshot.metadata.emplace_back(make_uniq<DeltaFileMetaData>());
 
-    D_ASSERT(snapshot.resolved_files.size() == snapshot.metadata.size());
+	D_ASSERT(snapshot.resolved_files.size() == snapshot.metadata.size());
 
-    // Initialize the file metadata
-    snapshot.metadata.back()->delta_snapshot_version = snapshot.version;
-    snapshot.metadata.back()->file_number = snapshot.resolved_files.size() - 1;
-    if (stats) {
-        snapshot.metadata.back()->cardinality = stats->num_records;
-    }
+	// Initialize the file metadata
+	snapshot.metadata.back()->delta_snapshot_version = snapshot.version;
+	snapshot.metadata.back()->file_number = snapshot.resolved_files.size() - 1;
+	if (stats) {
+		snapshot.metadata.back()->cardinality = stats->num_records;
+	}
 
-    // Fetch the deletion vector
-    auto selection_vector_res =
-        ffi::selection_vector_from_dv(dv_info, snapshot.extern_engine.get(), snapshot.global_state.get());
+	// Fetch the deletion vector
+	auto selection_vector_res =
+	    ffi::selection_vector_from_dv(dv_info, snapshot.extern_engine.get(), snapshot.global_state.get());
 
-    // TODO: remove workaround for https://github.com/duckdb/duckdb-delta/issues/150
-    bool do_workaround = false;
-    if (selection_vector_res.tag == ffi::ExternResult<ffi::KernelBoolSlice>::Tag::Err && selection_vector_res.err._0) {
-        auto error_cast = static_cast<DuckDBEngineError *>(selection_vector_res.err._0);
-        if (error_cast->error_message == "Deletion Vector error: Unknown storage format: ''.") {
-            do_workaround = true;
-        }
-    }
+	// TODO: remove workaround for https://github.com/duckdb/duckdb-delta/issues/150
+	bool do_workaround = false;
+	if (selection_vector_res.tag == ffi::ExternResult<ffi::KernelBoolSlice>::Tag::Err && selection_vector_res.err._0) {
+		auto error_cast = static_cast<DuckDBEngineError *>(selection_vector_res.err._0);
+		if (error_cast->error_message == "Deletion Vector error: Unknown storage format: ''.") {
+			do_workaround = true;
+		}
+	}
 
-    if (!do_workaround) {
-        auto selection_vector =
-            KernelUtils::UnpackResult(selection_vector_res, "selection_vector_from_dv for path " + snapshot.GetPath());
-        if (selection_vector.ptr) {
-            snapshot.metadata.back()->selection_vector = selection_vector;
-        }
-    }
+	if (!do_workaround) {
+		auto selection_vector =
+		    KernelUtils::UnpackResult(selection_vector_res, "selection_vector_from_dv for path " + snapshot.GetPath());
+		if (selection_vector.ptr) {
+			snapshot.metadata.back()->selection_vector = selection_vector;
+		}
+	}
 
-    // Lookup all columns for potential hits in the constant map
-    case_insensitive_map_t<string> constant_map;
-    for (const auto &col : snapshot.names) {
-        auto key = KernelUtils::ToDeltaString(col);
-        auto *partition_val = (string *)ffi::get_from_map(partition_values, key, allocate_string);
-        if (partition_val) {
-            constant_map[col] = *partition_val;
-            delete partition_val;
-        }
-    }
-    snapshot.metadata.back()->partition_map = std::move(constant_map);
+	// Lookup all columns for potential hits in the constant map
+	case_insensitive_map_t<string> constant_map;
+	for (const auto &col : snapshot.names) {
+		auto key = KernelUtils::ToDeltaString(col);
+		auto *partition_val = (string *)ffi::get_from_map(partition_values, key, allocate_string);
+		if (partition_val) {
+			constant_map[col] = *partition_val;
+			delete partition_val;
+		}
+	}
+	snapshot.metadata.back()->partition_map = std::move(constant_map);
 }
 
 void DeltaSnapshot::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
                                   const ffi::Stats *stats, const ffi::DvInfo *dv_info,
                                   const ffi::CStringMap *partition_values) {
 	try {
-	    return VisitCallbackInternal(engine_context, path, size, stats, dv_info, partition_values);
+		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, partition_values);
 	} catch (std::runtime_error &e) {
-	    auto context = (ScanDataCallBackContext*) engine_context;
-	    context->error = ErrorData(e);
+		auto context = (ScanDataCallBackContext *)engine_context;
+		context->error = ErrorData(e);
 	}
 }
 
@@ -449,7 +449,7 @@ void DeltaSnapshot::Bind(vector<LogicalType> &return_types, vector<string> &name
 		return;
 	}
 
-    EnsureSnapshotInitialized();
+	EnsureSnapshotInitialized();
 
 	unique_ptr<SchemaVisitor::FieldList> schema;
 
@@ -480,14 +480,14 @@ string DeltaSnapshot::GetFileInternal(idx_t i) const {
 		return "";
 	}
 
-    ScanDataCallBackContext callback_context(*this);
+	ScanDataCallBackContext callback_context(*this);
 
 	while (i >= resolved_files.size()) {
 		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), &callback_context, VisitData);
 
-	    if (callback_context.error.HasError()) {
-	        callback_context.error.Throw();
-	    }
+		if (callback_context.error.HasError()) {
+			callback_context.error.Throw();
+		}
 
 		auto have_scan_data = TryUnpackKernelResult(have_scan_data_res);
 
@@ -569,16 +569,16 @@ void DeltaSnapshot::InitializeScan() const {
 }
 
 void DeltaSnapshot::EnsureSnapshotInitialized() const {
-    if (!initialized_snapshot) {
-        InitializeSnapshot();
-    }
+	if (!initialized_snapshot) {
+		InitializeSnapshot();
+	}
 }
 
 void DeltaSnapshot::EnsureScanInitialized() const {
-    EnsureSnapshotInitialized();
-    if (!initialized_scan) {
-        InitializeScan();
-    }
+	EnsureSnapshotInitialized();
+	if (!initialized_scan) {
+		InitializeScan();
+	}
 }
 
 unique_ptr<DeltaSnapshot> DeltaSnapshot::PushdownInternal(ClientContext &context, TableFilterSet filters) const {
@@ -809,21 +809,21 @@ unique_ptr<NodeStatistics> DeltaSnapshot::GetCardinality(ClientContext &context)
 
 idx_t DeltaSnapshot::GetVersion() {
 	unique_lock<mutex> lck(lock);
-    EnsureScanInitialized();
+	EnsureScanInitialized();
 	return version;
 }
 
 DeltaFileMetaData &DeltaSnapshot::GetMetaData(idx_t index) const {
 	unique_lock<mutex> lck(lock);
-    if (index >= metadata.size()) {
-        throw InternalException("Attempted to fetch metadata for nonexistent file in DeltaSnapshot");
-    }
+	if (index >= metadata.size()) {
+		throw InternalException("Attempted to fetch metadata for nonexistent file in DeltaSnapshot");
+	}
 	return *metadata[index];
 }
 
 vector<string> DeltaSnapshot::GetPartitionColumns() {
 	unique_lock<mutex> lck(lock);
-    EnsureScanInitialized();
+	EnsureScanInitialized();
 	return partitions;
 }
 

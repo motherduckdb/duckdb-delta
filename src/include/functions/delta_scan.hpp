@@ -80,8 +80,8 @@ protected:
 	void InitializeSnapshot() const;
 	void InitializeScan() const;
 
-    void EnsureSnapshotInitialized() const;
-    void EnsureScanInitialized() const;
+	void EnsureSnapshotInitialized() const;
+	void EnsureScanInitialized() const;
 
 	void ReportFilterPushdown(ClientContext &context, DeltaSnapshot &new_list, const vector<column_t> &column_ids,
 	                          const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const;
@@ -97,9 +97,9 @@ protected:
 	static void VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
 	                          const ffi::Stats *stats, const ffi::DvInfo *dv_info,
 	                          const struct ffi::CStringMap *partition_values);
-    static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
-	                          const ffi::Stats *stats, const ffi::DvInfo *dv_info,
-	                          const struct ffi::CStringMap *partition_values);
+	static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path,
+	                                  int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+	                                  const struct ffi::CStringMap *partition_values);
 
 protected:
 	// Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
@@ -121,11 +121,11 @@ protected:
 	mutable bool initialized_scan = false;
 	mutable bool files_exhausted = false;
 
-    //! Metadata map for files
-    mutable vector<unique_ptr<DeltaFileMetaData>> metadata;
+	//! Metadata map for files
+	mutable vector<unique_ptr<DeltaFileMetaData>> metadata;
 
-    mutable vector<string> resolved_files;
-    mutable TableFilterSet table_filters;
+	mutable vector<string> resolved_files;
+	mutable TableFilterSet table_filters;
 
 	//! Names
 	vector<string> names;
@@ -195,10 +195,10 @@ struct DeltaMultiFileReader : public MultiFileReader {
 };
 
 struct ScanDataCallBackContext {
-    explicit ScanDataCallBackContext(const DeltaSnapshot &snapshot_p) : snapshot(snapshot_p) {
-    }
-    const DeltaSnapshot &snapshot;
-    ErrorData error;
+	explicit ScanDataCallBackContext(const DeltaSnapshot &snapshot_p) : snapshot(snapshot_p) {
+	}
+	const DeltaSnapshot &snapshot;
+	ErrorData error;
 };
 
 } // namespace duckdb
