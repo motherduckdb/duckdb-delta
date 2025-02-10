@@ -26,7 +26,6 @@ static string url_decode(string input) {
 	string result;
 	result.reserve(input.size());
 	char ch;
-	replace(input.begin(), input.end(), '+', ' ');
 	for (idx_t i = 0; i < input.length(); i++) {
 		if (int(input[i]) == 37) {
 			unsigned int ii;
