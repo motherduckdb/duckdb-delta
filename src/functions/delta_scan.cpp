@@ -77,9 +77,17 @@ void DeltaSnapshot::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi
         ffi::selection_vector_from_dv(dv_info, snapshot.extern_engine.get(), snapshot.global_state.get());
 
     // TODO: remove workaround for https://github.com/duckdb/duckdb-delta/issues/150
-    if (selection_vector_res.tag != ffi::ExternResult<ffi::KernelBoolSlice>::Tag::Err) {
+    bool do_workaround = false;
+    if (selection_vector_res.tag == ffi::ExternResult<ffi::KernelBoolSlice>::Tag::Err && selection_vector_res.err._0) {
+        auto error_cast = static_cast<DuckDBEngineError *>(selection_vector_res.err._0);
+        if (error_cast->error_message == "Deletion Vector error: Unknown storage format: ''.") {
+            do_workaround = true;
+        }
+    }
+
+    if (!do_workaround) {
         auto selection_vector =
-       KernelUtils::UnpackResult(selection_vector_res, "selection_vector_from_dv for path " + snapshot.GetPath());
+            KernelUtils::UnpackResult(selection_vector_res, "selection_vector_from_dv for path " + snapshot.GetPath());
         if (selection_vector.ptr) {
             snapshot.metadata.back()->selection_vector = selection_vector;
         }
