@@ -97,6 +97,9 @@ protected:
 	static void VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
 	                          const ffi::Stats *stats, const ffi::DvInfo *dv_info,
 	                          const struct ffi::CStringMap *partition_values);
+    static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
+	                          const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+	                          const struct ffi::CStringMap *partition_values);
 
 protected:
 	// Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
@@ -118,16 +121,16 @@ protected:
 	mutable bool initialized_scan = false;
 	mutable bool files_exhausted = false;
 
+    //! Metadata map for files
+    mutable vector<unique_ptr<DeltaFileMetaData>> metadata;
+
+    mutable vector<string> resolved_files;
+    mutable TableFilterSet table_filters;
+
 	//! Names
 	vector<string> names;
 	vector<LogicalType> types;
 	bool have_bound = false;
-
-	//! Metadata map for files
-	vector<unique_ptr<DeltaFileMetaData>> metadata;
-
-	vector<string> resolved_files;
-	TableFilterSet table_filters;
 
 	ClientContext &context;
 };
@@ -189,6 +192,13 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	// A snapshot can be injected into the multifilereader, this ensures the GetMultiFileList can return this snapshot
 	// (note that the path should match the one passed to CreateFileList)
 	shared_ptr<DeltaSnapshot> snapshot;
+};
+
+struct ScanDataCallBackContext {
+    explicit ScanDataCallBackContext(const DeltaSnapshot &snapshot_p) : snapshot(snapshot_p) {
+    }
+    const DeltaSnapshot &snapshot;
+    ErrorData error;
 };
 
 } // namespace duckdb
