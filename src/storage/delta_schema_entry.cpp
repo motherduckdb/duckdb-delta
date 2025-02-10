@@ -1,20 +1,17 @@
 #include "storage/delta_schema_entry.hpp"
 
-#include "functions/delta_scan.hpp"
+#include "functions/delta_scan/delta_multi_file_list.hpp"
 #include "storage/delta_catalog.hpp"
 
 #include "delta_extension.hpp"
 
 #include "storage/delta_table_entry.hpp"
 #include "storage/delta_transaction.hpp"
-#include "duckdb/parser/parsed_data/create_view_info.hpp"
 #include "duckdb/parser/parsed_data/create_index_info.hpp"
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/constraints/list.hpp"
 #include "duckdb/common/unordered_set.hpp"
-#include "duckdb/parser/parsed_data/alter_info.hpp"
-#include "duckdb/parser/parsed_data/alter_table_info.hpp"
 #include "duckdb/parser/parsed_expression_iterator.hpp"
 
 namespace duckdb {
@@ -106,7 +103,7 @@ static bool CatalogTypeIsSupported(CatalogType type) {
 
 static unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context, DeltaCatalog &delta_catalog,
                                                     DeltaSchemaEntry &schema_entry) {
-	auto snapshot = make_shared_ptr<DeltaSnapshot>(context, delta_catalog.GetDBPath());
+	auto snapshot = make_shared_ptr<DeltaMultiFileList>(context, delta_catalog.GetDBPath());
 
 	// Get the names and types from the delta snapshot
 	vector<LogicalType> return_types;

@@ -12,7 +12,7 @@
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 namespace duckdb {
-class DeltaSnapshot;
+class DeltaMultiFileList;
 
 class DeltaTableEntry : public TableCatalogEntry {
 public:
@@ -30,7 +30,7 @@ public:
 	                           ClientContext &context) override;
 
 public:
-	shared_ptr<DeltaSnapshot> snapshot;
+	shared_ptr<DeltaMultiFileList> snapshot;
 };
 
 } // namespace duckdb

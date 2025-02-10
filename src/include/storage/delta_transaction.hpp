@@ -14,7 +14,7 @@ namespace duckdb {
 class DeltaCatalog;
 class DeltaSchemaEntry;
 class DeltaTableEntry;
-class DeltaSnapshot;
+class DeltaMultiFileList;
 
 enum class DeltaTransactionState { TRANSACTION_NOT_YET_STARTED, TRANSACTION_STARTED, TRANSACTION_FINISHED };
 

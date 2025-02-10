@@ -1,18 +1,15 @@
 #include "delta_utils.hpp"
 
-#include <duckdb/common/exception/conversion_exception.hpp>
-
 #include "duckdb.hpp"
+#include "duckdb/common/types/decimal.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
-
-#include <duckdb/parser/parsed_data/create_scalar_function_info.hpp>
-#include <duckdb/planner/filter/null_filter.hpp>
+#include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
+#include "duckdb/common/exception/conversion_exception.hpp"
 #include "duckdb/parser/expression/conjunction_expression.hpp"
 #include "duckdb/parser/expression/comparison_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/parser/expression/operator_expression.hpp"
-#include "duckdb/common/types/decimal.hpp"
 
 namespace duckdb {
 
