@@ -114,7 +114,7 @@ static unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context, Delt
 	for (idx_t i = 0; i < return_types.size(); i++) {
 		table_info.columns.AddColumn(ColumnDefinition(names[i], return_types[i]));
 	}
-	table_info.table = DEFAULT_DELTA_TABLE;
+	table_info.table = delta_catalog.GetName();
 	auto table_entry = make_uniq<DeltaTableEntry>(delta_catalog, schema_entry, table_info);
 	table_entry->snapshot = std::move(snapshot);
 
@@ -123,9 +123,9 @@ static unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context, Delt
 
 void DeltaSchemaEntry::Scan(ClientContext &context, CatalogType type,
                             const std::function<void(CatalogEntry &)> &callback) {
-	if (!CatalogTypeIsSupported(type)) {
+	if (CatalogTypeIsSupported(type)) {
 		auto transaction = catalog.GetCatalogTransaction(context);
-		auto default_table = GetEntry(transaction, type, DEFAULT_DELTA_TABLE);
+		auto default_table = GetEntry(transaction, type, catalog.GetName());
 		if (default_table) {
 			callback(*default_table);
 		}
@@ -146,7 +146,7 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::GetEntry(CatalogTransaction transac
 	}
 	auto &context = transaction.GetContext();
 
-	if (type == CatalogType::TABLE_ENTRY && name == DEFAULT_DELTA_TABLE) {
+	if (type == CatalogType::TABLE_ENTRY && name == catalog.GetName()) {
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
