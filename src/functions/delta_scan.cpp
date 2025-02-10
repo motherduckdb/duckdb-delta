@@ -28,7 +28,7 @@ static void *allocate_string(const struct ffi::KernelStringSlice slice) {
 	return new string(slice.ptr, slice.len);
 }
 
-string url_decode(string input) {
+static string url_decode(string input) {
 	string result;
 	result.reserve(input.size());
 	char ch;
@@ -47,10 +47,10 @@ string url_decode(string input) {
 	return result;
 }
 
-void DeltaSnapshot::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
+void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
                                           const ffi::Stats *stats, const ffi::DvInfo *dv_info,
                                           const ffi::CStringMap *partition_values) {
-	auto context = (ScanDataCallBackContext *)engine_context;
+	auto context = (ScanDataCallBack *)engine_context;
 	auto &snapshot = context->snapshot;
 
 	auto path_string = snapshot.GetPath();
@@ -106,20 +106,20 @@ void DeltaSnapshot::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi
 	snapshot.metadata.back()->partition_map = std::move(constant_map);
 }
 
-void DeltaSnapshot::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
+void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
                                   const ffi::Stats *stats, const ffi::DvInfo *dv_info,
                                   const ffi::CStringMap *partition_values) {
 	try {
 		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, partition_values);
 	} catch (std::runtime_error &e) {
-		auto context = (ScanDataCallBackContext *)engine_context;
+		auto context = (ScanDataCallBack *)engine_context;
 		context->error = ErrorData(e);
 	}
 }
 
-void DeltaSnapshot::VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
+void ScanDataCallBack::VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
                               const struct ffi::KernelBoolSlice selection_vec) {
-	ffi::visit_scan_data(engine_data, selection_vec, engine_context, VisitCallback);
+	ffi::visit_scan_data(engine_data, selection_vec, engine_context, ScanDataCallBack::VisitCallback);
 }
 
 string ParseAccountNameFromEndpoint(const string &endpoint) {
@@ -480,10 +480,10 @@ string DeltaSnapshot::GetFileInternal(idx_t i) const {
 		return "";
 	}
 
-	ScanDataCallBackContext callback_context(*this);
+	ScanDataCallBack callback_context(*this);
 
 	while (i >= resolved_files.size()) {
-		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), &callback_context, VisitData);
+		auto have_scan_data_res = ffi::kernel_scan_data_next(scan_data_iterator.get(), &callback_context, ScanDataCallBack::VisitData);
 
 		if (callback_context.error.HasError()) {
 			callback_context.error.Throw();

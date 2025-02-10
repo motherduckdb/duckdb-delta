@@ -12,7 +12,7 @@
 #include "duckdb/common/multi_file_reader.hpp"
 
 namespace duckdb {
-struct DeltaSnapshot;
+class DeltaSnapshot;
 
 struct DeltaFunctionInfo : public TableFunctionInfo {
 	shared_ptr<DeltaSnapshot> snapshot;
@@ -41,7 +41,10 @@ struct DeltaFileMetaData {
 };
 
 //! The DeltaSnapshot implements the MultiFileList API to allow injecting it into the regular DuckDB parquet scan
-struct DeltaSnapshot : public MultiFileList {
+class DeltaSnapshot : public MultiFileList {
+    friend struct ScanDataCallBack;
+
+public:
 	DeltaSnapshot(ClientContext &context, const string &path);
 	string GetPath() const;
 	static string ToDuckDBPath(const string &raw_path);
@@ -91,15 +94,6 @@ protected:
 		return KernelUtils::UnpackResult<T>(
 		    result, StringUtil::Format("While trying to read from delta table: '%s'", paths[0]));
 	}
-
-	static void VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
-	                      const struct ffi::KernelBoolSlice selection_vec);
-	static void VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
-	                          const ffi::Stats *stats, const ffi::DvInfo *dv_info,
-	                          const struct ffi::CStringMap *partition_values);
-	static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path,
-	                                  int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
-	                                  const struct ffi::CStringMap *partition_values);
 
 protected:
 	// Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
@@ -194,11 +188,21 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	shared_ptr<DeltaSnapshot> snapshot;
 };
 
-struct ScanDataCallBackContext {
-	explicit ScanDataCallBackContext(const DeltaSnapshot &snapshot_p) : snapshot(snapshot_p) {
+// Callback for the ffi::kernel_scan_data_next callback
+struct ScanDataCallBack {
+	explicit ScanDataCallBack(const DeltaSnapshot &snapshot_p) : snapshot(snapshot_p) {
 	}
 	const DeltaSnapshot &snapshot;
 	ErrorData error;
+
+    static void VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
+                          const struct ffi::KernelBoolSlice selection_vec);
+    static void VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
+                              const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                              const struct ffi::CStringMap *partition_values);
+    static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path,
+                                      int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                                      const struct ffi::CStringMap *partition_values);
 };
 
 } // namespace duckdb

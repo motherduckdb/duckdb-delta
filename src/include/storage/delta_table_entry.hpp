@@ -12,7 +12,7 @@
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 namespace duckdb {
-struct DeltaSnapshot;
+class DeltaSnapshot;
 
 class DeltaTableEntry : public TableCatalogEntry {
 public:
