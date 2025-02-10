@@ -26,10 +26,10 @@ SELECT database_name, schema_name, table_name from duckdb_tables;
 ----
 dt	main	dt
 
-# Note that this is empty: show tables shows only tables in the currently selected catalog. dt lives in its own catalog (called dt)
-query I
-show tables;
+query IIIIII
+show all tables;
 ----
+dt	main	dt	[utf8, int64, int32, int16, int8, float32, float64, bool, binary, decimal, date32, timestamp]	[VARCHAR, BIGINT, INTEGER, SMALLINT, TINYINT, FLOAT, DOUBLE, BOOLEAN, BLOB, DECIMAL(5,3), DATE, TIMESTAMP WITH TIME ZONE]	false
 
 # We can query the table using the catalog name + the table name
 query I
