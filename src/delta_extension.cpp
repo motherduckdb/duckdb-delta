@@ -29,7 +29,7 @@ static unique_ptr<Catalog> DeltaCatalogAttach(StorageExtensionInfo *storage_info
 		}
 	}
 
-	res->SetDefaultTable(DEFAULT_SCHEMA, DEFAULT_DELTA_TABLE);
+	res->SetDefaultTable(DEFAULT_SCHEMA, name);
 
 	return std::move(res);
 }

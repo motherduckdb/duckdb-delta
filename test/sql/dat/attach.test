@@ -21,9 +21,19 @@ select utf8 from dt
 3
 4
 
-# We can query the table using the catalog name + the constant `delta_table` as name
+query III
+SELECT database_name, schema_name, table_name from duckdb_tables;
+----
+dt	main	dt
+
+query IIIIII
+show all tables;
+----
+dt	main	dt	[utf8, int64, int32, int16, int8, float32, float64, bool, binary, decimal, date32, timestamp]	[VARCHAR, BIGINT, INTEGER, SMALLINT, TINYINT, FLOAT, DOUBLE, BOOLEAN, BLOB, DECIMAL(5,3), DATE, TIMESTAMP WITH TIME ZONE]	false
+
+# We can query the table using the catalog name + the table name
 query I
-select utf8 from dt.delta_table
+select utf8 from dt.dt
 ----
 0
 1
@@ -31,9 +41,9 @@ select utf8 from dt.delta_table
 3
 4
 
-# We can query the table using the catalog name + default schema + the constant `delta_table` as name
+# We can query the table using the catalog name + default schema + the table name
 query I
-select utf8 from dt.main.delta_table
+select utf8 from dt.main.dt
 ----
 0
 1
@@ -49,7 +59,7 @@ create table dt as select 1 as id, 2 as utf8
 statement error
 from dt
 ----
-Catalog Error: Ambiguity detected for 'dt': this could either refer to the 'Table' 'dt', or the attached catalog 'dt' which has a default table. To avoid this error, either detach the catalog and reattach under a different name, or use a fully qualified name for the 'Table': 'memory.main.dt' or for the Catalog Default Table: 'dt.main.delta_table'.
+Catalog Error: Ambiguity detected for 'dt': this could either refer to the 'Table' 'dt', or the attached catalog 'dt' which has a default table. To avoid this error, either detach the catalog and reattach under a different name, or use a fully qualified name for the 'Table': 'memory.main.dt' or for the Catalog Default Table: 'dt.main.dt'.
 
 # Join the two tables using fully qualified names
 query III
@@ -60,46 +70,21 @@ SELECT
 FROM
     memory.main.dt as dt1
 LEFT JOIN
-    dt.main.delta_table as dt2
+    dt.main.dt as dt2
 ON
     dt1.utf8 = dt2.utf8
 ----
 1	2	2
 
-
-# You shouldn't be doing this, but its technically possible: we mount the single-table-catalog
+# You probably shouldn't be doing this, but its technically possible: we mount the single-table-catalog
 statement ok
 use dt
 
-# We can still query the delta catalog default table by its name
-query I
+# TODO: we should fix this upstream
+statement error
 select utf8 from dt
 ----
-0
-1
-2
-3
-4
-
-# Or by the default delta table name (`delta_table`)
-query I
-select utf8 from delta_table
-----
-0
-1
-2
-3
-4
-
-# Or by specifying the default schema
-query I
-select utf8 from main.delta_table
-----
-0
-1
-2
-3
-4
+Catalog Error: Ambiguity detected for 'dt'
 
 statement ok
 USE memory

@@ -39,4 +39,18 @@ AccessMode DeltaTransaction::GetAccessMode() const {
 	return access_mode;
 }
 
+optional_ptr<DeltaTableEntry> DeltaTransaction::GetTableEntry() {
+    unique_lock<mutex> lck(lock);
+    return table_entry;
+}
+
+DeltaTableEntry& DeltaTransaction::InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry) {
+    unique_lock<mutex> lck(lock);
+    if (!table_entry) {
+        table_entry = schema_entry.CreateTableEntry(context);
+    }
+    return *table_entry;
+}
+
+
 } // namespace duckdb
