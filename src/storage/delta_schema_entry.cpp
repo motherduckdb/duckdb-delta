@@ -115,7 +115,7 @@ unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &co
 		table_info.columns.AddColumn(ColumnDefinition(names[i], return_types[i]));
 	}
 	table_info.table = delta_catalog.GetName();
-	auto table_entry = make_uniq<DeltaTableEntry>(delta_catalog, this, table_info);
+	auto table_entry = make_uniq<DeltaTableEntry>(delta_catalog, *this, table_info);
 	table_entry->snapshot = std::move(snapshot);
 
 	return table_entry;

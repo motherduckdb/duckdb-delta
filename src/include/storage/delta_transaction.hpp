@@ -36,7 +36,7 @@ public:
 
 public:
     optional_ptr<DeltaTableEntry> GetTableEntry();
-    DeltaTableEntry &DeltaTransaction::InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry);
+    DeltaTableEntry &InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry);
 
 private:
     mutex lock;
