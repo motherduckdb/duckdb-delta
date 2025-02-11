@@ -101,8 +101,8 @@ static bool CatalogTypeIsSupported(CatalogType type) {
 	}
 }
 
-static unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context, DeltaCatalog &delta_catalog,
-                                                    DeltaSchemaEntry &schema_entry) {
+unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &context) {
+    auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 	auto snapshot = make_shared_ptr<DeltaMultiFileList>(context, delta_catalog.GetDBPath());
 
 	// Get the names and types from the delta snapshot
@@ -115,7 +115,7 @@ static unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context, Delt
 		table_info.columns.AddColumn(ColumnDefinition(names[i], return_types[i]));
 	}
 	table_info.table = delta_catalog.GetName();
-	auto table_entry = make_uniq<DeltaTableEntry>(delta_catalog, schema_entry, table_info);
+	auto table_entry = make_uniq<DeltaTableEntry>(delta_catalog, this, table_info);
 	table_entry->snapshot = std::move(snapshot);
 
 	return table_entry;
@@ -150,20 +150,20 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::GetEntry(CatalogTransaction transac
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
-		if (delta_transaction.table_entry) {
-			return *delta_transaction.table_entry;
+	    auto transaction_table_entry = delta_transaction.GetTableEntry();
+		if (transaction_table_entry) {
+		    return *transaction_table_entry;
 		}
 
 		if (delta_catalog.UseCachedSnapshot()) {
 			unique_lock<mutex> l(lock);
 			if (!cached_table) {
-				cached_table = CreateTableEntry(context, delta_catalog, *this);
+				cached_table = CreateTableEntry(context);
 			}
 			return *cached_table;
 		}
 
-		delta_transaction.table_entry = CreateTableEntry(context, delta_catalog, *this);
-		return *delta_transaction.table_entry;
+	    return delta_transaction.InitializeTableEntry(context, *this);;
 	}
 
 	return nullptr;

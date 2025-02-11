@@ -76,7 +76,6 @@ ON
 ----
 1	2	2
 
-
 # You probably shouldn't be doing this, but its technically possible: we mount the single-table-catalog
 statement ok
 use dt

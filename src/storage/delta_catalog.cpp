@@ -68,8 +68,9 @@ optional_idx DeltaCatalog::GetCatalogVersion(ClientContext &context) {
 	}
 
 	// Option 2: snapshot is cached in transaction
-	if (delta_transaction.table_entry) {
-		version = delta_transaction.table_entry->snapshot->GetVersion();
+    auto transaction_table_entry = delta_transaction.GetTableEntry();
+	if (transaction_table_entry) {
+		version = transaction_table_entry->snapshot->GetVersion();
 	}
 
 	if (version != DConstants::INVALID_INDEX) {

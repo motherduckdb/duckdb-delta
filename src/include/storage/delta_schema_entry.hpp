@@ -13,6 +13,7 @@
 
 namespace duckdb {
 class DeltaTransaction;
+class DeltaCatalog;
 
 class DeltaSchemaEntry : public SchemaCatalogEntry {
 public:
@@ -41,6 +42,8 @@ public:
 	optional_ptr<CatalogEntry> GetEntry(CatalogTransaction transaction, CatalogType type, const string &name) override;
 
 	optional_ptr<DeltaTableEntry> GetCachedTable();
+
+    unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context);
 
 private:
 	//! Delta tables may be cached in the SchemaEntry. Since the TableEntry holds the snapshot, this allows sharing a
