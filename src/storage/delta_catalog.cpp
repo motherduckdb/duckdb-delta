@@ -68,7 +68,7 @@ optional_idx DeltaCatalog::GetCatalogVersion(ClientContext &context) {
 	}
 
 	// Option 2: snapshot is cached in transaction
-    auto transaction_table_entry = delta_transaction.GetTableEntry();
+	auto transaction_table_entry = delta_transaction.GetTableEntry();
 	if (transaction_table_entry) {
 		version = transaction_table_entry->snapshot->GetVersion();
 	}

@@ -579,19 +579,19 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
                                                                     TableFilterSet &new_filters) const {
 	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0]);
 
-    TableFilterSet result_filter_set;
+	TableFilterSet result_filter_set;
 
 	// Add pre-existing filters
 	for (auto &entry : table_filters.filters) {
 		result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
 	}
 
-    // Add new filters
-    for (auto &entry : new_filters.filters) {
-        if (entry.first < names.size()) {
-            result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
-        }
-    }
+	// Add new filters
+	for (auto &entry : new_filters.filters) {
+		if (entry.first < names.size()) {
+			result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+		}
+	}
 
 	filtered_list->table_filters = std::move(result_filter_set);
 	filtered_list->names = names;

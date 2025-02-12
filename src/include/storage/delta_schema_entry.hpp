@@ -43,7 +43,7 @@ public:
 
 	optional_ptr<DeltaTableEntry> GetCachedTable();
 
-    unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context);
+	unique_ptr<DeltaTableEntry> CreateTableEntry(ClientContext &context);
 
 private:
 	//! Delta tables may be cached in the SchemaEntry. Since the TableEntry holds the snapshot, this allows sharing a

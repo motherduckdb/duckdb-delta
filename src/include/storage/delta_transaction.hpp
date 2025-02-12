@@ -35,12 +35,12 @@ public:
 	};
 
 public:
-    optional_ptr<DeltaTableEntry> GetTableEntry();
-    DeltaTableEntry &InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry);
+	optional_ptr<DeltaTableEntry> GetTableEntry();
+	DeltaTableEntry &InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry);
 
 private:
-    mutex lock;
-    unique_ptr<DeltaTableEntry> table_entry;
+	mutex lock;
+	unique_ptr<DeltaTableEntry> table_entry;
 
 	//	DeltaConnection connection;
 	DeltaTransactionState transaction_state;
