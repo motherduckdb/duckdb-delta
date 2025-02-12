@@ -26,7 +26,7 @@ query IIIII
 SELECT filter_type, filters_before, filters_after, files_before, files_after
 FROM delta_filter_pushdown_log()
 ----
-regular	[]	[value2=102, value3=1002]	5	1
+regular	[]	[value3=1002, value2=102]	5	1
 
 # Clear logging storage
 statement ok
@@ -119,7 +119,7 @@ SELECT filter_type, filters_before, filters_after, files_before, files_after
 FROM delta_filter_pushdown_log()
 ORDER BY filter_type
 ----
-dynamic	[value1=13]	[value1=13, value2=103]	1	1
+dynamic	[value1=13]	[value2=103, value1=13]	1	1
 regular	[]	[value1=13]	5	1
 
 # Clear logging storage

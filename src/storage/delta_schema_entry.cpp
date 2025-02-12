@@ -102,7 +102,7 @@ static bool CatalogTypeIsSupported(CatalogType type) {
 }
 
 unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &context) {
-    auto &delta_catalog = catalog.Cast<DeltaCatalog>();
+	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 	auto snapshot = make_shared_ptr<DeltaMultiFileList>(context, delta_catalog.GetDBPath());
 
 	// Get the names and types from the delta snapshot
@@ -150,9 +150,9 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::GetEntry(CatalogTransaction transac
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
-	    auto transaction_table_entry = delta_transaction.GetTableEntry();
+		auto transaction_table_entry = delta_transaction.GetTableEntry();
 		if (transaction_table_entry) {
-		    return *transaction_table_entry;
+			return *transaction_table_entry;
 		}
 
 		if (delta_catalog.UseCachedSnapshot()) {
@@ -163,7 +163,8 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::GetEntry(CatalogTransaction transac
 			return *cached_table;
 		}
 
-	    return delta_transaction.InitializeTableEntry(context, *this);;
+		return delta_transaction.InitializeTableEntry(context, *this);
+		;
 	}
 
 	return nullptr;

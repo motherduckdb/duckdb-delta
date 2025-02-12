@@ -24,3 +24,23 @@ FROM delta_scan('${DAT_PATH}/out/reader_tests/generated/basic_append/delta', del
 .snappy.parquet	0	a	7	1
 .snappy.parquet	1	b	7	2
 .snappy.parquet	2	c	7	3
+
+# Enable logging to inspect filter pushdown
+statement ok
+set enable_logging=true
+
+# Test with appends and several custom options
+query IIIII
+SELECT  parse_filename(filename)[-15:-1], file_row_number, letter, delta_file_number, number
+FROM delta_scan('${DAT_PATH}/out/reader_tests/generated/basic_append/delta', delta_file_number=1, file_row_number=1, filename=1)
+WHERE filename != 'henk' and letter = 'd'
+----
+.snappy.parquet	0	d	7	4
+
+# Note that we can not push down the filename column yet
+# TODO: implement delta filter pushdown on filename column
+query IIIII
+SELECT filter_type, files_before, files_after, filters_before, filters_after FROM delta_filter_pushdown_log() order by filter_type;
+----
+dynamic	1	1	[letter='d']	[letter='d']
+regular	2	1	[]	[letter='d']
