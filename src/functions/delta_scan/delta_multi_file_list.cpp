@@ -576,15 +576,24 @@ void DeltaMultiFileList::EnsureScanInitialized() const {
 }
 
 unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context,
-                                                                    TableFilterSet filters) const {
+                                                                    TableFilterSet &new_filters) const {
 	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0]);
 
-	// Inject pre-existing filters
+    TableFilterSet result_filter_set;
+
+	// Add pre-existing filters
 	for (auto &entry : table_filters.filters) {
-		filters.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+		result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
 	}
 
-	filtered_list->table_filters = std::move(filters);
+    // Add new filters
+    for (auto &entry : new_filters.filters) {
+        if (entry.first < names.size()) {
+            result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+        }
+    }
+
+	filtered_list->table_filters = std::move(result_filter_set);
 	filtered_list->names = names;
 
 	// Copy over the snapshot, this avoids reparsing metadata
@@ -610,12 +619,12 @@ unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContex
 		combiner.AddFilter(riter->get()->Copy());
 	}
 
-	auto new_filter_set = combiner.GenerateTableScanFilters(info.column_indexes);
-	if (new_filter_set.filters.empty()) {
+	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes);
+	if (filter_set.filters.empty()) {
 		return nullptr;
 	}
 
-	auto filtered_list = PushdownInternal(context, std::move(new_filter_set));
+	auto filtered_list = PushdownInternal(context, filter_set);
 
 	ReportFilterPushdown(context, *filtered_list, info.column_ids, "regular", info);
 
@@ -744,7 +753,7 @@ DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFil
 	}
 
 	if (!filters_copy.filters.empty()) {
-		auto new_snap = PushdownInternal(context, std::move(filters_copy));
+		auto new_snap = PushdownInternal(context, filters_copy);
 		ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
 		return std::move(new_snap);
 	}

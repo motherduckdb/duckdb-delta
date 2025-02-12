@@ -57,7 +57,7 @@ public:
 	                                                const vector<column_t> &column_ids,
 	                                                TableFilterSet &filters) const override;
 
-	unique_ptr<DeltaMultiFileList> PushdownInternal(ClientContext &context, TableFilterSet filters) const;
+	unique_ptr<DeltaMultiFileList> PushdownInternal(ClientContext &context, TableFilterSet &new_filters) const;
 
 	vector<string> GetAllFiles() override;
 	FileExpandResult GetExpandResult() override;
