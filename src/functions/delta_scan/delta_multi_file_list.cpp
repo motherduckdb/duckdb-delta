@@ -530,6 +530,10 @@ void DeltaMultiFileList::InitializeSnapshot() const {
 		    TryUnpackKernelResult(ffi::snapshot(path_slice, extern_engine.get())));
 	}
 
+    // Set version
+    auto snapshot_ref = snapshot->GetLockingRef();
+    this->version = ffi::version(snapshot_ref.GetPtr());
+
 	initialized_snapshot = true;
 }
 
@@ -542,9 +546,6 @@ void DeltaMultiFileList::InitializeScan() const {
 
 	// Create GlobalState
 	global_state = ffi::get_global_scan_state(scan.get());
-
-	// Set version
-	this->version = ffi::version(snapshot_ref.GetPtr());
 
 	// Create scan data iterator
 	scan_data_iterator = TryUnpackKernelResult(ffi::kernel_scan_data_init(extern_engine.get(), scan.get()));
@@ -813,7 +814,7 @@ unique_ptr<NodeStatistics> DeltaMultiFileList::GetCardinality(ClientContext &con
 
 idx_t DeltaMultiFileList::GetVersion() {
 	unique_lock<mutex> lck(lock);
-	EnsureScanInitialized();
+	EnsureSnapshotInitialized();
 	return version;
 }
 
