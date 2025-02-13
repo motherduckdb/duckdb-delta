@@ -14,11 +14,10 @@ CREATE VIEW t AS SELECT part::INT as part, sum(i) as value
                  GROUP BY part
                  ORDER BY part
 
-# By default, we don't propagate paritioning info TODO: fix this once delta-kernel-rs can give us partitions from a snapshot
 query II
 EXPLAIN FROM t
 ----
-physical_plan	<!REGEX>:.*PARTITIONED_AGGREGATE.*
+physical_plan	<REGEX>:.*PARTITIONED_AGGREGATE.*
 
 # With a projection and delta constant column
 query II
@@ -45,17 +44,17 @@ FROM t
 18	2504000
 19	2504500
 
-# Now we enable pushing down partition info to get the partitioning aware operator
+# We can disable pushing down partition information
 statement ok
 CREATE VIEW t2 AS SELECT part::INT as part, sum(i) as value
-                 FROM delta_scan('./data/generated/simple_partitioned_large/delta_lake', delta_file_number=1, pushdown_partition_info=1)
+                 FROM delta_scan('./data/generated/simple_partitioned_large/delta_lake', delta_file_number=1, pushdown_partition_info=0)
                  GROUP BY part
                  ORDER BY part
 
 query II
 EXPLAIN FROM t2
 ----
-physical_plan	<REGEX>:.*PARTITIONED_AGGREGATE.*
+physical_plan	<!REGEX>:.*PARTITIONED_AGGREGATE.*
 
 # With a projection and delta constant column
 query II
@@ -95,11 +94,11 @@ CREATE VIEW t3 AS SELECT part::INT as part, sum(i) as value
 query II
 EXPLAIN FROM t3
 ----
-physical_plan	<!REGEX>:.*PARTITIONED_AGGREGATE.*
+physical_plan	<REGEX>:.*PARTITIONED_AGGREGATE.*
 
 # Then for ATTACH, with default settings partition info pushdown
 statement ok
-ATTACH './data/generated/simple_partitioned_large/delta_lake' as dt2 (TYPE DELTA, PUSHDOWN_PARTITION_INFO 1)
+ATTACH './data/generated/simple_partitioned_large/delta_lake' as dt2 (TYPE DELTA, PUSHDOWN_PARTITION_INFO 0)
 
 statement ok
 CREATE VIEW t4 AS SELECT part::INT as part, sum(i) as value
@@ -110,5 +109,5 @@ CREATE VIEW t4 AS SELECT part::INT as part, sum(i) as value
 query II
 EXPLAIN FROM t4
 ----
-physical_plan	<REGEX>:.*PARTITIONED_AGGREGATE.*
+physical_plan	<!REGEX>:.*PARTITIONED_AGGREGATE.*
 

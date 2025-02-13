@@ -142,7 +142,7 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 	// TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this
 	// generic
 	auto pushdown_partition_info_setting = options.custom_options.find("pushdown_partition_info");
-	if (pushdown_partition_info_setting != options.custom_options.end() &&
+	if (pushdown_partition_info_setting == options.custom_options.end() ||
 	    pushdown_partition_info_setting->second.GetValue<bool>()) {
 		auto &snapshot = dynamic_cast<DeltaMultiFileList &>(files);
 		auto partitions = snapshot.GetPartitionColumns();
