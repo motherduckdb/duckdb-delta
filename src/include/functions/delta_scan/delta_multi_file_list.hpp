@@ -62,10 +62,9 @@ public:
 	vector<string> GetAllFiles() override;
 	FileExpandResult GetExpandResult() override;
 	idx_t GetTotalFileCount() override;
-
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
-	idx_t GetVersion();
 	DeltaFileMetaData &GetMetaData(idx_t index) const;
+	idx_t GetVersion();
 	vector<string> GetPartitionColumns();
 
 protected:
