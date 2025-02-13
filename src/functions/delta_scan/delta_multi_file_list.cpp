@@ -530,9 +530,9 @@ void DeltaMultiFileList::InitializeSnapshot() const {
 		    TryUnpackKernelResult(ffi::snapshot(path_slice, extern_engine.get())));
 	}
 
-    // Set version
-    auto snapshot_ref = snapshot->GetLockingRef();
-    this->version = ffi::version(snapshot_ref.GetPtr());
+	// Set version
+	auto snapshot_ref = snapshot->GetLockingRef();
+	this->version = ffi::version(snapshot_ref.GetPtr());
 
 	initialized_snapshot = true;
 }

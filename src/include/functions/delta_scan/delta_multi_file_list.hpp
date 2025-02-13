@@ -63,9 +63,9 @@ public:
 	FileExpandResult GetExpandResult() override;
 	idx_t GetTotalFileCount() override;
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
-    DeltaFileMetaData &GetMetaData(idx_t index) const;
-    idx_t GetVersion();
-    vector<string> GetPartitionColumns();
+	DeltaFileMetaData &GetMetaData(idx_t index) const;
+	idx_t GetVersion();
+	vector<string> GetPartitionColumns();
 
 protected:
 	//! Get the i-th expanded file

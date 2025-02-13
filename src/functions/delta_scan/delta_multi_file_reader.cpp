@@ -137,28 +137,29 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 	MultiFileReader::BindOptions(options, files, return_types, names, bind_data);
 
 	// We abuse the hive_partitioning_indexes to forward partitioning information to DuckDB
-	// TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this generic
-    auto pushdown_partition_info_setting = options.custom_options.find("pushdown_partition_info");
-    if (pushdown_partition_info_setting != options.custom_options.end() && pushdown_partition_info_setting->second.GetValue<bool>()) {
-        auto &snapshot = dynamic_cast<DeltaMultiFileList &>(files);
-        auto partitions = snapshot.GetPartitionColumns();
-        for (auto &part : partitions) {
-            idx_t hive_partitioning_index;
-            auto lookup = std::find_if(names.begin(), names.end(),
-                                       [&](const string &col_name) { return StringUtil::CIEquals(col_name, part); });
-            if (lookup != names.end()) {
-                // hive partitioning column also exists in file - override
-                auto idx = NumericCast<idx_t>(lookup - names.begin());
-                hive_partitioning_index = idx;
-            } else {
-                throw IOException("Delta Snapshot returned partition column that is not present in the schema");
-            }
-            bind_data.hive_partitioning_indexes.emplace_back(part, hive_partitioning_index);
-        }
-    }
+	// TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this
+	// generic
+	auto pushdown_partition_info_setting = options.custom_options.find("pushdown_partition_info");
+	if (pushdown_partition_info_setting != options.custom_options.end() &&
+	    pushdown_partition_info_setting->second.GetValue<bool>()) {
+		auto &snapshot = dynamic_cast<DeltaMultiFileList &>(files);
+		auto partitions = snapshot.GetPartitionColumns();
+		for (auto &part : partitions) {
+			idx_t hive_partitioning_index;
+			auto lookup = std::find_if(names.begin(), names.end(),
+			                           [&](const string &col_name) { return StringUtil::CIEquals(col_name, part); });
+			if (lookup != names.end()) {
+				// hive partitioning column also exists in file - override
+				auto idx = NumericCast<idx_t>(lookup - names.begin());
+				hive_partitioning_index = idx;
+			} else {
+				throw IOException("Delta Snapshot returned partition column that is not present in the schema");
+			}
+			bind_data.hive_partitioning_indexes.emplace_back(part, hive_partitioning_index);
+		}
+	}
 
-
-    auto demo_gen_col_opt = options.custom_options.find("delta_file_number");
+	auto demo_gen_col_opt = options.custom_options.find("delta_file_number");
 	if (demo_gen_col_opt != options.custom_options.end()) {
 		if (demo_gen_col_opt->second.GetValue<bool>()) {
 			names.push_back("delta_file_number");
@@ -466,11 +467,11 @@ bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, Mult
 		return true;
 	}
 
-    // We need to capture this one to know whether to emit
-    if (loption == "pushdown_partition_info") {
-        options.custom_options["pushdown_partition_info"] = val;
-        return true;
-    }
+	// We need to capture this one to know whether to emit
+	if (loption == "pushdown_partition_info") {
+		options.custom_options["pushdown_partition_info"] = val;
+		return true;
+	}
 
 	return MultiFileReader::ParseOption(key, val, options, context);
 }
