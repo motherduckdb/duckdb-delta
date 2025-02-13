@@ -33,7 +33,7 @@ public:
 	AccessMode access_mode;
 	bool use_cache;
 	bool pushdown_partition_info;
-    DeltaFilterPushdownMode filter_pushdown_mode;
+	DeltaFilterPushdownMode filter_pushdown_mode;
 
 public:
 	void Initialize(bool load_builtin) override;

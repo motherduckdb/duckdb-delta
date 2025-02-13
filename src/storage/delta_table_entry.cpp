@@ -48,7 +48,7 @@ TableFunction DeltaTableEntry::GetScanFunction(ClientContext &context, unique_pt
 	vector<string> names;
 	TableFunctionRef empty_ref;
 
-    // Propagate settings
+	// Propagate settings
 	param_map.insert({"pushdown_partition_info", delta_catalog.pushdown_partition_info});
 	param_map.insert({"pushdown_filters", DeltaEnumUtils::ToString(delta_catalog.filter_pushdown_mode)});
 

@@ -474,7 +474,7 @@ bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, Mult
 		return true;
 	}
 
-    // We need to capture this one to know whether to emit
+	// We need to capture this one to know whether to emit
 	if (loption == "pushdown_filters") {
 		options.custom_options["pushdown_filters"] = val;
 		return true;

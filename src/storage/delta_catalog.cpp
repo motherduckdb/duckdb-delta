@@ -11,7 +11,8 @@
 namespace duckdb {
 
 DeltaCatalog::DeltaCatalog(AttachedDatabase &db_p, const string &path, AccessMode access_mode)
-    : Catalog(db_p), path(path), access_mode(access_mode), use_cache(false), pushdown_partition_info(false), filter_pushdown_mode(DEFAULT_PUSHDOWN_MODE) {
+    : Catalog(db_p), path(path), access_mode(access_mode), use_cache(false), pushdown_partition_info(false),
+      filter_pushdown_mode(DEFAULT_PUSHDOWN_MODE) {
 }
 
 DeltaCatalog::~DeltaCatalog() = default;

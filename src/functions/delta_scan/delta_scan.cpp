@@ -13,35 +13,35 @@
 namespace duckdb {
 
 DeltaFilterPushdownMode DeltaEnumUtils::FromString(const string &str) {
-    auto str_to_lower = StringUtil::Lower(str);
-    if (str_to_lower == "none") {
-        return DeltaFilterPushdownMode::NONE;
-    }
-    if (str_to_lower == "all") {
-        return DeltaFilterPushdownMode::ALL;
-    }
-    if (str_to_lower == "constant_only") {
-        return DeltaFilterPushdownMode::CONSTANT_ONLY;
-    }
-    if (str_to_lower == "dynamic_only") {
-        return DeltaFilterPushdownMode::DYNAMIC_ONLY;
-    }
-    throw InvalidInputException("Unknown Filter pushdown mode: %s", str);
+	auto str_to_lower = StringUtil::Lower(str);
+	if (str_to_lower == "none") {
+		return DeltaFilterPushdownMode::NONE;
+	}
+	if (str_to_lower == "all") {
+		return DeltaFilterPushdownMode::ALL;
+	}
+	if (str_to_lower == "constant_only") {
+		return DeltaFilterPushdownMode::CONSTANT_ONLY;
+	}
+	if (str_to_lower == "dynamic_only") {
+		return DeltaFilterPushdownMode::DYNAMIC_ONLY;
+	}
+	throw InvalidInputException("Unknown Filter pushdown mode: %s", str);
 }
 
 string DeltaEnumUtils::ToString(const DeltaFilterPushdownMode &mode) {
-    switch(mode) {
-        case DeltaFilterPushdownMode::NONE:
-            return "none";
-        case DeltaFilterPushdownMode::ALL:
-            return "all";
-        case DeltaFilterPushdownMode::DYNAMIC_ONLY:
-            return "dynamic_only";
-        case DeltaFilterPushdownMode::CONSTANT_ONLY:
-            return "constant_only";
-        default:
-            throw InvalidInputException("Unknown delta pushdown mode: %s", mode);
-    }
+	switch (mode) {
+	case DeltaFilterPushdownMode::NONE:
+		return "none";
+	case DeltaFilterPushdownMode::ALL:
+		return "all";
+	case DeltaFilterPushdownMode::DYNAMIC_ONLY:
+		return "dynamic_only";
+	case DeltaFilterPushdownMode::CONSTANT_ONLY:
+		return "constant_only";
+	default:
+		throw InvalidInputException("Unknown delta pushdown mode: %s", mode);
+	}
 }
 
 static InsertionOrderPreservingMap<string> DeltaFunctionToString(TableFunctionToStringInput &input) {
@@ -84,8 +84,8 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance
 		// Demonstration of a generated column based on information from DeltaMultiFileList
 		function.named_parameters["delta_file_number"] = LogicalType::BOOLEAN;
 
-	    function.named_parameters["pushdown_partition_info"] = LogicalType::BOOLEAN;
-	    function.named_parameters["pushdown_filters"] = LogicalType::VARCHAR;
+		function.named_parameters["pushdown_partition_info"] = LogicalType::BOOLEAN;
+		function.named_parameters["pushdown_filters"] = LogicalType::VARCHAR;
 
 		function.name = "delta_scan";
 	}

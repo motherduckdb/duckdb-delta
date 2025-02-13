@@ -30,9 +30,9 @@ static unique_ptr<Catalog> DeltaCatalogAttach(StorageExtensionInfo *storage_info
 		if (StringUtil::Lower(option.first) == "pushdown_partition_info") {
 			res->pushdown_partition_info = option.second.GetValue<bool>();
 		}
-        if (StringUtil::Lower(option.first) == "pushdown_filters") {
-            auto str = option.second.GetValue<string>();
-            res->filter_pushdown_mode = DeltaEnumUtils::FromString(str);
+		if (StringUtil::Lower(option.first) == "pushdown_filters") {
+			auto str = option.second.GetValue<string>();
+			res->filter_pushdown_mode = DeltaEnumUtils::FromString(str);
 		}
 	}
 
