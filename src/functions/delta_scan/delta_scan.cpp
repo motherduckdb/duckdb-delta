@@ -51,6 +51,7 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance
 
 		// Demonstration of a generated column based on information from DeltaMultiFileList
 		function.named_parameters["delta_file_number"] = LogicalType::BOOLEAN;
+		function.named_parameters["pushdown_partition_info"] = LogicalType::BOOLEAN;
 
 		function.name = "delta_scan";
 	}

@@ -138,7 +138,8 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 
 	// We abuse the hive_partitioning_indexes to forward partitioning information to DuckDB
 	// TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this generic
-    if (false) {
+    auto pushdown_partition_info_setting = options.custom_options.find("pushdown_partition_info");
+    if (pushdown_partition_info_setting != options.custom_options.end() && pushdown_partition_info_setting->second.GetValue<bool>()) {
         auto &snapshot = dynamic_cast<DeltaMultiFileList &>(files);
         auto partitions = snapshot.GetPartitionColumns();
         for (auto &part : partitions) {
@@ -464,6 +465,12 @@ bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, Mult
 		options.custom_options[loption] = val;
 		return true;
 	}
+
+    // We need to capture this one to know whether to emit
+    if (loption == "pushdown_partition_info") {
+        options.custom_options["pushdown_partition_info"] = val;
+        return true;
+    }
 
 	return MultiFileReader::ParseOption(key, val, options, context);
 }

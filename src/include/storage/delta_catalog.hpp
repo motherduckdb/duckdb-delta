@@ -31,6 +31,7 @@ public:
 	string path;
 	AccessMode access_mode;
 	bool use_cache;
+	bool pushdown_partition_info;
 
 public:
 	void Initialize(bool load_builtin) override;
