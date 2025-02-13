@@ -119,8 +119,8 @@ SELECT filter_type, filters_before, filters_after, files_before, files_after
 FROM delta_filter_pushdown_log()
 ORDER BY filter_type
 ----
-dynamic	[value1=13]	[value2=103, value1=13]	1	1
 constant	[]	[value1=13]	5	1
+dynamic	[value1=13]	[value2=103, value1=13]	1	1
 
 # Clear logging storage
 statement ok
@@ -140,8 +140,8 @@ SELECT filter_type, filters_before, filters_after, files_before, files_after
 FROM delta_filter_pushdown_log()
 ORDER BY filter_type
 ----
-dynamic	[value1=13]	[value1=13 AND value1=13 AND value1=13]	1	1
 constant	[]	[value1=13]	5	1
+dynamic	[value1=13]	[value1=13 AND value1=13 AND value1=13]	1	1
 
 # Clear logging storage
 statement ok
@@ -171,5 +171,5 @@ SELECT filter_type, filters_before, filters_after, files_before, files_after
 FROM delta_filter_pushdown_log()
 ORDER BY filter_type
 ----
-dynamic	[]	[value1=12]	NULL	NULL
 constant	[]	[value1=12]	NULL	NULL
+dynamic	[]	[value1=12]	NULL	NULL
