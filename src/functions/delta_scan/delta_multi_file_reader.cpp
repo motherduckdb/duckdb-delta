@@ -1,6 +1,8 @@
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 #include "functions/delta_scan/delta_multi_file_reader.hpp"
 
+#include <functions/delta_scan/delta_scan.hpp>
+
 #include "duckdb/common/local_file_system.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/execution/expression_executor.hpp"
@@ -467,9 +469,14 @@ bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, Mult
 		return true;
 	}
 
-	// We need to capture this one to know whether to emit
 	if (loption == "pushdown_partition_info") {
 		options.custom_options["pushdown_partition_info"] = val;
+		return true;
+	}
+
+    // We need to capture this one to know whether to emit
+	if (loption == "pushdown_filters") {
+		options.custom_options["pushdown_filters"] = val;
 		return true;
 	}
 

@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "functions/delta_scan/delta_scan.hpp"
 #include "delta_schema_entry.hpp"
 #include "duckdb/catalog/catalog.hpp"
 #include "duckdb/function/table_function.hpp"
@@ -32,6 +33,7 @@ public:
 	AccessMode access_mode;
 	bool use_cache;
 	bool pushdown_partition_info;
+    DeltaFilterPushdownMode filter_pushdown_mode;
 
 public:
 	void Initialize(bool load_builtin) override;

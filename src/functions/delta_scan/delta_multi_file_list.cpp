@@ -606,10 +606,24 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
 	return filtered_list;
 }
 
+static DeltaFilterPushdownMode GetDeltaFilterPushdownMode(ClientContext &context, const MultiFileReaderOptions &options) {
+    auto res = options.custom_options.find("pushdown_filters");
+    if (res != options.custom_options.end()) {
+        auto str = res->second.GetValue<string>();
+        return DeltaEnumUtils::FromString(str);
+    }
+
+    return DEFAULT_PUSHDOWN_MODE;
+}
 unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContext &context,
                                                                     const MultiFileReaderOptions &options,
                                                                     MultiFilePushdownInfo &info,
                                                                     vector<unique_ptr<Expression>> &filters) {
+    auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
+    if (pushdown_mode == DeltaFilterPushdownMode::NONE || pushdown_mode == DeltaFilterPushdownMode::DYNAMIC_ONLY) {
+        return nullptr;
+    }
+
 	FilterCombiner combiner(context);
 
 	if (filters.empty()) {
@@ -627,7 +641,7 @@ unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContex
 
 	auto filtered_list = PushdownInternal(context, filter_set);
 
-	ReportFilterPushdown(context, *filtered_list, info.column_ids, "regular", info);
+	ReportFilterPushdown(context, *filtered_list, info.column_ids, "constant", info);
 
 	return std::move(filtered_list);
 }
@@ -737,6 +751,11 @@ unique_ptr<MultiFileList>
 DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
                                           const vector<string> &names, const vector<LogicalType> &types,
                                           const vector<column_t> &column_ids, TableFilterSet &filters) const {
+    auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
+    if (pushdown_mode == DeltaFilterPushdownMode::NONE || pushdown_mode == DeltaFilterPushdownMode::CONSTANT_ONLY) {
+        return nullptr;
+    }
+
 	if (filters.filters.empty()) {
 		return nullptr;
 	}
