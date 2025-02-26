@@ -513,6 +513,7 @@ struct im_an_unused_struct_that_tricks_msvc_into_compilation {
 	ExternResult<Handle<SharedScan>> field9;
 	ExternResult<Handle<ExclusiveFileReadResultIterator>> field10;
 	ExternResult<KernelRowIndexArray> field11;
+    ExternResult<Handle<ExclusiveEngineData>> field12;
 };
 
 /// An `Event` can generally be thought of a "log message". It contains all the relevant bits such
@@ -1085,7 +1086,8 @@ NullableCvoid get_from_string_map(const CStringMap *map, KernelStringSlice key, 
 ///
 /// The engine is responsible for providing a valid [`CTransforms`] pointer, and for checking if the
 /// return value is `NULL` or not.
-Option<Handle<SharedExpression>> get_transform_for_row(uintptr_t row, const CTransforms *transforms);
+/// TODO: this Option is problematic because its an incomplete type which prevents us from using the im_an_unused_struct_that_tricks_msvc_into_compilation trick
+// Option<Handle<SharedExpression>> get_transform_for_row(uintptr_t row, const CTransforms *transforms);
 
 /// Get a selection vector out of a [`DvInfo`] struct
 ///
@@ -1118,6 +1120,7 @@ void visit_scan_data(Handle<ExclusiveEngineData> data, KernelBoolSlice selection
 ///
 /// Caller is responsible for passing a valid schema handle and schema visitor.
 uintptr_t visit_schema(Handle<SharedSchema> schema, EngineSchemaVisitor *visitor);
+
 
 /// Constructs a kernel expression that is passed back as a SharedExpression handle. The expected
 /// output expression can be found in `ffi/tests/test_expression_visitor/expected.txt`.
