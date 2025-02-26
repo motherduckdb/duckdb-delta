@@ -317,10 +317,10 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 
 	visitor.data = &state;
 	visitor.make_field_list = (uintptr_t(*)(void *, uintptr_t)) & MakeFieldList;
-	visitor.visit_struct = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, uintptr_t)) & VisitStruct;
-	visitor.visit_array = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, uintptr_t)) & VisitArray;
-	visitor.visit_map = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, uintptr_t)) & VisitMap;
-	visitor.visit_decimal = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, uint8_t, uint8_t)) & VisitDecimal;
+	visitor.visit_struct = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) & VisitStruct;
+	visitor.visit_array = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) & VisitArray;
+	visitor.visit_map = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) & VisitMap;
+	visitor.visit_decimal = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uint8_t, uint8_t)) & VisitDecimal;
 	visitor.visit_string = VisitSimpleType<LogicalType::VARCHAR>();
 	visitor.visit_long = VisitSimpleType<LogicalType::BIGINT>();
 	visitor.visit_integer = VisitSimpleType<LogicalType::INTEGER>();
@@ -334,12 +334,15 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 	visitor.visit_timestamp = VisitSimpleType<LogicalType::TIMESTAMP_TZ>();
 	visitor.visit_timestamp_ntz = VisitSimpleType<LogicalType::TIMESTAMP>();
 
-	uintptr_t result = visit_schema(snapshot, &visitor);
+    auto schema = logical_schema(snapshot);
+	uintptr_t result = visit_schema(schema, &visitor);
+    free_schema(schema);
+
 	return state.TakeFieldList(result);
 }
 
 void SchemaVisitor::VisitDecimal(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-                                 uint8_t precision, uint8_t scale) {
+                                 bool is_nullable, const ffi::CStringMap *metadata, uint8_t precision, uint8_t scale) {
 	state->AppendToList(sibling_list_id, name, LogicalType::DECIMAL(precision, scale));
 }
 
@@ -348,13 +351,13 @@ uintptr_t SchemaVisitor::MakeFieldList(SchemaVisitor *state, uintptr_t capacity_
 }
 
 void SchemaVisitor::VisitStruct(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-                                uintptr_t child_list_id) {
+                                 bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id) {
 	auto children = state->TakeFieldList(child_list_id);
 	state->AppendToList(sibling_list_id, name, LogicalType::STRUCT(std::move(*children)));
 }
 
 void SchemaVisitor::VisitArray(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-                               bool contains_null, uintptr_t child_list_id) {
+                               bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id) {
 	auto children = state->TakeFieldList(child_list_id);
 
 	D_ASSERT(children->size() == 1);
@@ -362,7 +365,7 @@ void SchemaVisitor::VisitArray(SchemaVisitor *state, uintptr_t sibling_list_id, 
 }
 
 void SchemaVisitor::VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-                             bool contains_null, uintptr_t child_list_id) {
+                             bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id) {
 	auto children = state->TakeFieldList(child_list_id);
 
 	D_ASSERT(children->size() == 2);
