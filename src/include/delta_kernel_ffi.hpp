@@ -107,6 +107,17 @@ enum class LogLineFormat {
 
 struct CStringMap;
 
+/// Transformation expressions that need to be applied to each row `i` in ScanData. You can use
+/// [`get_transform_for_row`] to get the transform for a particular row. If that returns an
+/// associated expression, it _must_ be applied to the data read from the file specified by the
+/// row. The resultant schema for this expression is guaranteed to be `Scan.schema()`. If
+/// `get_transform_for_row` returns `NULL` no expression need be applied and the data read from disk
+/// is already in the correct logical state.
+///
+/// NB: If you are using `visit_scan_data` you don't need to worry about dealing with probing
+/// `CTransforms`. The callback will be invoked with the correct transform for you.
+struct CTransforms;
+
 /// this struct can be used by an engine to materialize a selection vector
 struct DvInfo;
 
@@ -122,9 +133,21 @@ struct ExclusiveEngineData;
 
 struct ExclusiveFileReadResultIterator;
 
+/// A SQL expression.
+///
+/// These expressions do not track or validate data types, other than the type
+/// of literals. It is up to the expression evaluator to validate the
+/// expression against a schema and add appropriate casts as required.
+struct Expression;
+
 struct KernelExpressionVisitorState;
 
+template <typename T = void>
+struct Option;
+
 struct SharedExpression;
+
+struct SharedExpressionEvaluator;
 
 struct SharedExternEngine;
 
@@ -398,7 +421,7 @@ struct EngineExpressionVisitor {
 	/// Visit a 64bit timestamp belonging to the list identified by `sibling_list_id`.
 	/// The timestamp is microsecond precision with no timezone.
 	VisitLiteralFn<int64_t> visit_literal_timestamp_ntz;
-	/// Visit a 32bit intger `date` representing days since UNIX epoch 1970-01-01.  The `date` belongs
+	/// Visit a 32bit integer `date` representing days since UNIX epoch 1970-01-01.  The `date` belongs
 	/// to the list identified by `sibling_list_id`.
 	VisitLiteralFn<int32_t> visit_literal_date;
 	/// Visit binary data at the `buffer` with length `len` belonging to the list identified by
@@ -490,6 +513,7 @@ struct im_an_unused_struct_that_tricks_msvc_into_compilation {
 	ExternResult<Handle<SharedScan>> field9;
 	ExternResult<Handle<ExclusiveFileReadResultIterator>> field10;
 	ExternResult<KernelRowIndexArray> field11;
+    ExternResult<Handle<ExclusiveEngineData>> field12;
 };
 
 /// An `Event` can generally be thought of a "log message". It contains all the relevant bits such
@@ -535,8 +559,18 @@ struct Stats {
 	uint64_t num_records;
 };
 
+/// This callback will be invoked for each valid file that needs to be read for a scan.
+///
+/// The arguments to the callback are:
+/// * `context`: a `void*` context this can be anything that engine needs to pass through to each call
+/// * `path`: a `KernelStringSlice` which is the path to the file
+/// * `size`: an `i64` which is the size of the file
+/// * `dv_info`: a [`DvInfo`] struct, which allows getting the selection vector for this file
+/// * `transform`: An optional expression that, if not `NULL`, _must_ be applied to physical data to
+///                convert it to the correct logical format. If this is `NULL`, no transform is needed.
+/// * `partition_values`: [DEPRECATED] a `HashMap<String, String>` which are partition values
 using CScanCallback = void (*)(NullableCvoid engine_context, KernelStringSlice path, int64_t size, const Stats *stats,
-                               const DvInfo *dv_info, const CStringMap *partition_map);
+                               const DvInfo *dv_info, const Expression *transform, const CStringMap *partition_map);
 
 /// The `EngineSchemaVisitor` defines a visitor system to allow engines to build their own
 /// representation of a schema from a particular schema within kernel.
@@ -570,43 +604,56 @@ struct EngineSchemaVisitor {
 	uintptr_t (*make_field_list)(void *data, uintptr_t reserve);
 	/// Indicate that the schema contains a `Struct` type. The top level of a Schema is always a
 	/// `Struct`. The fields of the `Struct` are in the list identified by `child_list_id`.
-	void (*visit_struct)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, uintptr_t child_list_id);
+	void (*visit_struct)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                     const CStringMap *metadata, uintptr_t child_list_id);
 	/// Indicate that the schema contains an Array type. `child_list_id` will be a _one_ item list
 	/// with the array's element type
-	void (*visit_array)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool contains_null,
-	                    uintptr_t child_list_id);
+	void (*visit_array)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                    const CStringMap *metadata, uintptr_t child_list_id);
 	/// Indicate that the schema contains an Map type. `child_list_id` will be a _two_ item list
 	/// where the first element is the map's key type and the second element is the
 	/// map's value type
-	void (*visit_map)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool value_contains_null,
-	                  uintptr_t child_list_id);
+	void (*visit_map)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                  const CStringMap *metadata, uintptr_t child_list_id);
 	/// visit a `decimal` with the specified `precision` and `scale`
-	void (*visit_decimal)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, uint8_t precision,
-	                      uint8_t scale);
+	void (*visit_decimal)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                      const CStringMap *metadata, uint8_t precision, uint8_t scale);
 	/// Visit a `string` belonging to the list identified by `sibling_list_id`.
-	void (*visit_string)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_string)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                     const CStringMap *metadata);
 	/// Visit a `long` belonging to the list identified by `sibling_list_id`.
-	void (*visit_long)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_long)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                   const CStringMap *metadata);
 	/// Visit an `integer` belonging to the list identified by `sibling_list_id`.
-	void (*visit_integer)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_integer)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                      const CStringMap *metadata);
 	/// Visit a `short` belonging to the list identified by `sibling_list_id`.
-	void (*visit_short)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_short)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                    const CStringMap *metadata);
 	/// Visit a `byte` belonging to the list identified by `sibling_list_id`.
-	void (*visit_byte)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_byte)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                   const CStringMap *metadata);
 	/// Visit a `float` belonging to the list identified by `sibling_list_id`.
-	void (*visit_float)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_float)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                    const CStringMap *metadata);
 	/// Visit a `double` belonging to the list identified by `sibling_list_id`.
-	void (*visit_double)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_double)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                     const CStringMap *metadata);
 	/// Visit a `boolean` belonging to the list identified by `sibling_list_id`.
-	void (*visit_boolean)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_boolean)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                      const CStringMap *metadata);
 	/// Visit `binary` belonging to the list identified by `sibling_list_id`.
-	void (*visit_binary)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_binary)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                     const CStringMap *metadata);
 	/// Visit a `date` belonging to the list identified by `sibling_list_id`.
-	void (*visit_date)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_date)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                   const CStringMap *metadata);
 	/// Visit a `timestamp` belonging to the list identified by `sibling_list_id`.
-	void (*visit_timestamp)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_timestamp)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                        const CStringMap *metadata);
 	/// Visit a `timestamp` with no timezone belonging to the list identified by `sibling_list_id`.
-	void (*visit_timestamp_ntz)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+	void (*visit_timestamp_ntz)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
+	                            const CStringMap *metadata);
 };
 
 extern "C" {
@@ -649,7 +696,8 @@ void set_builder_option(EngineBuilder *builder, KernelStringSlice key, KernelStr
 
 #if defined(DEFINE_DEFAULT_ENGINE)
 /// Consume the builder and return a `default` engine. After calling, the passed pointer is _no
-/// longer valid_.
+/// longer valid_. Note that this _consumes_ and frees the builder, so there is no need to
+/// drop/free it afterwards.
 ///
 ///
 /// # Safety
@@ -695,6 +743,19 @@ void free_snapshot(Handle<SharedSnapshot> snapshot);
 ///
 /// Caller is responsible for passing a valid handle.
 uint64_t version(Handle<SharedSnapshot> snapshot);
+
+/// Get the logical schema of the specified snapshot
+///
+/// # Safety
+///
+/// Caller is responsible for passing a valid snapshot handle.
+Handle<SharedSchema> logical_schema(Handle<SharedSnapshot> snapshot);
+
+/// Free a schema
+///
+/// # Safety
+/// Engine is responsible for providing a valid schema handle.
+void free_schema(Handle<SharedSchema> schema);
 
 /// Get the resolved root of the table. This should be used in any future calls that require
 /// constructing a path
@@ -742,7 +803,7 @@ void *get_raw_engine_data(Handle<ExclusiveEngineData> data);
 ExternResult<ArrowFFIData *> get_raw_arrow_data(Handle<ExclusiveEngineData> data, Handle<SharedExternEngine> engine);
 #endif
 
-/// Call the engine back with the next `EngingeData` batch read by Parquet/Json handler. The
+/// Call the engine back with the next `EngineData` batch read by Parquet/Json handler. The
 /// _engine_ "owns" the data that is passed into the `engine_visitor`, since it is allocated by the
 /// `Engine` being used for log-replay. If the engine wants the kernel to free this data, it _must_
 /// call [`free_engine_data`] on it.
@@ -768,6 +829,27 @@ void free_read_result_iter(Handle<ExclusiveFileReadResultIterator> data);
 /// Caller is responsible for calling with a valid `ExternEngineHandle` and `FileMeta`
 ExternResult<Handle<ExclusiveFileReadResultIterator>>
 read_parquet_file(Handle<SharedExternEngine> engine, const FileMeta *file, Handle<SharedSchema> physical_schema);
+
+/// Get the evaluator as provided by the passed engines `ExpressionHandler`.
+///
+/// # Safety
+/// Caller is responsible for calling with a valid `Engine`, `Expression`, and `SharedSchema`s
+Handle<SharedExpressionEvaluator> get_evaluator(Handle<SharedExternEngine> engine, Handle<SharedSchema> input_schema,
+                                                const Expression *expression, Handle<SharedSchema> output_type);
+
+/// Free an evaluator
+/// # Safety
+///
+/// Caller is responsible for passing a valid handle.
+void free_evaluator(Handle<SharedExpressionEvaluator> evaluator);
+
+/// Use the passed `evaluator` to evaluate its expression against the passed `batch` data.
+///
+/// # Safety
+/// Caller is responsible for calling with a valid `Engine`, `ExclusiveEngineData`, and `Evaluator`
+ExternResult<Handle<ExclusiveEngineData>> evaluate(Handle<SharedExternEngine> engine,
+                                                   Handle<ExclusiveEngineData> *batch,
+                                                   Handle<SharedExpressionEvaluator> evaluator);
 
 uintptr_t visit_expression_and(KernelExpressionVisitorState *state, EngineIterator *children);
 
@@ -825,6 +907,16 @@ void free_kernel_predicate(Handle<SharedExpression> data);
 ///
 /// The caller must pass a valid SharedExpression Handle and expression visitor
 uintptr_t visit_expression(const Handle<SharedExpression> *expression, EngineExpressionVisitor *visitor);
+
+/// Visit the expression of the passed [`Expression`] pointer using the provided `visitor`.  See the
+/// documentation of [`EngineExpressionVisitor`] for a description of how this visitor works.
+///
+/// This method returns the id that the engine generated for the top level expression
+///
+/// # Safety
+///
+/// The caller must pass a valid Expression pointer and expression visitor
+uintptr_t visit_expression_ref(const Expression *expression, EngineExpressionVisitor *visitor);
 
 /// Enable getting called back for tracing (logging) events in the kernel. `max_level` specifies
 /// that only events `<=` to the specified level should be reported.  More verbose Levels are "greater
@@ -924,11 +1016,12 @@ Handle<SharedGlobalScanState> get_global_scan_state(Handle<SharedScan> scan);
 /// Engine is responsible for providing a valid GlobalScanState pointer
 Handle<SharedSchema> get_global_read_schema(Handle<SharedGlobalScanState> state);
 
-/// Free a global read schema
+/// Get the kernel view of the physical read schema that an engine should read from parquet file in
+/// a scan
 ///
 /// # Safety
-/// Engine is responsible for providing a valid schema obtained via [`get_global_read_schema`]
-void free_global_read_schema(Handle<SharedSchema> schema);
+/// Engine is responsible for providing a valid GlobalScanState pointer
+Handle<SharedSchema> get_global_logical_schema(Handle<SharedGlobalScanState> state);
 
 /// Get a count of the number of partition columns for this scan
 ///
@@ -965,10 +1058,10 @@ ExternResult<Handle<SharedScanDataIterator>> kernel_scan_data_init(Handle<Shared
 ///
 /// The iterator must be valid (returned by [kernel_scan_data_init]) and not yet freed by
 /// [`free_kernel_scan_data`]. The visitor function pointer must be non-null.
-ExternResult<bool> kernel_scan_data_next(Handle<SharedScanDataIterator> data, NullableCvoid engine_context,
-                                         void (*engine_visitor)(NullableCvoid engine_context,
-                                                                Handle<ExclusiveEngineData> engine_data,
-                                                                KernelBoolSlice selection_vector));
+ExternResult<bool>
+kernel_scan_data_next(Handle<SharedScanDataIterator> data, NullableCvoid engine_context,
+                      void (*engine_visitor)(NullableCvoid engine_context, Handle<ExclusiveEngineData> engine_data,
+                                             KernelBoolSlice selection_vector, const CTransforms *transforms));
 
 /// # Safety
 ///
@@ -983,7 +1076,18 @@ void free_kernel_scan_data(Handle<SharedScanDataIterator> data);
 /// # Safety
 ///
 /// The engine is responsible for providing a valid [`CStringMap`] pointer and [`KernelStringSlice`]
-NullableCvoid get_from_map(const CStringMap *map, KernelStringSlice key, AllocateStringFn allocate_fn);
+NullableCvoid get_from_string_map(const CStringMap *map, KernelStringSlice key, AllocateStringFn allocate_fn);
+
+/// Allow getting the transform for a particular row. If the requested row is outside the range of
+/// the passed `CTransforms` returns `NULL`, otherwise returns the element at the index of the
+/// specified row. See also [`CTransforms`] above.
+///
+/// # Safety
+///
+/// The engine is responsible for providing a valid [`CTransforms`] pointer, and for checking if the
+/// return value is `NULL` or not.
+/// TODO: this Option is problematic because its an incomplete type which prevents us from using the im_an_unused_struct_that_tricks_msvc_into_compilation trick
+// Option<Handle<SharedExpression>> get_transform_for_row(uintptr_t row, const CTransforms *transforms);
 
 /// Get a selection vector out of a [`DvInfo`] struct
 ///
@@ -1003,25 +1107,26 @@ ExternResult<KernelRowIndexArray> row_indexes_from_dv(const DvInfo *dv_info, Han
 /// data which provides the data handle and selection vector as each element in the iterator.
 ///
 /// # Safety
-/// engine is responsbile for passing a valid [`ExclusiveEngineData`] and selection vector.
-void visit_scan_data(Handle<ExclusiveEngineData> data, KernelBoolSlice selection_vec, NullableCvoid engine_context,
-                     CScanCallback callback);
+/// engine is responsible for passing a valid [`ExclusiveEngineData`] and selection vector.
+void visit_scan_data(Handle<ExclusiveEngineData> data, KernelBoolSlice selection_vec, const CTransforms *transforms,
+                     NullableCvoid engine_context, CScanCallback callback);
 
-/// Visit the schema of the passed `SnapshotHandle`, using the provided `visitor`. See the
-/// documentation of [`EngineSchemaVisitor`] for a description of how this visitor works.
+/// Visit the given `schema` using the provided `visitor`. See the documentation of
+/// [`EngineSchemaVisitor`] for a description of how this visitor works.
 ///
 /// This method returns the id of the list allocated to hold the top level schema columns.
 ///
 /// # Safety
 ///
-/// Caller is responsible for passing a valid snapshot handle and schema visitor.
-uintptr_t visit_schema(Handle<SharedSnapshot> snapshot, EngineSchemaVisitor *visitor);
+/// Caller is responsible for passing a valid schema handle and schema visitor.
+uintptr_t visit_schema(Handle<SharedSchema> schema, EngineSchemaVisitor *visitor);
+
 
 /// Constructs a kernel expression that is passed back as a SharedExpression handle. The expected
 /// output expression can be found in `ffi/tests/test_expression_visitor/expected.txt`.
 ///
 /// # Safety
-/// The caller is responsible for freeing the retured memory, either by calling
+/// The caller is responsible for freeing the returned memory, either by calling
 /// [`free_kernel_predicate`], or [`Handle::drop_handle`]
 Handle<SharedExpression> get_testing_kernel_expression();
 

@@ -385,7 +385,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 	case_insensitive_map_t<string> constant_map;
 	for (const auto &col : snapshot.names) {
 		auto key = KernelUtils::ToDeltaString(col);
-		auto *partition_val = (string *)ffi::get_from_map(partition_values, key, allocate_string);
+		auto *partition_val = (string *)ffi::get_from_string_map(partition_values, key, allocate_string);
 		if (partition_val) {
 			constant_map[col] = *partition_val;
 			delete partition_val;
@@ -395,7 +395,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 }
 
 void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
-                                     const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                                     const ffi::Stats *stats, const ffi::DvInfo *dv_info, const ffi::Expression *transform,
                                      const ffi::CStringMap *partition_values) {
 	try {
 		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, partition_values);
@@ -406,8 +406,8 @@ void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::Ker
 }
 
 void ScanDataCallBack::VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
-                                 const struct ffi::KernelBoolSlice selection_vec) {
-	ffi::visit_scan_data(engine_data, selection_vec, engine_context, ScanDataCallBack::VisitCallback);
+                                 const struct ffi::KernelBoolSlice selection_vec, const ffi::CTransforms *transforms) {
+	ffi::visit_scan_data(engine_data, selection_vec, transforms, engine_context, ScanDataCallBack::VisitCallback);
 }
 
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path)
