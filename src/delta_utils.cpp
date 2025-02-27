@@ -677,6 +677,8 @@ LogLevel LoggerCallback::GetDuckDBLogLevel(ffi::Level level) {
 		return LogLevel::LOG_WARN;
 	case ffi::Level::ERROR:
 		return LogLevel::LOG_ERROR;
+	default:
+	    throw InternalException("Unknown log level");
 	}
 }
 
