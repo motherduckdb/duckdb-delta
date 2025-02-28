@@ -148,8 +148,6 @@ ExternalProject_Add(
   # in debugging because passing them through CMake is an error-prone mess
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS}
                     ${RUST_ENV_VARS} env
-  # Temporary workaround to fix compile issue TODO: remove once fixed upstream
-  CONFIGURE_COMMAND cargo update -p chrono --precise 0.4.38
   UPDATE_COMMAND ""
   BUILD_IN_SOURCE 1
   # Build debug build
