@@ -395,8 +395,8 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 }
 
 void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
-                                     const ffi::Stats *stats, const ffi::DvInfo *dv_info, const ffi::Expression *transform,
-                                     const ffi::CStringMap *partition_values) {
+                                     const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                                     const ffi::Expression *transform, const ffi::CStringMap *partition_values) {
 	try {
 		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, partition_values);
 	} catch (std::runtime_error &e) {

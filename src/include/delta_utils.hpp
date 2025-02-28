@@ -140,14 +140,16 @@ private:
 	unordered_map<uintptr_t, unique_ptr<FieldList>> inflight_lists;
 	uintptr_t next_id = 1;
 
-	typedef void(SimpleTypeVisitorFunction)(void *, uintptr_t, ffi::KernelStringSlice, bool is_nullable, const ffi::CStringMap *metadata);
+	typedef void(SimpleTypeVisitorFunction)(void *, uintptr_t, ffi::KernelStringSlice, bool is_nullable,
+	                                        const ffi::CStringMap *metadata);
 
 	template <LogicalTypeId TypeId>
 	static SimpleTypeVisitorFunction *VisitSimpleType() {
 		return (SimpleTypeVisitorFunction *)&VisitSimpleTypeImpl<TypeId>;
 	}
 	template <LogicalTypeId TypeId>
-	static void VisitSimpleTypeImpl(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable, const ffi::CStringMap *metadata) {
+	static void VisitSimpleTypeImpl(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+	                                bool is_nullable, const ffi::CStringMap *metadata) {
 		state->AppendToList(sibling_list_id, name, TypeId);
 	}
 
@@ -158,8 +160,8 @@ private:
 	                        bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id);
 	static void VisitArray(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
 	                       bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id);
-	static void VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-	                     bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id);
+	static void VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable,
+	                     const ffi::CStringMap *metadata, uintptr_t child_list_id);
 
 	uintptr_t MakeFieldListImpl(uintptr_t capacity_hint);
 	void AppendToList(uintptr_t id, ffi::KernelStringSlice name, LogicalType &&child);
