@@ -301,7 +301,6 @@ static int64_t GetTruncatedDecimalValue(int64_t value_ms, uint64_t value_ls) {
 	return lower_cast;
 }
 
-// FIXME: this is not 100% correct yet: value_ms is ignored
 void ExpressionVisitor::VisitDecimalLiteral(void *state, uintptr_t sibling_list_id, int64_t value_ms, uint64_t value_ls,
                                             uint8_t precision, uint8_t scale) {
 	try {
