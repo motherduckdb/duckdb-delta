@@ -6,8 +6,6 @@ require parquet
 
 require delta
 
-# TODO still broken:
-# - Decimal
 query I
 SELECT unnest(get_delta_test_expression())
 ----
