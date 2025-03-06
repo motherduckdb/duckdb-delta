@@ -1,0 +1,49 @@
+# name: test/sql/main/test_error_messages.test
+# description: Test that clean error messages are generated
+# group: [delta_generated]
+
+require parquet
+
+require delta
+
+require httpfs
+
+statement error
+FROM delta_scan('./doesnt_exist_and_never_will_exist_i_hope');
+----
+IO Error: DeltKernel InvalidTableLocationError (28): Invalid table location: Path does not exist:
+
+statement ok
+ATTACH './doesnt_exist_and_never_will_exist_i_hope' AS s1 (TYPE delta);
+
+statement error
+SHOW ALL TABLES;
+----
+IO Error: DeltKernel InvalidTableLocationError (28): Invalid table location: Path does not exist:
+
+statement ok
+DETACH s1;
+
+statement ok
+CREATE SECRET s1 (
+    TYPE S3,
+    ENDPOINT 'http://localhost:1337'
+)
+
+statement error
+FROM delta_scan('s3://bucket/doesnt/exist/either');
+----
+IO Error: DeltKernel ObjectStoreError (8): Error interacting with object store: Generic S3 error: Error after
+
+statement error
+FROM delta_scan('duck://bucket/doesnt/exist/either');
+----
+IO Error: DeltKernel ObjectStoreError (8): Error interacting with object store: Generic URL error: Unable to recognise URL
+
+statement ok
+ATTACH 's3://bucket/doesnt/exist/either' AS s1 (TYPE delta);
+
+statement error
+SHOW ALL TABLES;
+----
+IO Error: DeltKernel ObjectStoreError (8): Error interacting with object store: Generic S3 error: Error after
