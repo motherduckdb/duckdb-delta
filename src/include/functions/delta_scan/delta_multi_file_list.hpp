@@ -85,8 +85,12 @@ protected:
 
 	template <class T>
 	T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
-		return KernelUtils::UnpackResult<T>(
-		    result, StringUtil::Format("While trying to read from delta table: '%s'", paths[0]));
+		T return_value;
+		auto res = KernelUtils::TryUnpackResult<T>(result, return_value);
+		if (res.HasError()) {
+			res.Throw();
+		}
+		return return_value;
 	}
 
 protected:
