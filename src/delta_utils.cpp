@@ -368,8 +368,7 @@ unique_ptr<ExpressionVisitor::FieldList> ExpressionVisitor::TakeFieldList(uintpt
 	return rval;
 }
 
-unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::SharedSnapshot *snapshot) {
-	SchemaVisitor state;
+ffi::EngineSchemaVisitor SchemaVisitor::CreateSchemaVisitor(SchemaVisitor &state) {
 	ffi::EngineSchemaVisitor visitor;
 
 	visitor.data = &state;
@@ -399,9 +398,20 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 	visitor.visit_timestamp = VisitSimpleType<LogicalType::TIMESTAMP_TZ>();
 	visitor.visit_timestamp_ntz = VisitSimpleType<LogicalType::TIMESTAMP>();
 
+	return visitor;
+}
+
+unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::SharedSnapshot *snapshot) {
+	SchemaVisitor state;
+	auto visitor = CreateSchemaVisitor(state);
+
 	auto schema = logical_schema(snapshot);
 	uintptr_t result = visit_schema(schema, &visitor);
 	free_schema(schema);
+
+	if (state.error.HasError()) {
+		state.error.Throw();
+	}
 
 	return state.TakeFieldList(result);
 }
@@ -450,7 +460,8 @@ uintptr_t SchemaVisitor::MakeFieldListImpl(uintptr_t capacity_hint) {
 void SchemaVisitor::AppendToList(uintptr_t id, ffi::KernelStringSlice name, LogicalType &&child) {
 	auto it = inflight_lists.find(id);
 	if (it == inflight_lists.end()) {
-		throw InternalException("Unhandled error in SchemaVisitor::AppendToList child");
+		error = ErrorData(ExceptionType::INTERNAL, "Unhandled error in SchemaVisitor::AppendToList");
+		return;
 	}
 	it->second->emplace_back(std::make_pair(string(name.ptr, name.len), std::move(child)));
 }
@@ -458,7 +469,8 @@ void SchemaVisitor::AppendToList(uintptr_t id, ffi::KernelStringSlice name, Logi
 unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::TakeFieldList(uintptr_t id) {
 	auto it = inflight_lists.find(id);
 	if (it == inflight_lists.end()) {
-		throw InternalException("Unhandled error in SchemaVisitor::TakeFieldList");
+		error = ErrorData(ExceptionType::INTERNAL, "Unhandled error in SchemaVisitor::TakeFieldList");
+		return make_uniq<SchemaVisitor::FieldList>();
 	}
 	auto rval = std::move(it->second);
 	inflight_lists.erase(it);
@@ -526,7 +538,7 @@ string DuckDBEngineError::KernelErrorEnumToString(ffi::KernelError err) {
 	return StringUtil::Format("EnumOutOfRange (enum val out of range: %d)", (int)err);
 }
 
-void DuckDBEngineError::Throw(string from_where) {
+string DuckDBEngineError::IntoString() {
 	// Make copies before calling delete this
 	auto etype_copy = etype;
 	auto message_copy = error_message;
@@ -534,9 +546,7 @@ void DuckDBEngineError::Throw(string from_where) {
 	// Consume error by calling delete this (remember this error is created by
 	// kernel using AllocateError)
 	delete this;
-	throw IOException("Hit DeltaKernel FFI error (from: %s): Hit error: %u (%s) "
-	                  "with message (%s)",
-	                  from_where.c_str(), etype_copy, KernelErrorEnumToString(etype_copy), message_copy);
+	return StringUtil::Format("DeltKernel %s (%u): %s", KernelErrorEnumToString(etype_copy), etype_copy, message_copy);
 }
 
 ffi::KernelStringSlice KernelUtils::ToDeltaString(const string &str) {
@@ -599,7 +609,13 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
                                                 ffi::KernelExpressionVisitorState *state) {
 	auto maybe_left =
 	    ffi::visit_expression_column(state, KernelUtils::ToDeltaString(col_name), DuckDBEngineError::AllocateError);
-	uintptr_t left = KernelUtils::UnpackResult(maybe_left, "VisitConstantFilter failed to visit_expression_column");
+
+	uintptr_t left;
+	auto left_res = KernelUtils::TryUnpackResult(maybe_left, left);
+	if (left_res.HasError()) {
+		error_data = left_res;
+		return ~0;
+	}
 
 	uintptr_t right = ~0;
 	auto &value = filter.constant;
@@ -631,7 +647,11 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
 		auto str = StringValue::Get(value);
 		auto maybe_right = ffi::visit_expression_literal_string(state, KernelUtils::ToDeltaString(str),
 		                                                        DuckDBEngineError::AllocateError);
-		right = KernelUtils::UnpackResult(maybe_right, "VisitConstantFilter failed to visit_expression_literal_string");
+		auto right_res = KernelUtils::TryUnpackResult(maybe_right, right);
+		if (right_res.HasError()) {
+			error_data = right_res;
+			return ~0;
+		}
 		break;
 	}
 	default:
@@ -676,7 +696,13 @@ uintptr_t PredicateVisitor::VisitAndFilter(const string &col_name, const Conjunc
 uintptr_t PredicateVisitor::VisitIsNull(const string &col_name, ffi::KernelExpressionVisitorState *state) {
 	auto maybe_inner =
 	    ffi::visit_expression_column(state, KernelUtils::ToDeltaString(col_name), DuckDBEngineError::AllocateError);
-	uintptr_t inner = KernelUtils::UnpackResult(maybe_inner, "VisitIsNull failed to visit_expression_column");
+	uintptr_t inner;
+
+	auto err = KernelUtils::TryUnpackResult(maybe_inner, inner);
+	if (err.HasError()) {
+		error_data = err;
+		return ~0;
+	}
 	return ffi::visit_expression_is_null(state, inner);
 }
 

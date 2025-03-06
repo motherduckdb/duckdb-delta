@@ -67,7 +67,13 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 	    !StringUtil::StartsWith(path, "abfs://") && !StringUtil::StartsWith(path, "abfss://")) {
 		auto interface_builder_res =
 		    ffi::get_engine_builder(KernelUtils::ToDeltaString(path), DuckDBEngineError::AllocateError);
-		return KernelUtils::UnpackResult(interface_builder_res, "get_engine_interface_builder for path " + path);
+
+		ffi::EngineBuilder *return_value;
+		auto res = KernelUtils::TryUnpackResult(interface_builder_res, return_value);
+		if (res.HasError()) {
+			res.Throw();
+		}
+		return return_value;
 	}
 
 	string bucket;
@@ -152,7 +158,11 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 
 	auto interface_builder_res =
 	    ffi::get_engine_builder(KernelUtils::ToDeltaString(cleaned_path), DuckDBEngineError::AllocateError);
-	builder = KernelUtils::UnpackResult(interface_builder_res, "get_engine_interface_builder for path " + cleaned_path);
+
+	auto res = KernelUtils::TryUnpackResult(interface_builder_res, builder);
+	if (res.HasError()) {
+		res.Throw();
+	}
 
 	// For S3 or Azure paths we need to trim the url, set the container, and fetch a potential secret
 	auto &secret_manager = SecretManager::Get(context);
@@ -394,8 +404,12 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 	}
 
 	if (!do_workaround) {
-		auto selection_vector =
-		    KernelUtils::UnpackResult(selection_vector_res, "selection_vector_from_dv for path " + snapshot.GetPath());
+		ffi::KernelBoolSlice selection_vector;
+		auto res = KernelUtils::TryUnpackResult(selection_vector_res, selection_vector);
+		if (res.HasError()) {
+			context->error = res;
+			return;
+		}
 		if (selection_vector.ptr) {
 			snapshot.metadata.back()->selection_vector = selection_vector;
 		}
@@ -406,7 +420,9 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		ExpressionVisitor visitor;
 		auto parsed_transformation_expression = visitor.VisitKernelExpression(transform);
 		if (!parsed_transformation_expression) {
-			throw IOException("Failed to parse transformation expression from delta kernel: null returned");
+			context->error = ErrorData(ExceptionType::IO,
+			                           "Failed to parse transformation expression from delta kernel: null returned");
+			return;
 		}
 
 		case_insensitive_map_t<Value> constant_map;
@@ -419,8 +435,10 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		}
 		snapshot.metadata.back()->partition_map = std::move(constant_map);
 	} else {
-		if (snapshot.partitions.size() > 0) {
-			throw IOException("Failed to fetch partitions from delta kernel transform! Transform is empty");
+		if (!snapshot.partitions.empty()) {
+			context->error = ErrorData(ExceptionType::IO,
+			                           "Failed to fetch partitions from delta kernel transform! Transform is empty");
+			return;
 		}
 	}
 }
@@ -524,7 +542,11 @@ string DeltaMultiFileList::GetFileInternal(idx_t i) const {
 			callback_context.error.Throw();
 		}
 
-		auto have_scan_data = TryUnpackKernelResult(have_scan_data_res);
+		bool have_scan_data;
+		auto scan_data_res = KernelUtils::TryUnpackResult<bool>(have_scan_data_res, have_scan_data);
+		if (scan_data_res.HasError()) {
+			throw IOException("Failed to unpack scan data from kernel: %s", scan_data_res.RawMessage());
+		}
 
 		// kernel has indicated that we have no more data to scan
 		if (!have_scan_data) {
@@ -574,6 +596,11 @@ void DeltaMultiFileList::InitializeScan() const {
 	// Create Scan
 	PredicateVisitor visitor(names, &table_filters);
 	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
+
+	if (visitor.error_data.HasError()) {
+		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", paths[0],
+		                  visitor.error_data.Message());
+	}
 
 	// Create GlobalState
 	global_state = ffi::get_global_scan_state(scan.get());
