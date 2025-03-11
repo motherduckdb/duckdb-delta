@@ -306,11 +306,32 @@ static void CustomMulfiFileNameMapping(const string &file_name,
                                        const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
                                        const string &initial_file,
                                        optional_ptr<MultiFileReaderGlobalState> global_state) {
-	// we have expected types: create a map of name -> column index
-	case_insensitive_map_t<idx_t> name_map;
-	for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
-		name_map[local_columns[col_idx].name] = col_idx;
-	}
+    // we have expected types: create a map of name -> column index
+    case_insensitive_map_t<idx_t> name_map;
+    for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
+        name_map[local_columns[col_idx].name] = col_idx;
+    }
+
+    auto delta_list = dynamic_cast<const DeltaMultiFileList*>(global_state->file_list.get());
+
+    auto &metadata = delta_list->GetMetaData(reader_data.file_list_idx.GetIndex());
+
+    //
+    unordered_map<string, string> global_column_to_local_column;
+    if (metadata.has_column_map) {
+        // Maps local column -> global idx_t ?
+        auto projection_map = metadata.parsed_column_map;
+
+        // printf("\nFile %s\n", file_name.c_str());
+        //
+        // printf("Global name -> Local Name map: ");
+        for (const auto& map_entry : projection_map) {
+            // printf("%s:%s, ", global_columns[map_entry.second].name.c_str(), map_entry.first.c_str());
+            global_column_to_local_column.insert({global_columns[map_entry.second].name, map_entry.first});
+        }
+        // printf("\n");
+    }
+
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		// check if this is a constant column
 		bool constant = false;
@@ -331,15 +352,26 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 			    "MultiFileReader::CreatePositionalMapping - global_id is out of range in global_types for this file");
 		}
 		auto &global_name = global_columns[global_id].name;
-		auto entry = name_map.find(global_name);
-		if (entry == name_map.end()) {
-			string candidate_names;
-			for (auto &local_column : local_columns) {
-				if (!candidate_names.empty()) {
-					candidate_names += ", ";
-				}
-				candidate_names += local_column.name;
-			}
+
+	    string local_name;
+	    if (metadata.has_column_map) {
+	        auto local_name_lookup = global_column_to_local_column.find(global_name);
+	        if (local_name_lookup == global_column_to_local_column.end()) {
+                if (global_name == "file_row_number") {
+                    // Special case file_row_number column, we
+                    local_name = global_name;
+                } else {
+                    throw IOException("Column '%s' from the schema was not found in the transformation expression returned by kernel", global_name);
+                }
+	        } else {
+	            local_name = local_name_lookup->second;
+	        }
+	    } else {
+            local_name = global_name;
+	    }
+
+	    auto entry = name_map.find(local_name);
+	    if (entry == name_map.end()) {
 			// FIXME: this override is pretty hacky: for missing columns we just insert NULL constants
 			auto &global_type = global_columns[global_id].type;
 			Value val(global_type);
@@ -359,6 +391,19 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 		reader_data.column_mapping.push_back(i);
 		reader_data.column_ids.push_back(local_id);
 	}
+
+    // printf("Column mapping: ");
+    // for (const auto &mapping : reader_data.column_mapping) {
+    //     printf("%llu,", mapping);
+    // }
+    // printf("\n");
+    //
+    // printf("Column ids: ");
+    // for (const auto &id : reader_data.column_ids) {
+    //     printf("%llu,", id);
+    // }
+    // printf("\n");
+
 
 	reader_data.empty_columns = reader_data.column_ids.empty();
 }

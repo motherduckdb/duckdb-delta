@@ -365,6 +365,42 @@ static Value GetPartitionValueFromExpression(const vector<unique_ptr<ParsedExpre
 	return child->Cast<ConstantExpression>().value;
 }
 
+static unordered_map<string, idx_t> GetColumnMappingFromExpression(const vector<unique_ptr<ParsedExpression>> &parsed_expression) {
+    unordered_map<string, idx_t> res;
+    if (parsed_expression.size() != 1) {
+        throw IOException("Unexpected size of transformation expression returned by delta kernel: %d",
+                          parsed_expression.size());
+    }
+
+    const auto &root_expression = parsed_expression.get(0);
+    if (root_expression->type != ExpressionType::FUNCTION) {
+        throw IOException("Unexpected type of root expression returned by delta kernel: %d", root_expression->type);
+    }
+
+    if (root_expression->Cast<FunctionExpression>().function_name != "struct_pack") {
+        throw IOException("Unexpected function of root expression returned by delta kernel: %s",
+                          root_expression->Cast<FunctionExpression>().function_name);
+    }
+
+    // printf("Transform expression from kernel: ");
+    for (idx_t i = 0; i < root_expression->Cast<FunctionExpression>().children.size(); i++) {
+        const auto &child = root_expression->Cast<FunctionExpression>().children[i];
+        // printf("%s,", child->ToString().c_str());
+        if (child->type == ExpressionType::COLUMN_REF) {
+            auto & colref = child->Cast<ColumnRefExpression>();
+            res.insert({colref.GetColumnName(), i});
+        }
+    }
+    // printf("\n");
+
+    // for (const auto& thing : res) {
+    //     Printer::Print(thing.first);
+    //     Printer::PrintF("%d\n", thing.second);
+    // }
+
+    return res;
+}
+
 void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path,
                                              int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
                                              const ffi::Expression *transform) {
@@ -415,10 +451,13 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		}
 	}
 
+    // Printer::Print(path_string);
+
 	// Lookup all columns for potential hits in the constant map
 	if (transform) {
 		ExpressionVisitor visitor;
 		auto parsed_transformation_expression = visitor.VisitKernelExpression(transform);
+
 		if (!parsed_transformation_expression) {
 			context->error = ErrorData(ExceptionType::IO,
 			                           "Failed to parse transformation expression from delta kernel: null returned");
@@ -434,6 +473,10 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 			    GetPartitionValueFromExpression(*parsed_transformation_expression, partition_id);
 		}
 		snapshot.metadata.back()->partition_map = std::move(constant_map);
+
+	    // store the projection map
+	    snapshot.metadata.back()->has_column_map = true;
+	    snapshot.metadata.back()->parsed_column_map = GetColumnMappingFromExpression(*parsed_transformation_expression);
 	} else {
 		if (!snapshot.partitions.empty()) {
 			context->error = ErrorData(ExceptionType::IO,

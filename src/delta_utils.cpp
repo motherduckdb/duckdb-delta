@@ -318,7 +318,14 @@ void ExpressionVisitor::VisitDecimalLiteral(void *state, uintptr_t sibling_list_
 }
 
 void ExpressionVisitor::VisitColumnExpression(void *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name) {
-	auto expression = make_uniq<ColumnRefExpression>(string(name.ptr, name.len));
+    auto col_ref_string = string(name.ptr, name.len);
+
+    // Delta ColRefs are sometimes backtick-ed
+    if(col_ref_string[0] == '`' && col_ref_string[col_ref_string.size()-1] == '`') {
+        col_ref_string = col_ref_string.substr(1, col_ref_string.size()-2);
+    }
+
+	auto expression = make_uniq<ColumnRefExpression>(col_ref_string);
 	static_cast<ExpressionVisitor *>(state)->AppendToList(sibling_list_id, std::move(expression));
 }
 

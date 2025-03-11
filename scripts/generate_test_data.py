@@ -146,6 +146,43 @@ def generate_test_data_pyspark(name, current_path, input_path, delete_predicate 
     df = spark.table(f'test_table_{name}')
     df.write.parquet(parquet_reference_path, mode='overwrite')
 
+def generate_test_data_pyspark_by_queries(name, current_path, base_query, queries):
+    """
+    schema_evolve_pyspark_deltatable generates some test data using pyspark and duckdb
+
+    :param current_path: the test data path
+    :param input_path: the path to an input parquet file
+    :return: describe what it returns
+    """
+
+    if (os.path.isdir(BASE_PATH + '/' + current_path)):
+        return
+
+    ## SPARK SESSION
+    builder = SparkSession.builder.appName("MyApp") \
+        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+        .config("spark.driver.memory", "8g") \
+        .config('spark.driver.host','127.0.0.1')
+
+    spark = configure_spark_with_delta_pip(builder).getOrCreate()
+
+    ## CONFIG
+    delta_table_path = BASE_PATH + '/' + current_path + '/delta_lake'
+
+    ## CREATE DIRS
+    os.makedirs(delta_table_path, exist_ok=True)
+
+    ## DATA GENERATION
+    # df = spark.read.parquet(input_path)
+    # df.write.format("delta").mode("overwrite").save(delta_table_path)
+    spark.sql(f"CREATE TABLE {name} USING delta LOCATION '{delta_table_path}' AS {base_query}")
+
+    spark.sql(f"ALTER TABLE {name} SET TBLPROPERTIES ('delta.minReaderVersion' = '2', 'delta.minWriterVersion' = '5', 'delta.columnMapping.mode' = 'name', 'delta.enableTypeWidening' = 'true');")
+
+    for query in queries:
+        spark.sql(query)
+
 # TO CLEAN, uncomment
 # delete_old_files()
 
@@ -210,6 +247,47 @@ generate_test_data_pyspark('lineitem_sf0_01_with_dv', 'lineitem_sf0_01_with_dv',
 con = duckdb.connect()
 con.query(f"call dbgen(sf=1); COPY (from lineitem) TO '{TMP_PATH}/modified_lineitem_sf1.parquet'")
 generate_test_data_pyspark('lineitem_sf1_with_dv', 'lineitem_sf1_with_dv', f'{TMP_PATH}/modified_lineitem_sf1.parquet', "l_shipdate = '1994-01-01'")
+
+## Table with simple evolution: adding a column
+base_query = 'select CAST(1 as INT) as a;'
+queries = [
+    'ALTER TABLE evolution_simple ADD COLUMN b BIGINT;',
+    'INSERT INTO evolution_simple VALUES (2, 2);'
+]
+generate_test_data_pyspark_by_queries('evolution_simple', 'evolution_simple', base_query, queries)
+
+## Table that drops and re-adds a column with the same name for max confusion
+base_query = "select 'value1' as a, 'value2' as b;"
+queries = [
+    "ALTER TABLE evolution_column_change DROP COLUMN b;",
+    "INSERT INTO evolution_column_change VALUES ('value3');",
+    "ALTER TABLE evolution_column_change ADD COLUMN b BIGINT;",
+    "INSERT INTO evolution_column_change VALUES ('value4', 5);",
+]
+generate_test_data_pyspark_by_queries('evolution_column_change', 'evolution_column_change', base_query, queries)
+
+## CREATE table that has all type widenings from the spec
+base_query = "select CAST(42 AS BYTE) as integer, CAST(42.42 AS FLOAT) as float, CAST(42 AS INT) as int_to_double, CAST('2042-01-01' AS DATE) as date, CAST('42.42' as DECIMAL(4,2)) as decimal, CAST(42 AS INT) as int_to_decimal, CAST(42 AS BIGINT) as long_to_decimal"
+queries = [
+    "ALTER TABLE evolution_type_widening ALTER COLUMN integer TYPE SMALLINT;",
+    # TODO: add these once pyspark supports it
+    # "ALTER TABLE evolution_type_widening ALTER COLUMN float TYPE DOUBLE;",
+    # "ALTER TABLE evolution_type_widening ALTER COLUMN int_to_double TYPE DOUBLE;",
+    # "ALTER TABLE evolution_type_widening ALTER COLUMN date TYPE TIMESTAMP_NTZ;",
+    # "ALTER TABLE evolution_type_widening ALTER COLUMN decimal TYPE DECIMAL(5,2);",
+    # "ALTER TABLE evolution_type_widening ALTER COLUMN int_to_decimal TYPE DECIMAL(5,2);",
+    # "ALTER TABLE evolution_type_widening ALTER COLUMN long_to_decimal TYPE DECIMAL(5,2);",
+    "INSERT INTO evolution_type_widening VALUES (42, 42.42, 42, '2042-01-01', 42.42, 42, 42);",
+]
+generate_test_data_pyspark_by_queries('evolution_type_widening', 'evolution_type_widening', base_query, queries)
+
+## CREATE table that has all type widenings from the spec
+base_query = "select named_struct('field_a', 'value1', 'field_b', 'value2') as struct_field;"
+queries = [
+    "ALTER TABLE evolution_struct_field_modification ADD COLUMNS (struct_field.field_c STRING AFTER field_b)",
+    "INSERT INTO evolution_struct_field_modification VALUES (named_struct('field_a', 'value3', 'field_b', 'value4', 'field_c', 'value5'));",
+]
+generate_test_data_pyspark_by_queries('evolution_struct_field_modification', 'evolution_struct_field_modification', base_query, queries)
 
 ## TPCH SF0.01 full dataset
 con = duckdb.connect()
