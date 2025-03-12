@@ -1,0 +1,35 @@
+# name: test/sql/generated/schema_evolution.test
+# description: Test schema evolution
+# group: [generated]
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+query IIIIIII
+SELECT * FROM delta_scan('./data/generated/evolution_type_widening/delta_lake')
+----
+42	42.42	42	2042-01-01	42.42	42	42
+42	42.42	42	2042-01-01	42.42	42	42
+
+# Integer column is currently only one we evolve here
+# TODO: once spark supports more type widening stuff, add tests for it
+query II
+SELECT typeof(integer), integer FROM delta_scan('./data/generated/evolution_type_widening/delta_lake')
+----
+SMALLINT	42
+SMALLINT	42
+
+
+mode output_result
+
+# FIXME: result is wrong here
+statement ok
+SELECT * FROM delta_scan('./data/generated/evolution_struct_field_modification/delta_lake')
+
+# statement ok
+# from parquet_scan('./data/generated/evolution_struct_field_modification/delta_lake/**/*.parquet', union_by_name=1);
+
+
