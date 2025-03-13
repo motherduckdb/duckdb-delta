@@ -25,7 +25,6 @@ from delta_scan('./data/generated/evolution_simple/delta_lake') order by a
 2	2
 
 
-
 # evolution_column_change:
 # CREATE TABLE evolution_column_change AS SELECT 'value1' AS a, 'value2' AS b;
 # ALTER TABLE evolution_column_change DROP COLUMN b;

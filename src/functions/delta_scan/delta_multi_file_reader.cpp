@@ -94,6 +94,41 @@ static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options,
 	}
 }
 
+// TODO: upstream this into MultiFileReaderColumnDefinition?
+static vector<MultiFileReaderColumnDefinition> ColumnsFromNamesAndTypes(const vector<string> &names,
+                                                                                const vector<LogicalType> &types) {
+    vector<MultiFileReaderColumnDefinition> columns;
+    D_ASSERT(names.size() == types.size());
+    for (idx_t i = 0; i < names.size(); i++) {
+        auto &name = names[i];
+        auto &type = types[i];
+        columns.emplace_back(name, type);
+
+        if (type.IsNested()) {
+            if (type.InternalType() == PhysicalType::STRUCT) {
+                auto &struct_children = StructType::GetChildTypes(type);
+                vector <string> child_names;
+                vector <LogicalType> child_types;
+                for (const auto &child : struct_children) {
+                    child_names.push_back(child.first);
+                    child_types.push_back(child.second);
+                }
+                columns.back().children = ColumnsFromNamesAndTypes(child_names, child_types);
+            } else if (type.InternalType() == PhysicalType::LIST) {
+                auto &list_child = ListType::GetChildType(type);
+                columns.back().children = ColumnsFromNamesAndTypes({""}, {list_child});
+            } else if (type.InternalType() == PhysicalType::ARRAY) {
+                auto &list_child = ArrayType::GetChildType(type);
+                columns.back().children = ColumnsFromNamesAndTypes({""}, {list_child});
+            } else {
+                throw InternalException("Unknown nested type found in ColumnsFromNamesAndTypes: '%s'", type.ToString());
+            }
+        }
+    }
+
+    return columns;
+}
+
 // Parses the columns that are used by the delta extension into
 void DeltaMultiFileReaderGlobalState::SetColumnIdx(const string &column, idx_t idx) {
 	if (column == "file_row_number") {
@@ -103,7 +138,7 @@ void DeltaMultiFileReaderGlobalState::SetColumnIdx(const string &column, idx_t i
 		delta_file_number_idx = idx;
 		return;
 	}
-	throw IOException("Unknown column '%s' found as required by the DeltaMultiFileReader");
+	throw IOException("Unknown column '%s' found as required by the DeltaMultisFileReader");
 }
 
 bool DeltaMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &files,
@@ -168,6 +203,9 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 			return_types.push_back(LogicalType::UBIGINT);
 		}
 	}
+
+    // FIXME: this is slightly hacky here
+    bind_data.schema = ColumnsFromNamesAndTypes(names, return_types);
 }
 
 void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_options,
@@ -298,6 +336,59 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 	return std::move(res);
 }
 
+// static LogicalType ApplyColumnMappingToLocalType(const LogicalType &local_type, const unordered_map<string, string> &map) {
+//     if (local_type.InternalType() != PhysicalType::STRUCT) {
+//         return local_type;
+//     }
+//
+//     child_list_t<LogicalType> new_child_list;
+//
+//     for (const auto &child : StructType::GetChildTypes(local_type)) {
+//         // Create new child name by doing a lookup in the map
+//         auto new_child_name = map.find(child.first);
+//
+//         if(new_child_name == map.end()) {
+//             throw IOException("Failed to find local struct field %s in the column map", child.first);
+//         }
+//
+//         // Recurse into the child type
+//         auto new_child_type = ApplyColumnMappingToLocalType(child.second, map);
+//
+//         new_child_list.emplace_back(new_child_name->second, new_child_type);
+//     }
+//
+//     return LogicalType::STRUCT(new_child_list);
+// }
+
+// Returns a map of every local field name to a global field name (both columns and struct fields)
+static void ParseNameMaps(vector<unique_ptr<ParsedExpression>> &transform_expression, const vector<MultiFileReaderColumnDefinition> &global_columns, unordered_map<string, string> &global_to_local) {
+    auto &column_expressions = KernelUtils::UnpackTopLevelStruct(transform_expression);
+
+    D_ASSERT(column_expressions.size() <= global_columns.size()); // tODO throw
+
+    for (idx_t i = 0; i < column_expressions.size(); i++) {
+        auto &expression = column_expressions[i];
+        // auto &column_definition = global_columns[i];
+
+        if (expression->type == ExpressionType::FUNCTION) {
+            if (expression->Cast<FunctionExpression>().function_name != "struct_pack") {
+                throw IOException("Unexpected function of root expression returned by delta kernel: %s",
+                                  expression->Cast<FunctionExpression>().function_name);
+            }
+            // FIXME: Currently we don't traverse into nested types, since the kernel transforms don't contain them yet
+
+            // auto &expression_children = expression->Cast<FunctionExpression>().children;
+            // ParseNameMaps(expression_children, column_definition.children, local_to_global, global_to_local);
+
+        } else if (expression->type == ExpressionType::COLUMN_REF){
+            auto local_name = expression->Cast<ColumnRefExpression>().GetColumnName();
+            auto global_name = global_columns[i].name;
+
+            global_to_local[global_name] = local_name;
+        }
+    }
+}
+
 // This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
 // in the parquet files, we just add null constant columns
 static void CustomMulfiFileNameMapping(const string &file_name,
@@ -316,20 +407,9 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 
     auto &metadata = delta_list->GetMetaData(reader_data.file_list_idx.GetIndex());
 
-    //
-    unordered_map<string, string> global_column_to_local_column;
-    if (metadata.has_column_map) {
-        // Maps local column -> global idx_t ?
-        auto projection_map = metadata.parsed_column_map;
-
-        // printf("\nFile %s\n", file_name.c_str());
-        //
-        // printf("Global name -> Local Name map: ");
-        for (const auto& map_entry : projection_map) {
-            // printf("%s:%s, ", global_columns[map_entry.second].name.c_str(), map_entry.first.c_str());
-            global_column_to_local_column.insert({global_columns[map_entry.second].name, map_entry.first});
-        }
-        // printf("\n");
+    unordered_map<string, string> global_to_local;
+    if (metadata.transform_expression) {
+        ParseNameMaps(*metadata.transform_expression, global_columns, global_to_local);
     }
 
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
@@ -354,9 +434,9 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 		auto &global_name = global_columns[global_id].name;
 
 	    string local_name;
-	    if (metadata.has_column_map) {
-	        auto local_name_lookup = global_column_to_local_column.find(global_name);
-	        if (local_name_lookup == global_column_to_local_column.end()) {
+	    if (metadata.transform_expression) {
+	        auto local_name_lookup = global_to_local.find(global_name);
+	        if (local_name_lookup == global_to_local.end()) {
                 if (global_name == "file_row_number") {
                     // Special case file_row_number column, we
                     local_name = global_name;
@@ -383,7 +463,12 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 		D_ASSERT(global_id < global_columns.size());
 		D_ASSERT(local_id < local_columns.size());
 		auto &global_type = global_columns[global_id].type;
-		auto &local_type = local_columns[local_id].type;
+		auto local_type = local_columns[local_id].type;
+
+        // TODO: convert the col-id names in the local_type to the correct global type to ensure the cast is correct. Because we need to convert straight into the global type and need to go through a cast, we cannot handle the
+	    //       case where a column of the same name is re-added
+	    // local_type = ApplyColumnMappingToLocalType(local_type, local_column_to_global_column);
+
 		if (global_type != local_type) {
 			reader_data.cast_map[local_id] = global_type;
 		}
@@ -391,19 +476,6 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 		reader_data.column_mapping.push_back(i);
 		reader_data.column_ids.push_back(local_id);
 	}
-
-    // printf("Column mapping: ");
-    // for (const auto &mapping : reader_data.column_mapping) {
-    //     printf("%llu,", mapping);
-    // }
-    // printf("\n");
-    //
-    // printf("Column ids: ");
-    // for (const auto &id : reader_data.column_ids) {
-    //     printf("%llu,", id);
-    // }
-    // printf("\n");
-
 
 	reader_data.empty_columns = reader_data.column_ids.empty();
 }

@@ -156,10 +156,10 @@ queries = [
 generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_type_widening', 'evolution_type_widening', base_query, queries)
 
 ## CREATE table that has all type widenings from the spec
-base_query = "select named_struct('field_a', 'value1', 'field_b', 'value2') as struct_field;"
+base_query = "select named_struct('struct_field_a', 'value1', 'struct_field_b', 'value2') as top_level_column;"
 queries = [
-    "ALTER TABLE evolution_struct_field_modification ADD COLUMNS (struct_field.field_c STRING AFTER field_b)",
-    "INSERT INTO evolution_struct_field_modification VALUES (named_struct('field_a', 'value3', 'field_b', 'value4', 'field_c', 'value5'));",
+    "ALTER TABLE evolution_struct_field_modification ADD COLUMNS (top_level_column.struct_field_c STRING AFTER struct_field_b)",
+    "INSERT INTO evolution_struct_field_modification VALUES (named_struct('struct_field_a', 'value3', 'struct_field_b', 'value4', 'struct_field_c', 'value5'));",
 ]
 generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_struct_field_modification', 'evolution_struct_field_modification', base_query, queries)
 

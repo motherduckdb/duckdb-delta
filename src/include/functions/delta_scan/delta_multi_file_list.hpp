@@ -35,8 +35,7 @@ struct DeltaFileMetaData {
 
     case_insensitive_map_t<Value> partition_map;
 
-    bool has_column_map = false;
-    unordered_map<string, idx_t> parsed_column_map;
+    unique_ptr<vector<unique_ptr<ParsedExpression>>> transform_expression;
 };
 
 //! The DeltaMultiFileList implements the MultiFileList API to allow injecting it into the regular DuckDB parquet scan

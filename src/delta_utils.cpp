@@ -570,6 +570,25 @@ vector<bool> KernelUtils::FromDeltaBoolSlice(const struct ffi::KernelBoolSlice s
 	return result;
 }
 
+vector<unique_ptr<ParsedExpression>> & KernelUtils::UnpackTopLevelStruct(const vector<unique_ptr<ParsedExpression>> &parsed_expression) {
+    if (parsed_expression.size() != 1) {
+        throw IOException("Unexpected size of transformation expression returned by delta kernel: %d",
+                          parsed_expression.size());
+    }
+
+    const auto &root_expression = parsed_expression.get(0);
+    if (root_expression->type != ExpressionType::FUNCTION) {
+        throw IOException("Unexpected type of root expression returned by delta kernel: %d", root_expression->type);
+    }
+
+    if (root_expression->Cast<FunctionExpression>().function_name != "struct_pack") {
+        throw IOException("Unexpected function of root expression returned by delta kernel: %s",
+                          root_expression->Cast<FunctionExpression>().function_name);
+    }
+
+    return root_expression->Cast<FunctionExpression>().children;
+}
+
 PredicateVisitor::PredicateVisitor(const vector<string> &column_names, optional_ptr<const TableFilterSet> filters) {
 	predicate = this;
 	visitor = (uintptr_t(*)(void *, ffi::KernelExpressionVisitorState *)) & VisitPredicate;
