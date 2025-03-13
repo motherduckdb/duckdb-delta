@@ -336,30 +336,6 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 	return std::move(res);
 }
 
-// static LogicalType ApplyColumnMappingToLocalType(const LogicalType &local_type, const unordered_map<string, string> &map) {
-//     if (local_type.InternalType() != PhysicalType::STRUCT) {
-//         return local_type;
-//     }
-//
-//     child_list_t<LogicalType> new_child_list;
-//
-//     for (const auto &child : StructType::GetChildTypes(local_type)) {
-//         // Create new child name by doing a lookup in the map
-//         auto new_child_name = map.find(child.first);
-//
-//         if(new_child_name == map.end()) {
-//             throw IOException("Failed to find local struct field %s in the column map", child.first);
-//         }
-//
-//         // Recurse into the child type
-//         auto new_child_type = ApplyColumnMappingToLocalType(child.second, map);
-//
-//         new_child_list.emplace_back(new_child_name->second, new_child_type);
-//     }
-//
-//     return LogicalType::STRUCT(new_child_list);
-// }
-
 // Returns a map of every local field name to a global field name (both columns and struct fields)
 static void ParseNameMaps(vector<unique_ptr<ParsedExpression>> &transform_expression, const vector<MultiFileReaderColumnDefinition> &global_columns, unordered_map<string, string> &global_to_local) {
     auto &column_expressions = KernelUtils::UnpackTopLevelStruct(transform_expression);
@@ -464,10 +440,6 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 		D_ASSERT(local_id < local_columns.size());
 		auto &global_type = global_columns[global_id].type;
 		auto local_type = local_columns[local_id].type;
-
-        // TODO: convert the col-id names in the local_type to the correct global type to ensure the cast is correct. Because we need to convert straight into the global type and need to go through a cast, we cannot handle the
-	    //       case where a column of the same name is re-added
-	    // local_type = ApplyColumnMappingToLocalType(local_type, local_column_to_global_column);
 
 		if (global_type != local_type) {
 			reader_data.cast_map[local_id] = global_type;
