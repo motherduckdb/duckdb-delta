@@ -401,8 +401,6 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		}
 	}
 
-	// Printer::Print(path_string);
-
 	// Lookup all columns for potential hits in the constant map
 	if (transform) {
 		ExpressionVisitor visitor;
@@ -423,8 +421,6 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 			    GetPartitionValueFromExpression(*parsed_transformation_expression, partition_id);
 		}
 		snapshot.metadata.back()->partition_map = std::move(constant_map);
-
-		// store the projection map
 		snapshot.metadata.back()->transform_expression = std::move(parsed_transformation_expression);
 	} else {
 		if (!snapshot.partitions.empty()) {
