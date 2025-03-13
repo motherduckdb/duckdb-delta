@@ -33,9 +33,9 @@ struct DeltaFileMetaData {
 	idx_t cardinality = DConstants::INVALID_INDEX;
 	ffi::KernelBoolSlice selection_vector = {nullptr, 0};
 
-    case_insensitive_map_t<Value> partition_map;
+	case_insensitive_map_t<Value> partition_map;
 
-    unique_ptr<vector<unique_ptr<ParsedExpression>>> transform_expression;
+	unique_ptr<vector<unique_ptr<ParsedExpression>>> transform_expression;
 };
 
 //! The DeltaMultiFileList implements the MultiFileList API to allow injecting it into the regular DuckDB parquet scan

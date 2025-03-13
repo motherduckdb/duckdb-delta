@@ -343,7 +343,7 @@ static void KernelPartitionStringVisitor(ffi::NullableCvoid engine_context, ffi:
 
 static Value GetPartitionValueFromExpression(const vector<unique_ptr<ParsedExpression>> &parsed_expression,
                                              idx_t index) {
-	auto & column_expressions = KernelUtils::UnpackTopLevelStruct(parsed_expression);
+	auto &column_expressions = KernelUtils::UnpackTopLevelStruct(parsed_expression);
 	auto &child = column_expressions[index];
 	if (!child || child->type != ExpressionType::VALUE_CONSTANT) {
 		throw IOException("Failed to parse partition value from kernel-provided transformation");
@@ -401,7 +401,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		}
 	}
 
-    // Printer::Print(path_string);
+	// Printer::Print(path_string);
 
 	// Lookup all columns for potential hits in the constant map
 	if (transform) {
@@ -424,8 +424,8 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		}
 		snapshot.metadata.back()->partition_map = std::move(constant_map);
 
-	    // store the projection map
-	    snapshot.metadata.back()->transform_expression = std::move(parsed_transformation_expression);
+		// store the projection map
+		snapshot.metadata.back()->transform_expression = std::move(parsed_transformation_expression);
 	} else {
 		if (!snapshot.partitions.empty()) {
 			context->error = ErrorData(ExceptionType::IO,

@@ -318,12 +318,12 @@ void ExpressionVisitor::VisitDecimalLiteral(void *state, uintptr_t sibling_list_
 }
 
 void ExpressionVisitor::VisitColumnExpression(void *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name) {
-    auto col_ref_string = string(name.ptr, name.len);
+	auto col_ref_string = string(name.ptr, name.len);
 
-    // Delta ColRefs are sometimes backtick-ed
-    if(col_ref_string[0] == '`' && col_ref_string[col_ref_string.size()-1] == '`') {
-        col_ref_string = col_ref_string.substr(1, col_ref_string.size()-2);
-    }
+	// Delta ColRefs are sometimes backtick-ed
+	if (col_ref_string[0] == '`' && col_ref_string[col_ref_string.size() - 1] == '`') {
+		col_ref_string = col_ref_string.substr(1, col_ref_string.size() - 2);
+	}
 
 	auto expression = make_uniq<ColumnRefExpression>(col_ref_string);
 	static_cast<ExpressionVisitor *>(state)->AppendToList(sibling_list_id, std::move(expression));
@@ -570,23 +570,24 @@ vector<bool> KernelUtils::FromDeltaBoolSlice(const struct ffi::KernelBoolSlice s
 	return result;
 }
 
-vector<unique_ptr<ParsedExpression>> & KernelUtils::UnpackTopLevelStruct(const vector<unique_ptr<ParsedExpression>> &parsed_expression) {
-    if (parsed_expression.size() != 1) {
-        throw IOException("Unexpected size of transformation expression returned by delta kernel: %d",
-                          parsed_expression.size());
-    }
+vector<unique_ptr<ParsedExpression>> &
+KernelUtils::UnpackTopLevelStruct(const vector<unique_ptr<ParsedExpression>> &parsed_expression) {
+	if (parsed_expression.size() != 1) {
+		throw IOException("Unexpected size of transformation expression returned by delta kernel: %d",
+		                  parsed_expression.size());
+	}
 
-    const auto &root_expression = parsed_expression.get(0);
-    if (root_expression->type != ExpressionType::FUNCTION) {
-        throw IOException("Unexpected type of root expression returned by delta kernel: %d", root_expression->type);
-    }
+	const auto &root_expression = parsed_expression.get(0);
+	if (root_expression->type != ExpressionType::FUNCTION) {
+		throw IOException("Unexpected type of root expression returned by delta kernel: %d", root_expression->type);
+	}
 
-    if (root_expression->Cast<FunctionExpression>().function_name != "struct_pack") {
-        throw IOException("Unexpected function of root expression returned by delta kernel: %s",
-                          root_expression->Cast<FunctionExpression>().function_name);
-    }
+	if (root_expression->Cast<FunctionExpression>().function_name != "struct_pack") {
+		throw IOException("Unexpected function of root expression returned by delta kernel: %s",
+		                  root_expression->Cast<FunctionExpression>().function_name);
+	}
 
-    return root_expression->Cast<FunctionExpression>().children;
+	return root_expression->Cast<FunctionExpression>().children;
 }
 
 PredicateVisitor::PredicateVisitor(const vector<string> &column_names, optional_ptr<const TableFilterSet> filters) {
