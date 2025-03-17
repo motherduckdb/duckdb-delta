@@ -323,6 +323,9 @@ struct KernelUtils {
 		}
 		return ErrorData(ExceptionType::IO, "Invalid Delta kernel ExternResult");
 	}
+
+	static vector<unique_ptr<ParsedExpression>> &
+	UnpackTopLevelStruct(const vector<unique_ptr<ParsedExpression>> &parsed_expression);
 };
 
 class PredicateVisitor : public ffi::EnginePredicate {
