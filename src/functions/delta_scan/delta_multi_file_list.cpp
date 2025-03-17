@@ -492,7 +492,6 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	EnsureSnapshotInitialized();
 
 	unique_ptr<SchemaVisitor::FieldList> schema;
-
 	{
 		auto snapshot_ref = snapshot->GetLockingRef();
 		schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr());

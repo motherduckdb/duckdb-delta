@@ -22,8 +22,7 @@ SELECT typeof(integer), integer FROM delta_scan('./data/generated/evolution_type
 SMALLINT	42
 SMALLINT	42
 
-mode output_result
-
-# FIXME: result is wrong here
-# statement ok
-# SELECT * FROM delta_scan('./data/generated/evolution_struct_field_modification/delta_lake')
+statement error
+SELECT * FROM delta_scan('./data/generated/evolution_struct_field_modification/delta_lake')
+----
+DuckDB currently does not support column mapping for nested types

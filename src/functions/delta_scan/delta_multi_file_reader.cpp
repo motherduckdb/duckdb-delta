@@ -367,6 +367,12 @@ static void ParseNameMaps(vector<unique_ptr<ParsedExpression>> &transform_expres
 	}
 }
 
+static void DetectUnsupportedTypeCast(const LogicalType &local_type, const LogicalType &global_type) {
+    if (local_type.IsNested() && local_type != global_type) {
+        throw NotImplementedException("Unsupported type cast detected in Delta table '%s' -> '%s'. DuckDB currently does not support column mapping for nested types.", local_type.ToString(), global_type.ToString());
+    }
+}
+
 // This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
 // in the parquet files, we just add null constant columns
 static void CustomMulfiFileNameMapping(const string &file_name,
@@ -376,9 +382,9 @@ static void CustomMulfiFileNameMapping(const string &file_name,
                                        const string &initial_file,
                                        optional_ptr<MultiFileReaderGlobalState> global_state) {
 	// we have expected types: create a map of name -> column index
-	case_insensitive_map_t<idx_t> name_map;
+	case_insensitive_map_t<idx_t> local_name_map;
 	for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
-		name_map[local_columns[col_idx].name] = col_idx;
+		local_name_map[local_columns[col_idx].name] = col_idx;
 	}
 
 	auto delta_list = dynamic_cast<const DeltaMultiFileList *>(global_state->file_list.get());
@@ -430,8 +436,8 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 			local_name = global_name;
 		}
 
-		auto entry = name_map.find(local_name);
-		if (entry == name_map.end()) {
+		auto entry = local_name_map.find(local_name);
+		if (entry == local_name_map.end()) {
 			// FIXME: this override is pretty hacky: for missing columns we just insert NULL constants
 			auto &global_type = global_columns[global_id].type;
 			Value val(global_type);
@@ -444,6 +450,8 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 		D_ASSERT(local_id < local_columns.size());
 		auto &global_type = global_columns[global_id].type;
 		auto local_type = local_columns[local_id].type;
+
+	    DetectUnsupportedTypeCast(local_type, global_type);
 
 		if (global_type != local_type) {
 			reader_data.cast_map[local_id] = global_type;
