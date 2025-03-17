@@ -368,9 +368,11 @@ static void ParseNameMaps(vector<unique_ptr<ParsedExpression>> &transform_expres
 }
 
 static void DetectUnsupportedTypeCast(const LogicalType &local_type, const LogicalType &global_type) {
-    if (local_type.IsNested() && local_type != global_type) {
-        throw NotImplementedException("Unsupported type cast detected in Delta table '%s' -> '%s'. DuckDB currently does not support column mapping for nested types.", local_type.ToString(), global_type.ToString());
-    }
+	if (local_type.IsNested() && local_type != global_type) {
+		throw NotImplementedException("Unsupported type cast detected in Delta table '%s' -> '%s'. DuckDB currently "
+		                              "does not support column mapping for nested types.",
+		                              local_type.ToString(), global_type.ToString());
+	}
 }
 
 // This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
@@ -451,7 +453,7 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 		auto &global_type = global_columns[global_id].type;
 		auto local_type = local_columns[local_id].type;
 
-	    DetectUnsupportedTypeCast(local_type, global_type);
+		DetectUnsupportedTypeCast(local_type, global_type);
 
 		if (global_type != local_type) {
 			reader_data.cast_map[local_id] = global_type;
