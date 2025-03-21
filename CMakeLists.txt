@@ -150,6 +150,7 @@ ExternalProject_Add(
                     ${RUST_ENV_VARS} env
   # Temporary workaround to fix compile issue TODO: remove once fixed upstream
   CONFIGURE_COMMAND cargo update -p chrono --precise 0.4.38
+  CONFIGURE_COMMAND cargo update -p parquet --precise 53.4.1
   UPDATE_COMMAND ""
   BUILD_IN_SOURCE 1
   # Build debug build
