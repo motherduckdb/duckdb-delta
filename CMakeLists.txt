@@ -149,7 +149,7 @@ ExternalProject_Add(
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS}
                     ${RUST_ENV_VARS} env
   # Temporary workaround to fix compile issue TODO: remove once fixed upstream
-  CONFIGURE_COMMAND cargo update -p chrono --precise 0.4.38
+  CONFIGURE_COMMAND cargo update -p chrono --precise 0.4.38 && cargo update -p parquet --precise 53.4.1
   UPDATE_COMMAND ""
   BUILD_IN_SOURCE 1
   # Build debug build
