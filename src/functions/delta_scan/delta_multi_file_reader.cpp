@@ -67,7 +67,7 @@ static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options,
 	}
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		auto &col_idx = global_column_ids[i];
-        auto global_id = MultiFileGlobalIndex(i);
+		auto global_id = MultiFileGlobalIndex(i);
 
 		if (col_idx.IsRowIdColumn()) {
 			// row-id
@@ -231,7 +231,8 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
 			// We add the constant column for the delta_file_number option
 			// NOTE: we add a placeholder here, to demonstrate how we can also populate extra columns in the
 			// FinalizeChunk
-			reader_data.constant_map.Add(MultiFileGlobalIndex(delta_global_state.delta_file_number_idx), Value::UBIGINT(0));
+			reader_data.constant_map.Add(MultiFileGlobalIndex(delta_global_state.delta_file_number_idx),
+			                             Value::UBIGINT(0));
 		}
 	}
 
@@ -243,7 +244,7 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
 	if (!file_metadata.partition_map.empty()) {
 		for (idx_t i = 0; i < global_column_ids.size(); i++) {
 			column_t col_id = global_column_ids[i].GetPrimaryIndex();
-            auto global_idx = MultiFileGlobalIndex(i);
+			auto global_idx = MultiFileGlobalIndex(i);
 
 			if (IsRowIdColumnId(col_id)) {
 				continue;
@@ -404,7 +405,7 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 	}
 
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
-	    auto global_index = MultiFileGlobalIndex(i);
+		auto global_index = MultiFileGlobalIndex(i);
 		// check if this is a constant column
 		bool constant = false;
 		for (auto &entry : reader_data.constant_map) {

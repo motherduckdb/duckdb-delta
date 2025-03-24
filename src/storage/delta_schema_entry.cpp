@@ -139,7 +139,8 @@ void DeltaSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	throw NotImplementedException("Delta tables do not support dropping");
 }
 
-optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction transaction, const EntryLookupInfo &lookup_info) {
+optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction transaction,
+                                                         const EntryLookupInfo &lookup_info) {
 	if (!transaction.HasContext()) {
 		throw NotImplementedException("Can not DeltaSchemaEntry::GetEntry without context");
 	}
