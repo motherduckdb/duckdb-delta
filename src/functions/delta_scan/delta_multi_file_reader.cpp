@@ -2,8 +2,6 @@
 #include "functions/delta_scan/delta_multi_file_reader.hpp"
 #include "functions/delta_scan/delta_scan.hpp"
 
-// #include <duckdb/execution/operator/csv_scanner/csv_multi_file_info.hpp>
-
 #include "duckdb/common/local_file_system.hpp"
 #include "duckdb/common/types/data_chunk.hpp"
 #include "duckdb/execution/expression_executor.hpp"
