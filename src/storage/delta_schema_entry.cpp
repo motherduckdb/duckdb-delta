@@ -139,14 +139,14 @@ void DeltaSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	throw NotImplementedException("Delta tables do not support dropping");
 }
 
-optional_ptr<CatalogEntry> DeltaSchemaEntry::GetEntry(CatalogTransaction transaction, CatalogType type,
-                                                      const string &name) {
+optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction transaction,
+                                                         const EntryLookupInfo &lookup_info) {
 	if (!transaction.HasContext()) {
 		throw NotImplementedException("Can not DeltaSchemaEntry::GetEntry without context");
 	}
 	auto &context = transaction.GetContext();
 
-	if (type == CatalogType::TABLE_ENTRY && name == catalog.GetName()) {
+	if (lookup_info.GetCatalogType() == CatalogType::TABLE_ENTRY && lookup_info.GetEntryName() == catalog.GetName()) {
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
