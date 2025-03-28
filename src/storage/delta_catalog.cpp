@@ -90,20 +90,16 @@ DatabaseSize DeltaCatalog::GetDatabaseSize(ClientContext &context) {
 	return size;
 }
 
-PhysicalOperator &DeltaCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
-                                                  LogicalCreateTable &op, PhysicalOperator &plan) {
-	throw NotImplementedException("DeltaCatalog does not support creating new tables");
+PhysicalOperator &DeltaCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner, LogicalCreateTable &op, PhysicalOperator &plan) {
+  throw NotImplementedException("DeltaCatalog does not support creating new tables");
 }
-PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
-                                           optional_ptr<PhysicalOperator> plan) {
+PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op, optional_ptr<PhysicalOperator> plan) {
 	throw NotImplementedException("DeltaCatalog does not support inserts");
 }
-PhysicalOperator &DeltaCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
-                                           PhysicalOperator &plan) {
+PhysicalOperator &DeltaCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op, PhysicalOperator &plan) {
 	throw NotImplementedException("DeltaCatalog does not support deletes");
 }
-PhysicalOperator &DeltaCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
-                                           PhysicalOperator &plan) {
+PhysicalOperator &DeltaCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op, PhysicalOperator &plan) {
 	throw NotImplementedException("DeltaCatalog does not support updates");
 }
 unique_ptr<LogicalOperator> DeltaCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,
