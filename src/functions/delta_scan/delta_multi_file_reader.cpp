@@ -50,10 +50,10 @@ static SelectionVector DuckSVFromDeltaSV(const ffi::KernelBoolSlice &dv, Vector 
 
 // Note: this overrides MultifileReader::FinalizeBind removing the lines adding the hive_partitioning indexes
 //       the reason is that we (ab)use those to use them to forward the delta partitioning information.
-static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
+static void FinalizeBindBaseOverride(const MultiFileOptions &file_options, const MultiFileReaderBindData &options,
                                      const string &filename,
-                                     const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                     const vector<MultiFileReaderColumnDefinition> &global_columns,
+                                     const vector<MultiFileColumnDefinition> &local_columns,
+                                     const vector<MultiFileColumnDefinition> &global_columns,
                                      const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
                                      ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
 
@@ -108,7 +108,7 @@ void DeltaMultiFileReaderGlobalState::SetColumnIdx(const string &column, idx_t i
 	throw IOException("Unknown column '%s' found as required by the DeltaMultiFileReader");
 }
 
-bool DeltaMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &files,
+bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
                                 vector<LogicalType> &return_types, vector<string> &names,
                                 MultiFileReaderBindData &bind_data) {
 	auto &delta_snapshot = dynamic_cast<DeltaMultiFileList &>(files);
@@ -129,7 +129,7 @@ bool DeltaMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &
 	return true;
 };
 
-void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFileList &files,
+void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &files,
                                        vector<LogicalType> &return_types, vector<string> &names,
                                        MultiFileReaderBindData &bind_data) {
 
@@ -172,16 +172,16 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 	}
 }
 
-void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_options,
+void DeltaMultiFileReader::FinalizeBind(const MultiFileOptions &file_options,
                                         const MultiFileReaderBindData &options, const string &filename,
-                                        const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                        const vector<MultiFileReaderColumnDefinition> &global_columns,
+                                        const vector<MultiFileColumnDefinition> &local_columns,
+                                        const vector<MultiFileColumnDefinition> &global_columns,
                                         const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
                                         ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
 	FinalizeBindBaseOverride(file_options, options, filename, local_columns, global_columns, global_column_ids,
 	                         reader_data, context, global_state);
 
-	// Handle custom delta option set in MultiFileReaderOptions::custom_options
+	// Handle custom delta option set in MultiFileOptions::custom_options
 	auto file_number_opt = file_options.custom_options.find("delta_file_number");
 	if (file_number_opt != file_options.custom_options.end()) {
 		if (file_number_opt->second.GetValue<bool>()) {
@@ -241,9 +241,9 @@ shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &co
 }
 
 unique_ptr<MultiFileReaderGlobalState>
-DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
+DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiFileOptions &file_options,
                                             const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
-                                            const vector<MultiFileReaderColumnDefinition> &global_columns,
+                                            const vector<MultiFileColumnDefinition> &global_columns,
                                             const vector<ColumnIndex> &global_column_ids) {
 	vector<LogicalType> extra_columns;
 	vector<pair<string, idx_t>> mapped_columns;
@@ -309,8 +309,8 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 // This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
 // in the parquet files, we just add null constant columns
 static void CustomMulfiFileNameMapping(const string &file_name,
-	                                 const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                                 const vector<MultiFileReaderColumnDefinition> &global_columns,
+	                                 const vector<MultiFileColumnDefinition> &local_columns,
+	                                 const vector<MultiFileColumnDefinition> &global_columns,
 	                                 const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
 	                                 const MultiFileReaderBindData &bind_data,
 	                                 const virtual_column_map_t &virtual_columns, const string &initial_file,
@@ -367,8 +367,8 @@ static void CustomMulfiFileNameMapping(const string &file_name,
 }
 
 void DeltaMultiFileReader::CreateColumnMapping(const string &file_name,
-	                                 const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                                 const vector<MultiFileReaderColumnDefinition> &global_columns,
+	                                 const vector<MultiFileColumnDefinition> &local_columns,
+	                                 const vector<MultiFileColumnDefinition> &global_columns,
 	                                 const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
 	                                 const MultiFileReaderBindData &bind_data,
 	                                 const virtual_column_map_t &virtual_columns, const string &initial_file,
@@ -449,7 +449,7 @@ void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFile
 	}
 };
 
-bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, MultiFileReaderOptions &options,
+bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, MultiFileOptions &options,
                                        ClientContext &context) {
 	auto loption = StringUtil::Lower(key);
 

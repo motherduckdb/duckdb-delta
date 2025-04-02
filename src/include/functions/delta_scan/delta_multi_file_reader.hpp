@@ -35,7 +35,7 @@ struct DeltaMultiFileReader : public MultiFileReader {
 
 	//! Override the regular parquet bind using the MultiFileReader Bind. The bind from these are what DuckDB's file
 	//! readers will try read
-	bool Bind(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	          vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
 	//! Override the Options bind
@@ -43,8 +43,8 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
 	void CreateColumnMapping(const string &file_name,
-	                                 const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                                 const vector<MultiFileReaderColumnDefinition> &global_columns,
+	                                 const vector<MultiFileColumnDefinition> &local_columns,
+	                                 const vector<MultiFileColumnDefinition> &global_columns,
 	                                 const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
 	                                 const MultiFileReaderBindData &bind_data,
 	                                 const virtual_column_map_t &virtual_columns, const string &initial_file,
@@ -53,12 +53,12 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	unique_ptr<MultiFileReaderGlobalState>
 	InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
 	                      const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
-	                      const vector<MultiFileReaderColumnDefinition> &global_columns,
+	                      const vector<MultiFileColumnDefinition> &global_columns,
 	                      const vector<ColumnIndex> &global_column_ids) override;
 
 	void FinalizeBind(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
-	                  const string &filename, const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                  const vector<MultiFileReaderColumnDefinition> &global_columns,
+	                  const string &filename, const vector<MultiFileColumnDefinition> &local_columns,
+	                  const vector<MultiFileColumnDefinition> &global_columns,
 	                  const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
 	                  ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
