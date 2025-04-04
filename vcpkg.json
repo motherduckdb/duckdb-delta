@@ -1,5 +1,6 @@
 {
   "dependencies": [
+    "vcpkg-cmake",
     "azure-identity-cpp",
     "azure-storage-blobs-cpp",
     "azure-storage-files-datalake-cpp",
@@ -7,7 +8,12 @@
     "zlib",
     {
       "name": "aws-sdk-cpp",
-      "features": [ "sts", "sso" ]
+      "features": [ "sts", "sso", "identity-management"]
     }
-  ]
+  ],
+  "vcpkg-configuration": {
+    "overlay-ports": [
+      "./vcpkg_ports"
+    ]
+  }
 }
