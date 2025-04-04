@@ -3,7 +3,6 @@
 #include "duckdb/common/operator/decimal_cast_operators.hpp"
 
 #include "duckdb.hpp"
-#include "../duckdb/third_party/catch/catch.hpp"
 #include "duckdb/common/types/decimal.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
