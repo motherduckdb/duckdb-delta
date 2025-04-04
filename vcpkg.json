@@ -8,7 +8,7 @@
     "zlib",
     {
       "name": "aws-sdk-cpp",
-      "features": [ "sts", "sso" ]
+      "features": [ "sts", "sso", "identity-management"]
     }
   ],
   "vcpkg-configuration": {
