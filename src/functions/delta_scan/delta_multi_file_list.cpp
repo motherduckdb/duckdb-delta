@@ -348,7 +348,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 	path_string = url_decode(path_string);
 
 	// First we append the file to our resolved files
-	snapshot.resolved_files.push_back(DeltaMultiFileList::ToDuckDBPath(path_string));
+	snapshot.resolved_files.emplace_back(DeltaMultiFileList::ToDuckDBPath(path_string));
 	snapshot.metadata.emplace_back(make_uniq<DeltaFileMetaData>());
 
 	D_ASSERT(snapshot.resolved_files.size() == snapshot.metadata.size());
@@ -415,7 +415,7 @@ DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &p
 }
 
 string DeltaMultiFileList::GetPath() const {
-	return GetPaths()[0];
+	return GetPaths()[0].path;
 }
 
 string DeltaMultiFileList::ToDuckDBPath(const string &raw_path) {
@@ -471,7 +471,7 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	this->types = return_types;
 }
 
-string DeltaMultiFileList::GetFileInternal(idx_t i) const {
+OpenFileInfo DeltaMultiFileList::GetFileInternal(idx_t i) const {
 	EnsureScanInitialized();
 
 	// We already have this file
@@ -480,7 +480,7 @@ string DeltaMultiFileList::GetFileInternal(idx_t i) const {
 	}
 
 	if (files_exhausted) {
-		return "";
+		return OpenFileInfo();
 	}
 
 	ScanDataCallBack callback_context(*this);
@@ -498,7 +498,7 @@ string DeltaMultiFileList::GetFileInternal(idx_t i) const {
 		// kernel has indicated that we have no more data to scan
 		if (!have_scan_data) {
 			files_exhausted = true;
-			return "";
+			return OpenFileInfo();
 		}
 	}
 
@@ -507,22 +507,22 @@ string DeltaMultiFileList::GetFileInternal(idx_t i) const {
 
 idx_t DeltaMultiFileList::GetTotalFileCountInternal() const {
 	idx_t i = resolved_files.size();
-	while (!GetFileInternal(i).empty()) {
+	while (!GetFileInternal(i).path.empty()) {
 		i++;
 	}
 	return resolved_files.size();
 }
 
-string DeltaMultiFileList::GetFile(idx_t i) {
+OpenFileInfo DeltaMultiFileList::GetFile(idx_t i) {
 	// TODO: profile this: we should be able to use atomics here to optimize
 	unique_lock<mutex> lck(lock);
 	return GetFileInternal(i);
 }
 
 void DeltaMultiFileList::InitializeSnapshot() const {
-	auto path_slice = KernelUtils::ToDeltaString(paths[0]);
+	auto path_slice = KernelUtils::ToDeltaString(paths[0].path);
 
-	auto interface_builder = CreateBuilder(context, paths[0]);
+	auto interface_builder = CreateBuilder(context, paths[0].path);
 	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
 
 	if (!snapshot) {
@@ -578,7 +578,7 @@ void DeltaMultiFileList::EnsureScanInitialized() const {
 
 unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context,
                                                                     TableFilterSet &new_filters) const {
-	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0]);
+	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0].path);
 
 	TableFilterSet result_filter_set;
 
@@ -607,7 +607,7 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
 }
 
 static DeltaFilterPushdownMode GetDeltaFilterPushdownMode(ClientContext &context,
-                                                          const MultiFileReaderOptions &options) {
+                                                          const MultiFileOptions &options) {
 	auto res = options.custom_options.find("pushdown_filters");
 	if (res != options.custom_options.end()) {
 		auto str = res->second.GetValue<string>();
@@ -617,7 +617,7 @@ static DeltaFilterPushdownMode GetDeltaFilterPushdownMode(ClientContext &context
 	return DEFAULT_PUSHDOWN_MODE;
 }
 unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContext &context,
-                                                                    const MultiFileReaderOptions &options,
+                                                                    const MultiFileOptions &options,
                                                                     MultiFilePushdownInfo &info,
                                                                     vector<unique_ptr<Expression>> &filters) {
 	auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
@@ -749,7 +749,7 @@ void DeltaMultiFileList::ReportFilterPushdown(ClientContext &context, DeltaMulti
 }
 
 unique_ptr<MultiFileList>
-DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
                                           const vector<string> &names, const vector<LogicalType> &types,
                                           const vector<column_t> &column_ids, TableFilterSet &filters) const {
 	auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
@@ -782,11 +782,11 @@ DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFil
 	return nullptr;
 }
 
-vector<string> DeltaMultiFileList::GetAllFiles() {
+vector<OpenFileInfo> DeltaMultiFileList::GetAllFiles() {
 	unique_lock<mutex> lck(lock);
 	idx_t i = resolved_files.size();
 	// TODO: this can probably be improved
-	while (!GetFileInternal(i).empty()) {
+	while (!GetFileInternal(i).path.empty()) {
 		i++;
 	}
 	return resolved_files;

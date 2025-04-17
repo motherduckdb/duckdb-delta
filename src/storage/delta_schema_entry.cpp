@@ -125,12 +125,14 @@ void DeltaSchemaEntry::Scan(ClientContext &context, CatalogType type,
                             const std::function<void(CatalogEntry &)> &callback) {
 	if (CatalogTypeIsSupported(type)) {
 		auto transaction = catalog.GetCatalogTransaction(context);
-		auto default_table = GetEntry(transaction, type, catalog.GetName());
+		auto lookup_info = EntryLookupInfo(type, catalog.GetName());
+		auto default_table = LookupEntry(transaction, lookup_info);
 		if (default_table) {
 			callback(*default_table);
 		}
 	}
 }
+
 void DeltaSchemaEntry::Scan(CatalogType type, const std::function<void(CatalogEntry &)> &callback) {
 	throw NotImplementedException("Scan without context not supported");
 }
@@ -139,13 +141,14 @@ void DeltaSchemaEntry::DropEntry(ClientContext &context, DropInfo &info) {
 	throw NotImplementedException("Delta tables do not support dropping");
 }
 
-optional_ptr<CatalogEntry> DeltaSchemaEntry::GetEntry(CatalogTransaction transaction, CatalogType type,
-                                                      const string &name) {
+optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction transaction, const EntryLookupInfo &lookup_info) {
 	if (!transaction.HasContext()) {
 		throw NotImplementedException("Can not DeltaSchemaEntry::GetEntry without context");
 	}
 	auto &context = transaction.GetContext();
 
+	auto type = lookup_info.GetCatalogType();
+	auto &name = lookup_info.GetEntryName();
 	if (type == CatalogType::TABLE_ENTRY && name == catalog.GetName()) {
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
@@ -164,9 +167,7 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::GetEntry(CatalogTransaction transac
 		}
 
 		return delta_transaction.InitializeTableEntry(context, *this);
-		;
 	}
-
 	return nullptr;
 }
 

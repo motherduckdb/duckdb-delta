@@ -9,7 +9,9 @@
 #pragma once
 
 #include "delta_utils.hpp"
-#include "duckdb/common/multi_file_reader.hpp"
+#include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "duckdb/common/multi_file/multi_file_data.hpp"
+#include "duckdb/common/multi_file/multi_file_states.hpp"
 
 namespace duckdb {
 
@@ -35,38 +37,37 @@ struct DeltaMultiFileReader : public MultiFileReader {
 
 	//! Override the regular parquet bind using the MultiFileReader Bind. The bind from these are what DuckDB's file
 	//! readers will try read
-	bool Bind(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	          vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
 	//! Override the Options bind
-	void BindOptions(MultiFileReaderOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+	void BindOptions(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
-	void CreateColumnMapping(const string &file_name, const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                         const vector<MultiFileReaderColumnDefinition> &global_columns,
-	                         const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-	                         const MultiFileReaderBindData &bind_data, const string &initial_file,
-	                         optional_ptr<MultiFileReaderGlobalState> global_state) override;
+	//void CreateColumnMapping(const string &file_name, const vector<MultiFileColumnDefinition> &local_columns,
+	//                         const vector<MultiFileColumnDefinition> &global_columns,
+	//                         const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
+	//                         const MultiFileReaderBindData &bind_data, const string &initial_file,
+	//                         optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	unique_ptr<MultiFileReaderGlobalState>
-	InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
+	InitializeGlobalState(ClientContext &context, const MultiFileOptions &file_options,
 	                      const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
-	                      const vector<MultiFileReaderColumnDefinition> &global_columns,
+	                      const vector<MultiFileColumnDefinition> &global_columns,
 	                      const vector<ColumnIndex> &global_column_ids) override;
 
-	void FinalizeBind(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
-	                  const string &filename, const vector<MultiFileReaderColumnDefinition> &local_columns,
-	                  const vector<MultiFileReaderColumnDefinition> &global_columns,
-	                  const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-	                  ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) override;
+	void FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
+	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
+	                  const vector<ColumnIndex> &global_column_ids, ClientContext &context,
+	                  optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	//! Override the FinalizeChunk method
-	void FinalizeChunk(ClientContext &context, const MultiFileReaderBindData &bind_data,
-	                   const MultiFileReaderData &reader_data, DataChunk &chunk,
-	                   optional_ptr<MultiFileReaderGlobalState> global_state) override;
+	void FinalizeChunk(ClientContext &context, const MultiFileBindData &bind_data, BaseFileReader &reader,
+	                   const MultiFileReaderData &reader_data, DataChunk &input_chunk, DataChunk &output_chunk,
+	                   ExpressionExecutor &executor, optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	//! Override the ParseOption call to parse delta_scan specific options
-	bool ParseOption(const string &key, const Value &val, MultiFileReaderOptions &options,
+	bool ParseOption(const string &key, const Value &val, MultiFileOptions &options,
 	                 ClientContext &context) override;
 
 	// A snapshot can be injected into the multifilereader, this ensures the GetMultiFileList can return this snapshot

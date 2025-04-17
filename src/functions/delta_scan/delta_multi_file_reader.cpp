@@ -49,15 +49,15 @@ static SelectionVector DuckSVFromDeltaSV(const ffi::KernelBoolSlice &dv, Vector 
 
 // Note: this overrides MultifileReader::FinalizeBind removing the lines adding the hive_partitioning indexes
 //       the reason is that we (ab)use those to use them to forward the delta partitioning information.
-static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options, const MultiFileReaderBindData &options,
-                                     const string &filename,
-                                     const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                     const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                     const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-                                     ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
+static void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
+	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
+	                  const vector<ColumnIndex> &global_column_ids, ClientContext &context,
+	                  optional_ptr<MultiFileReaderGlobalState> global_state) {
 
 	// create a map of name -> column index
 	case_insensitive_map_t<idx_t> name_map;
+	auto &local_columns = reader_data.reader->columns;
+	auto &filename = reader_data.reader->file.path;
 	if (file_options.union_by_name) {
 		for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
 			auto &column = local_columns[col_idx];
@@ -65,16 +65,17 @@ static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options,
 		}
 	}
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
+		auto global_idx = MultiFileGlobalIndex(i);
 		auto &col_idx = global_column_ids[i];
 		if (col_idx.IsRowIdColumn()) {
 			// row-id
-			reader_data.constant_map.emplace_back(i, Value::BIGINT(42));
+			reader_data.constant_map.Add(global_idx, Value::BIGINT(42));
 			continue;
 		}
 		auto column_id = col_idx.GetPrimaryIndex();
-		if (column_id == options.filename_idx) {
+		if (options.filename_idx.IsValid() && column_id == options.filename_idx.GetIndex()) {
 			// filename
-			reader_data.constant_map.emplace_back(i, Value(filename));
+			reader_data.constant_map.Add(global_idx, Value(filename));
 			continue;
 		}
 		if (file_options.union_by_name) {
@@ -87,7 +88,7 @@ static void FinalizeBindBaseOverride(const MultiFileReaderOptions &file_options,
 			if (not_present_in_file) {
 				// we need to project a column with name \"global_name\" - but it does not exist in the current file
 				// push a NULL value of the specified type
-				reader_data.constant_map.emplace_back(i, Value(type));
+				reader_data.constant_map.Add(global_idx, Value(type));
 				continue;
 			}
 		}
@@ -106,28 +107,29 @@ void DeltaMultiFileReaderGlobalState::SetColumnIdx(const string &column, idx_t i
 	throw IOException("Unknown column '%s' found as required by the DeltaMultiFileReader");
 }
 
-bool DeltaMultiFileReader::Bind(MultiFileReaderOptions &options, MultiFileList &files,
+bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
                                 vector<LogicalType> &return_types, vector<string> &names,
                                 MultiFileReaderBindData &bind_data) {
 	auto &delta_snapshot = dynamic_cast<DeltaMultiFileList &>(files);
 
 	delta_snapshot.Bind(return_types, names);
 
-	// We need to parse this option
-	bool file_row_number_enabled = options.custom_options.find("file_row_number") != options.custom_options.end();
-	if (file_row_number_enabled) {
-		bind_data.file_row_number_idx = names.size();
-		return_types.emplace_back(LogicalType::BIGINT);
-		names.emplace_back("file_row_number");
-	} else {
-		// TODO: this is a bogus ID? Change for flag indicating it should be enabled?
-		bind_data.file_row_number_idx = names.size();
-	}
+	//! NOTE: this *should* be fixed by adding DeltaVirtualColumns
+	//// We need to parse this option
+	//bool file_row_number_enabled = options.custom_options.find("file_row_number") != options.custom_options.end();
+	//if (file_row_number_enabled) {
+	//	bind_data.file_row_number_idx = names.size();
+	//	return_types.emplace_back(LogicalType::BIGINT);
+	//	names.emplace_back("file_row_number");
+	//} else {
+	//	// TODO: this is a bogus ID? Change for flag indicating it should be enabled?
+	//	bind_data.file_row_number_idx = names.size();
+	//}
 
 	return true;
 };
 
-void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFileList &files,
+void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &files,
                                        vector<LogicalType> &return_types, vector<string> &names,
                                        MultiFileReaderBindData &bind_data) {
 
@@ -170,16 +172,14 @@ void DeltaMultiFileReader::BindOptions(MultiFileReaderOptions &options, MultiFil
 	}
 }
 
-void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_options,
-                                        const MultiFileReaderBindData &options, const string &filename,
-                                        const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                        const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                        const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-                                        ClientContext &context, optional_ptr<MultiFileReaderGlobalState> global_state) {
-	FinalizeBindBaseOverride(file_options, options, filename, local_columns, global_columns, global_column_ids,
-	                         reader_data, context, global_state);
+void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
+	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
+	                  const vector<ColumnIndex> &global_column_ids, ClientContext &context,
+	                  optional_ptr<MultiFileReaderGlobalState> global_state) {
+	FinalizeBindBaseOverride(reader_data, file_options, options, global_columns, global_column_ids, context,
+	                              global_state);
 
-	// Handle custom delta option set in MultiFileReaderOptions::custom_options
+	// Handle custom delta option set in MultiFileOptions::custom_options
 	auto file_number_opt = file_options.custom_options.find("delta_file_number");
 	if (file_number_opt != file_options.custom_options.end()) {
 		if (file_number_opt->second.GetValue<bool>()) {
@@ -190,17 +190,19 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
 			// We add the constant column for the delta_file_number option
 			// NOTE: we add a placeholder here, to demonstrate how we can also populate extra columns in the
 			// FinalizeChunk
-			reader_data.constant_map.emplace_back(delta_global_state.delta_file_number_idx, Value::UBIGINT(0));
+			auto global_idx = MultiFileGlobalIndex(delta_global_state.delta_file_number_idx);
+			reader_data.constant_map.Add(global_idx, Value::UBIGINT(0));
 		}
 	}
 
 	// Get the metadata for this file
 	D_ASSERT(global_state->file_list);
 	const auto &snapshot = dynamic_cast<const DeltaMultiFileList &>(*global_state->file_list);
-	auto &file_metadata = snapshot.GetMetaData(reader_data.file_list_idx.GetIndex());
+	auto &file_metadata = snapshot.GetMetaData(reader_data.reader->file_list_idx.GetIndex());
 
 	if (!file_metadata.partition_map.empty()) {
 		for (idx_t i = 0; i < global_column_ids.size(); i++) {
+			auto global_idx = MultiFileGlobalIndex(i);
 			column_t col_id = global_column_ids[i].GetPrimaryIndex();
 			if (IsRowIdColumnId(col_id)) {
 				continue;
@@ -209,10 +211,10 @@ void DeltaMultiFileReader::FinalizeBind(const MultiFileReaderOptions &file_optio
 			if (col_partition_entry != file_metadata.partition_map.end()) {
 				auto &current_type = global_columns[col_id].type;
 				if (current_type == LogicalType::BLOB) {
-					reader_data.constant_map.emplace_back(i, Value::BLOB_RAW(col_partition_entry->second));
+					reader_data.constant_map.Add(global_idx, Value::BLOB_RAW(col_partition_entry->second));
 				} else {
 					auto maybe_value = Value(col_partition_entry->second).DefaultCastAs(current_type);
-					reader_data.constant_map.emplace_back(i, maybe_value);
+					reader_data.constant_map.Add(global_idx, maybe_value);
 				}
 			}
 		}
@@ -237,9 +239,9 @@ shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &co
 }
 
 unique_ptr<MultiFileReaderGlobalState>
-DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiFileReaderOptions &file_options,
+DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiFileOptions &file_options,
                                             const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
-                                            const vector<MultiFileReaderColumnDefinition> &global_columns,
+                                            const vector<MultiFileColumnDefinition> &global_columns,
                                             const vector<ColumnIndex> &global_column_ids) {
 	vector<LogicalType> extra_columns;
 	vector<pair<string, idx_t>> mapped_columns;
@@ -302,159 +304,163 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 	return std::move(res);
 }
 
-// This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
-// in the parquet files, we just add null constant columns
-static void CustomMulfiFileNameMapping(const string &file_name,
-                                       const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                       const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                       const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
-                                       const string &initial_file,
-                                       optional_ptr<MultiFileReaderGlobalState> global_state) {
-	// we have expected types: create a map of name -> column index
-	case_insensitive_map_t<idx_t> name_map;
-	for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
-		name_map[local_columns[col_idx].name] = col_idx;
-	}
-	for (idx_t i = 0; i < global_column_ids.size(); i++) {
-		// check if this is a constant column
-		bool constant = false;
-		for (auto &entry : reader_data.constant_map) {
-			if (entry.column_id == i) {
-				constant = true;
-				break;
-			}
-		}
-		if (constant) {
-			// this column is constant for this file
-			continue;
-		}
-		// not constant - look up the column in the name map
-		auto global_id = global_column_ids[i].GetPrimaryIndex();
-		if (global_id >= global_columns.size()) {
-			throw InternalException(
-			    "MultiFileReader::CreatePositionalMapping - global_id is out of range in global_types for this file");
-		}
-		auto &global_name = global_columns[global_id].name;
-		auto entry = name_map.find(global_name);
-		if (entry == name_map.end()) {
-			string candidate_names;
-			for (auto &local_column : local_columns) {
-				if (!candidate_names.empty()) {
-					candidate_names += ", ";
-				}
-				candidate_names += local_column.name;
-			}
-			// FIXME: this override is pretty hacky: for missing columns we just insert NULL constants
-			auto &global_type = global_columns[global_id].type;
-			Value val(global_type);
-			reader_data.constant_map.push_back({i, val});
-			continue;
-		}
-		// we found the column in the local file - check if the types are the same
-		auto local_id = entry->second;
-		D_ASSERT(global_id < global_columns.size());
-		D_ASSERT(local_id < local_columns.size());
-		auto &global_type = global_columns[global_id].type;
-		auto &local_type = local_columns[local_id].type;
-		if (global_type != local_type) {
-			reader_data.cast_map[local_id] = global_type;
-		}
-		// the types are the same - create the mapping
-		reader_data.column_mapping.push_back(i);
-		reader_data.column_ids.push_back(local_id);
-	}
+//// This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
+//// in the parquet files, we just add null constant columns
+//static void CustomMulfiFileNameMapping(const string &file_name,
+//                                       const vector<MultiFileColumnDefinition> &local_columns,
+//                                       const vector<MultiFileColumnDefinition> &global_columns,
+//                                       const vector<ColumnIndex> &global_column_ids, MultiFileReaderData &reader_data,
+//                                       const string &initial_file,
+//                                       optional_ptr<MultiFileReaderGlobalState> global_state) {
+//	// we have expected types: create a map of name -> column index
+//	case_insensitive_map_t<idx_t> name_map;
+//	for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
+//		name_map[local_columns[col_idx].name] = col_idx;
+//	}
+//	for (idx_t i = 0; i < global_column_ids.size(); i++) {
+//		// check if this is a constant column
+//		bool constant = false;
+//		for (auto &entry : reader_data.constant_map) {
+//			if (entry.column_idx == i) {
+//				constant = true;
+//				break;
+//			}
+//		}
+//		if (constant) {
+//			// this column is constant for this file
+//			continue;
+//		}
+//		// not constant - look up the column in the name map
+//		auto global_id = global_column_ids[i].GetPrimaryIndex();
+//		if (global_id >= global_columns.size()) {
+//			throw InternalException(
+//			    "MultiFileReader::CreatePositionalMapping - global_id is out of range in global_types for this file");
+//		}
+//		auto &global_name = global_columns[global_id].name;
+//		auto entry = name_map.find(global_name);
+//		if (entry == name_map.end()) {
+//			string candidate_names;
+//			for (auto &local_column : local_columns) {
+//				if (!candidate_names.empty()) {
+//					candidate_names += ", ";
+//				}
+//				candidate_names += local_column.name;
+//			}
+//			// FIXME: this override is pretty hacky: for missing columns we just insert NULL constants
+//			auto &global_type = global_columns[global_id].type;
+//			Value val(global_type);
+//			reader_data.constant_map.Add({i, val});
+//			continue;
+//		}
+//		// we found the column in the local file - check if the types are the same
+//		auto local_id = entry->second;
+//		D_ASSERT(global_id < global_columns.size());
+//		D_ASSERT(local_id < local_columns.size());
+//		auto &global_type = global_columns[global_id].type;
+//		auto &local_type = local_columns[local_id].type;
+//		if (global_type != local_type) {
+//			reader_data.cast_map[local_id] = global_type;
+//		}
+//		// the types are the same - create the mapping
+//		reader_data.column_mapping.push_back(i);
+//		reader_data.column_ids.push_back(local_id);
+//	}
 
-	reader_data.empty_columns = reader_data.column_ids.empty();
-}
+//	reader_data.empty_columns = reader_data.column_ids.empty();
+//}
 
-void DeltaMultiFileReader::CreateColumnMapping(const string &file_name,
-                                               const vector<MultiFileReaderColumnDefinition> &local_columns,
-                                               const vector<MultiFileReaderColumnDefinition> &global_columns,
-                                               const vector<ColumnIndex> &global_column_ids,
-                                               MultiFileReaderData &reader_data,
-                                               const MultiFileReaderBindData &bind_data, const string &initial_file,
-                                               optional_ptr<MultiFileReaderGlobalState> global_state) {
-	// First call the base implementation to do most mapping
-	CustomMulfiFileNameMapping(file_name, local_columns, global_columns, global_column_ids, reader_data, initial_file,
-	                           global_state);
+//void DeltaMultiFileReader::CreateColumnMapping(const string &file_name,
+//                                               const vector<MultiFileColumnDefinition> &local_columns,
+//                                               const vector<MultiFileColumnDefinition> &global_columns,
+//                                               const vector<ColumnIndex> &global_column_ids,
+//                                               MultiFileReaderData &reader_data,
+//                                               const MultiFileReaderBindData &bind_data, const string &initial_file,
+//                                               optional_ptr<MultiFileReaderGlobalState> global_state) {
+//	// First call the base implementation to do most mapping
+//	CustomMulfiFileNameMapping(file_name, local_columns, global_columns, global_column_ids, reader_data, initial_file,
+//	                           global_state);
 
-	// Then we handle delta specific mapping
-	D_ASSERT(global_state);
-	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
+//	// Then we handle delta specific mapping
+//	D_ASSERT(global_state);
+//	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
 
-	// Check if the file_row_number column is an "extra_column" which is not part of the projection
-	if (delta_global_state.file_row_number_idx >= global_column_ids.size()) {
-		D_ASSERT(delta_global_state.file_row_number_idx != DConstants::INVALID_INDEX);
+//	// Check if the file_row_number column is an "extra_column" which is not part of the projection
+//	if (delta_global_state.file_row_number_idx >= global_column_ids.size()) {
+//		D_ASSERT(delta_global_state.file_row_number_idx != DConstants::INVALID_INDEX);
 
-		// Build the name map
-		case_insensitive_map_t<idx_t> name_map;
-		for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
-			name_map[local_columns[col_idx].name] = col_idx;
-		}
+//		// Build the name map
+//		case_insensitive_map_t<idx_t> name_map;
+//		for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
+//			name_map[local_columns[col_idx].name] = col_idx;
+//		}
 
-		// Lookup the required column in the local map
-		auto entry = name_map.find("file_row_number");
-		if (entry == name_map.end()) {
-			throw IOException("Failed to find the file_row_number column");
-		}
+//		// Lookup the required column in the local map
+//		auto entry = name_map.find("file_row_number");
+//		if (entry == name_map.end()) {
+//			throw IOException("Failed to find the file_row_number column");
+//		}
 
-		// Register the column to be scanned from this file
-		reader_data.column_ids.push_back(entry->second);
-		reader_data.column_mapping.push_back(delta_global_state.file_row_number_idx);
-	}
+//		// Register the column to be scanned from this file
+//		reader_data.column_ids.push_back(entry->second);
+//		reader_data.column_mapping.push_back(delta_global_state.file_row_number_idx);
+//	}
 
-	// This may have changed: update it
-	reader_data.empty_columns = reader_data.column_ids.empty();
-}
+//	// This may have changed: update it
+//	reader_data.empty_columns = reader_data.column_ids.empty();
+//}
 
-void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFileReaderBindData &bind_data,
-                                         const MultiFileReaderData &reader_data, DataChunk &chunk,
-                                         optional_ptr<MultiFileReaderGlobalState> global_state) {
+void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFileBindData &bind_data,
+                                           BaseFileReader &reader, const MultiFileReaderData &reader_data,
+                                           DataChunk &input_chunk, DataChunk &output_chunk,
+                                           ExpressionExecutor &executor,
+                                           optional_ptr<MultiFileReaderGlobalState> global_state) {
 	// Base class finalization first
-	MultiFileReader::FinalizeChunk(context, bind_data, reader_data, chunk, global_state);
+	MultiFileReader::FinalizeChunk(context, bind_data, reader, reader_data, input_chunk, output_chunk, executor,
+	                               global_state);
 
-	D_ASSERT(global_state);
-	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
-	D_ASSERT(delta_global_state.file_list);
+	//! NOTE: this should be handled in FinalizeBind, we should add the deletion vector there
+	//D_ASSERT(global_state);
+	//auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
+	//D_ASSERT(delta_global_state.file_list);
 
-	// Get the metadata for this file
-	const auto &snapshot = dynamic_cast<const DeltaMultiFileList &>(*global_state->file_list);
-	auto &metadata = snapshot.GetMetaData(reader_data.file_list_idx.GetIndex());
+	//// Get the metadata for this file
+	//const auto &snapshot = dynamic_cast<const DeltaMultiFileList &>(*global_state->file_list);
+	//auto &metadata = snapshot.GetMetaData(reader_data.file_list_idx.GetIndex());
 
-	if (metadata.selection_vector.ptr && chunk.size() != 0) {
-		D_ASSERT(delta_global_state.file_row_number_idx != DConstants::INVALID_INDEX);
-		auto &file_row_number_column = chunk.data[delta_global_state.file_row_number_idx];
+	//if (metadata.selection_vector.ptr && chunk.size() != 0) {
+	//	D_ASSERT(delta_global_state.file_row_number_idx != DConstants::INVALID_INDEX);
+	//	auto &file_row_number_column = chunk.data[delta_global_state.file_row_number_idx];
 
-		// Construct the selection vector using the file_row_number column and the raw selection vector from delta
-		idx_t select_count;
-		auto sv = DuckSVFromDeltaSV(metadata.selection_vector, file_row_number_column, chunk.size(), select_count);
-		chunk.Slice(sv, select_count);
-	}
+	//	// Construct the selection vector using the file_row_number column and the raw selection vector from delta
+	//	idx_t select_count;
+	//	auto sv = DuckSVFromDeltaSV(metadata.selection_vector, file_row_number_column, chunk.size(), select_count);
+	//	chunk.Slice(sv, select_count);
+	//}
 
-	// Note: this demo function shows how we can use DuckDB's Binder create expression-based generated columns
-	if (delta_global_state.delta_file_number_idx != DConstants::INVALID_INDEX) {
-		//! Create Dummy expression (0 + file_number)
-		vector<unique_ptr<ParsedExpression>> child_expr;
-		child_expr.push_back(make_uniq<ConstantExpression>(Value::UBIGINT(0)));
-		child_expr.push_back(make_uniq<ConstantExpression>(Value::UBIGINT(7)));
-		unique_ptr<ParsedExpression> expr =
-		    make_uniq<FunctionExpression>("+", std::move(child_expr), nullptr, nullptr, false, true);
+	//// Note: this demo function shows how we can use DuckDB's Binder create expression-based generated columns
+	//if (delta_global_state.delta_file_number_idx != DConstants::INVALID_INDEX) {
+	//	//! Create Dummy expression (0 + file_number)
+	//	vector<unique_ptr<ParsedExpression>> child_expr;
+	//	child_expr.push_back(make_uniq<ConstantExpression>(Value::UBIGINT(0)));
+	//	child_expr.push_back(make_uniq<ConstantExpression>(Value::UBIGINT(7)));
+	//	unique_ptr<ParsedExpression> expr =
+	//	    make_uniq<FunctionExpression>("+", std::move(child_expr), nullptr, nullptr, false, true);
 
-		//! s dummy expression
-		auto binder = Binder::CreateBinder(context);
-		ExpressionBinder expr_binder(*binder, context);
-		auto bound_expr = expr_binder.Bind(expr, nullptr);
+	//	//! s dummy expression
+	//	auto binder = Binder::CreateBinder(context);
+	//	ExpressionBinder expr_binder(*binder, context);
+	//	auto bound_expr = expr_binder.Bind(expr, nullptr);
 
-		//! Execute dummy expression into result column
-		ExpressionExecutor expr_executor(context);
-		expr_executor.AddExpression(*bound_expr);
+	//	//! Execute dummy expression into result column
+	//	ExpressionExecutor expr_executor(context);
+	//	expr_executor.AddExpression(*bound_expr);
 
-		//! Execute the expression directly into the output Chunk
-		expr_executor.ExecuteExpression(chunk.data[delta_global_state.delta_file_number_idx]);
-	}
+	//	//! Execute the expression directly into the output Chunk
+	//	expr_executor.ExecuteExpression(chunk.data[delta_global_state.delta_file_number_idx]);
+	//}
 };
 
-bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, MultiFileReaderOptions &options,
+bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, MultiFileOptions &options,
                                        ClientContext &context) {
 	auto loption = StringUtil::Lower(key);
 

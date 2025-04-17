@@ -55,6 +55,20 @@ static InsertionOrderPreservingMap<string> DeltaFunctionToString(TableFunctionTo
 	return result;
 }
 
+virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionData> bind_data_p) {
+	virtual_column_map_t result;
+	result.insert(
+		make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILENAME, TableColumn("filename", LogicalType::VARCHAR)));
+	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::BIGINT)));
+	result.insert(make_pair(COLUMN_IDENTIFIER_ROW_ID, TableColumn("rowid", LogicalType::BIGINT)));
+	result.insert(make_pair(COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalType::BOOLEAN)));
+	//! TODO: should this contain 'delta_file_number' ??
+
+	auto &bind_data = bind_data_p->Cast<MultiFileBindData>();
+	bind_data.virtual_columns = result;
+	return result;
+}
+
 TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance) {
 	// Parquet extension needs to be loaded for this to make sense
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
@@ -75,6 +89,7 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance
 		function.statistics = nullptr;
 		function.table_scan_progress = nullptr;
 		function.get_bind_info = nullptr;
+		function.get_virtual_columns = DeltaVirtualColumns;
 
 		function.to_string = DeltaFunctionToString;
 

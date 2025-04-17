@@ -11,7 +11,8 @@
 #include "delta_utils.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 
-#include "duckdb/common/multi_file_reader.hpp"
+#include "duckdb/common/multi_file/multi_file_reader.hpp"
+#include "duckdb/common/multi_file/multi_file_data.hpp"
 
 namespace duckdb {
 
@@ -48,18 +49,18 @@ public:
 	//! MultiFileList API
 public:
 	void Bind(vector<LogicalType> &return_types, vector<string> &names);
-	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) override;
 
-	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                const vector<string> &names, const vector<LogicalType> &types,
 	                                                const vector<column_t> &column_ids,
 	                                                TableFilterSet &filters) const override;
 
 	unique_ptr<DeltaMultiFileList> PushdownInternal(ClientContext &context, TableFilterSet &new_filters) const;
 
-	vector<string> GetAllFiles() override;
+	vector<OpenFileInfo> GetAllFiles() override;
 	FileExpandResult GetExpandResult() override;
 	idx_t GetTotalFileCount() override;
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) override;
@@ -69,10 +70,10 @@ public:
 
 protected:
 	//! Get the i-th expanded file
-	string GetFile(idx_t i) override;
+	OpenFileInfo GetFile(idx_t i) override;
 
 protected:
-	string GetFileInternal(idx_t i) const;
+	OpenFileInfo GetFileInternal(idx_t i) const;
 	idx_t GetTotalFileCountInternal() const;
 	void InitializeSnapshot() const;
 	void InitializeScan() const;
@@ -86,7 +87,7 @@ protected:
 	template <class T>
 	T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
 		return KernelUtils::UnpackResult<T>(
-		    result, StringUtil::Format("While trying to read from delta table: '%s'", paths[0]));
+		    result, StringUtil::Format("While trying to read from delta table: '%s'", paths[0].path));
 	}
 
 protected:
@@ -112,7 +113,7 @@ protected:
 	//! Metadata map for files
 	mutable vector<unique_ptr<DeltaFileMetaData>> metadata;
 
-	mutable vector<string> resolved_files;
+	mutable vector<OpenFileInfo> resolved_files;
 	mutable TableFilterSet table_filters;
 
 	//! Names

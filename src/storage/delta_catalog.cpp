@@ -34,9 +34,8 @@ void DeltaCatalog::ScanSchemas(ClientContext &context, std::function<void(Schema
 	callback(*main_schema);
 }
 
-optional_ptr<SchemaCatalogEntry> DeltaCatalog::GetSchema(CatalogTransaction transaction, const string &schema_name,
-                                                         OnEntryNotFound if_not_found,
-                                                         QueryErrorContext error_context) {
+optional_ptr<SchemaCatalogEntry> DeltaCatalog::LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup, OnEntryNotFound if_not_found) {
+	auto &schema_name = schema_lookup.GetEntryName();
 	if (schema_name == DEFAULT_SCHEMA || schema_name == INVALID_SCHEMA) {
 		return main_schema.get();
 	}
@@ -90,25 +89,25 @@ DatabaseSize DeltaCatalog::GetDatabaseSize(ClientContext &context) {
 	return size;
 }
 
-unique_ptr<PhysicalOperator> DeltaCatalog::PlanInsert(ClientContext &context, LogicalInsert &op,
-                                                      unique_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException("DeltaCatalog does not support inserts");
+PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
+                                        optional_ptr<PhysicalOperator> plan) {
+	throw NotImplementedException("DeltaCatalog PlanInsert");
 }
-unique_ptr<PhysicalOperator> DeltaCatalog::PlanCreateTableAs(ClientContext &context, LogicalCreateTable &op,
-                                                             unique_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException("DeltaCatalog does not support creating new tables");
+PhysicalOperator &DeltaCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
+                                               LogicalCreateTable &op, PhysicalOperator &plan) {
+	throw NotImplementedException("DeltaCatalog PlanCreateTableAs");
 }
-unique_ptr<PhysicalOperator> DeltaCatalog::PlanDelete(ClientContext &context, LogicalDelete &op,
-                                                      unique_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException("DeltaCatalog does not support deletes");
+PhysicalOperator &DeltaCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
+                                        PhysicalOperator &plan) {
+	throw NotImplementedException("DeltaCatalog PlanDelete");
 }
-unique_ptr<PhysicalOperator> DeltaCatalog::PlanUpdate(ClientContext &context, LogicalUpdate &op,
-                                                      unique_ptr<PhysicalOperator> plan) {
-	throw NotImplementedException("DeltaCatalog does not support updates");
+PhysicalOperator &DeltaCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
+                                        PhysicalOperator &plan) {
+	throw NotImplementedException("DeltaCatalog PlanUpdate");
 }
-unique_ptr<LogicalOperator> DeltaCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,
-                                                          TableCatalogEntry &table, unique_ptr<LogicalOperator> plan) {
-	throw NotImplementedException("DeltaCatalog does not support creating indices");
+unique_ptr<LogicalOperator> DeltaCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,
+                                                       unique_ptr<LogicalOperator> plan) {
+	throw NotImplementedException("DeltaCatalog BindCreateIndex");
 }
 
 } // namespace duckdb
