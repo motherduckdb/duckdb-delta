@@ -19,7 +19,7 @@ WHERE
     value2 > 2.5 and
     value3 < 3.5
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value3<3.5.*value2>2.5.*value1>0.5.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1>0.5.*value2>2.5.*value3<3.5.*Scanning Files: 1/5.*
 
 query III
 SELECT value1, value2, value3
@@ -68,7 +68,7 @@ WHERE
     value2 > 2 and
     value3 < 4
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value3<4.*value2>2.*value1>1.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1>1.*value2>2.*value3<4.*Scanning Files: 1/5.*
 
 query III
 SELECT value1, value2, value3
@@ -99,7 +99,7 @@ WHERE
     value2 = '2' and
     value3 = '2'
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value3='2'.*value2='2'.*value1='2'.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1='2'.*value2='2'.*value3='2'.*Scanning Files: 1/5.*
 
 query III
 SELECT value1, value2, value3
