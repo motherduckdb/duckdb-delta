@@ -33,7 +33,10 @@ struct DeltaFileMetaData {
 	idx_t file_number = DConstants::INVALID_INDEX;
 	idx_t cardinality = DConstants::INVALID_INDEX;
 	ffi::KernelBoolSlice selection_vector = {nullptr, 0};
-	case_insensitive_map_t<string> partition_map;
+
+	case_insensitive_map_t<Value> partition_map;
+
+	unique_ptr<vector<unique_ptr<ParsedExpression>>> transform_expression;
 };
 
 //! The DeltaMultiFileList implements the MultiFileList API to allow injecting it into the regular DuckDB parquet scan
@@ -86,8 +89,12 @@ protected:
 
 	template <class T>
 	T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
-		return KernelUtils::UnpackResult<T>(
-		    result, StringUtil::Format("While trying to read from delta table: '%s'", paths[0].path));
+		T return_value;
+		auto res = KernelUtils::TryUnpackResult<T>(result, return_value);
+		if (res.HasError()) {
+			res.Throw();
+		}
+		return return_value;
 	}
 
 protected:
@@ -104,6 +111,7 @@ protected:
 	mutable KernelScanDataIterator scan_data_iterator;
 
 	mutable vector<string> partitions;
+	mutable vector<idx_t> partition_ids;
 
 	//! Current file list resolution state
 	mutable bool initialized_snapshot = false;
@@ -136,7 +144,7 @@ struct ScanDataCallBack {
 	                          const struct ffi::CStringMap *partition_values);
 	static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path,
 	                                  int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
-	                                  const struct ffi::CStringMap *partition_values);
+	                                  const ffi::Expression *transform);
 
 	const DeltaMultiFileList &snapshot;
 	ErrorData error;

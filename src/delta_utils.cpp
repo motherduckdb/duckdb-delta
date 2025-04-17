@@ -1,5 +1,7 @@
 #include "delta_utils.hpp"
 
+#include "duckdb/common/operator/decimal_cast_operators.hpp"
+
 #include "duckdb.hpp"
 #include "duckdb/common/types/decimal.hpp"
 #include "duckdb/main/extension_util.hpp"
@@ -28,9 +30,7 @@ void ExpressionVisitor::VisitComparisonExpression(void *state, uintptr_t sibling
 	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
-unique_ptr<vector<unique_ptr<ParsedExpression>>>
-ExpressionVisitor::VisitKernelExpression(const ffi::Handle<ffi::SharedExpression> *expression) {
-	ExpressionVisitor state;
+ffi::EngineExpressionVisitor ExpressionVisitor::CreateVisitor(ExpressionVisitor &state) {
 	ffi::EngineExpressionVisitor visitor;
 
 	visitor.data = &state;
@@ -85,6 +85,28 @@ ExpressionVisitor::VisitKernelExpression(const ffi::Handle<ffi::SharedExpression
 
 	visitor.visit_not = &VisitNotExpression;
 	visitor.visit_is_null = &VisitIsNullExpression;
+
+	return visitor;
+}
+
+unique_ptr<vector<unique_ptr<ParsedExpression>>>
+ExpressionVisitor::VisitKernelExpression(const ffi::Expression *expression) {
+	ExpressionVisitor state;
+	auto visitor = CreateVisitor(state);
+
+	uintptr_t result = ffi::visit_expression_ref(expression, &visitor);
+
+	if (state.error.HasError()) {
+		state.error.Throw();
+	}
+
+	return state.TakeFieldList(result);
+}
+
+unique_ptr<vector<unique_ptr<ParsedExpression>>>
+ExpressionVisitor::VisitKernelExpression(const ffi::Handle<ffi::SharedExpression> *expression) {
+	ExpressionVisitor state;
+	auto visitor = CreateVisitor(state);
 
 	uintptr_t result = ffi::visit_expression(expression, &visitor);
 
@@ -254,14 +276,40 @@ void ExpressionVisitor::VisitIsNullExpression(void *state, uintptr_t sibling_lis
 	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
-// FIXME: this is not 100% correct yet: value_ms is ignored
-void ExpressionVisitor::VisitDecimalLiteral(void *state, uintptr_t sibling_list_id, uint64_t value_ms,
-                                            uint64_t value_ls, uint8_t precision, uint8_t scale) {
+//// Note: hack to get the DECIMAL thing goin
+//template <class hugeint_t>
+//hugeint_t &Value::GetReferenceUnsafe() {
+//	D_ASSERT(type_.InternalType() == PhysicalType::INT128);
+//	return value_.hugeint;
+//}
+
+// This function is a workaround for the fact that duckdb disallows using hugeints to store decimals with precision < 18
+// whereas kernel does allow this.
+static int64_t GetTruncatedDecimalValue(int64_t value_ms, uint64_t value_ls) {
+	// First trim msb from lower half
+	auto new_value_ls = value_ls << 1;
+	new_value_ls = new_value_ls >> 1;
+
+	// Now cast the lower half to signed
+	auto lower_cast = UnsafeNumericCast<int64_t>(value_ls);
+
+	// If value_ms was negative, we need to invert
+	if (value_ms < 0) {
+		lower_cast = -lower_cast;
+	}
+	return lower_cast;
+}
+
+void ExpressionVisitor::VisitDecimalLiteral(void *state, uintptr_t sibling_list_id, int64_t value_ms, uint64_t value_ls,
+                                            uint8_t precision, uint8_t scale) {
 	try {
-		if (precision >= Decimal::MAX_WIDTH_INT64 || value_ls > (uint64_t)NumericLimits<int64_t>::Maximum()) {
-			throw NotImplementedException("ExpressionVisitor::VisitDecimalLiteral HugeInt decimals");
+		Value decimal_value;
+		if (precision < Decimal::MAX_WIDTH_INT64) {
+			decimal_value = Value::DECIMAL(GetTruncatedDecimalValue(value_ms, value_ls), precision, scale);
+		} else {
+			decimal_value = Value::DECIMAL({value_ms, value_ls}, precision, scale);
 		}
-		auto expression = make_uniq<ConstantExpression>(Value::DECIMAL(42, 18, 10));
+		auto expression = make_uniq<ConstantExpression>(decimal_value);
 		static_cast<ExpressionVisitor *>(state)->AppendToList(sibling_list_id, std::move(expression));
 	} catch (Exception &e) {
 		static_cast<ExpressionVisitor *>(state)->error = ErrorData(e);
@@ -269,12 +317,27 @@ void ExpressionVisitor::VisitDecimalLiteral(void *state, uintptr_t sibling_list_
 }
 
 void ExpressionVisitor::VisitColumnExpression(void *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name) {
-	auto expression = make_uniq<ColumnRefExpression>(string(name.ptr, name.len));
+	auto col_ref_string = string(name.ptr, name.len);
+
+	// Delta ColRefs are sometimes backtick-ed
+	if (col_ref_string[0] == '`' && col_ref_string[col_ref_string.size() - 1] == '`') {
+		col_ref_string = col_ref_string.substr(1, col_ref_string.size() - 2);
+	}
+
+	auto expression = make_uniq<ColumnRefExpression>(col_ref_string);
 	static_cast<ExpressionVisitor *>(state)->AppendToList(sibling_list_id, std::move(expression));
 }
+
 void ExpressionVisitor::VisitStructExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id) {
-	static_cast<ExpressionVisitor *>(state)->AppendToList(sibling_list_id,
-	                                                      std::move(make_uniq<ConstantExpression>(Value(42))));
+	auto state_cast = static_cast<ExpressionVisitor *>(state);
+
+	auto children_values = state_cast->TakeFieldList(child_list_id);
+	if (!children_values) {
+		return;
+	}
+
+	unique_ptr<ParsedExpression> expression = make_uniq<FunctionExpression>("struct_pack", std::move(*children_values));
+	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
 uintptr_t ExpressionVisitor::MakeFieldList(ExpressionVisitor *state, uintptr_t capacity_hint) {
@@ -311,8 +374,7 @@ unique_ptr<ExpressionVisitor::FieldList> ExpressionVisitor::TakeFieldList(uintpt
 	return rval;
 }
 
-unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::SharedSnapshot *snapshot) {
-	SchemaVisitor state;
+ffi::EngineSchemaVisitor SchemaVisitor::CreateSchemaVisitor(SchemaVisitor &state) {
 	ffi::EngineSchemaVisitor visitor;
 
 	visitor.data = &state;
@@ -342,9 +404,20 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 	visitor.visit_timestamp = VisitSimpleType<LogicalType::TIMESTAMP_TZ>();
 	visitor.visit_timestamp_ntz = VisitSimpleType<LogicalType::TIMESTAMP>();
 
+	return visitor;
+}
+
+unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::SharedSnapshot *snapshot) {
+	SchemaVisitor state;
+	auto visitor = CreateSchemaVisitor(state);
+
 	auto schema = logical_schema(snapshot);
 	uintptr_t result = visit_schema(schema, &visitor);
 	free_schema(schema);
+
+	if (state.error.HasError()) {
+		state.error.Throw();
+	}
 
 	return state.TakeFieldList(result);
 }
@@ -393,7 +466,8 @@ uintptr_t SchemaVisitor::MakeFieldListImpl(uintptr_t capacity_hint) {
 void SchemaVisitor::AppendToList(uintptr_t id, ffi::KernelStringSlice name, LogicalType &&child) {
 	auto it = inflight_lists.find(id);
 	if (it == inflight_lists.end()) {
-		throw InternalException("Unhandled error in SchemaVisitor::AppendToList child");
+		error = ErrorData(ExceptionType::INTERNAL, "Unhandled error in SchemaVisitor::AppendToList");
+		return;
 	}
 	it->second->emplace_back(std::make_pair(string(name.ptr, name.len), std::move(child)));
 }
@@ -401,7 +475,8 @@ void SchemaVisitor::AppendToList(uintptr_t id, ffi::KernelStringSlice name, Logi
 unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::TakeFieldList(uintptr_t id) {
 	auto it = inflight_lists.find(id);
 	if (it == inflight_lists.end()) {
-		throw InternalException("Unhandled error in SchemaVisitor::TakeFieldList");
+		error = ErrorData(ExceptionType::INTERNAL, "Unhandled error in SchemaVisitor::TakeFieldList");
+		return make_uniq<SchemaVisitor::FieldList>();
 	}
 	auto rval = std::move(it->second);
 	inflight_lists.erase(it);
@@ -469,7 +544,7 @@ string DuckDBEngineError::KernelErrorEnumToString(ffi::KernelError err) {
 	return StringUtil::Format("EnumOutOfRange (enum val out of range: %d)", (int)err);
 }
 
-void DuckDBEngineError::Throw(string from_where) {
+string DuckDBEngineError::IntoString() {
 	// Make copies before calling delete this
 	auto etype_copy = etype;
 	auto message_copy = error_message;
@@ -477,9 +552,7 @@ void DuckDBEngineError::Throw(string from_where) {
 	// Consume error by calling delete this (remember this error is created by
 	// kernel using AllocateError)
 	delete this;
-	throw IOException("Hit DeltaKernel FFI error (from: %s): Hit error: %u (%s) "
-	                  "with message (%s)",
-	                  from_where.c_str(), etype_copy, KernelErrorEnumToString(etype_copy), message_copy);
+	return StringUtil::Format("DeltKernel %s (%u): %s", KernelErrorEnumToString(etype_copy), etype_copy, message_copy);
 }
 
 ffi::KernelStringSlice KernelUtils::ToDeltaString(const string &str) {
@@ -494,6 +567,26 @@ vector<bool> KernelUtils::FromDeltaBoolSlice(const struct ffi::KernelBoolSlice s
 	vector<bool> result;
 	result.assign(slice.ptr, slice.ptr + slice.len);
 	return result;
+}
+
+vector<unique_ptr<ParsedExpression>> &
+KernelUtils::UnpackTopLevelStruct(const vector<unique_ptr<ParsedExpression>> &parsed_expression) {
+	if (parsed_expression.size() != 1) {
+		throw IOException("Unexpected size of transformation expression returned by delta kernel: %d",
+		                  parsed_expression.size());
+	}
+
+	const auto &root_expression = parsed_expression.get(0);
+	if (root_expression->type != ExpressionType::FUNCTION) {
+		throw IOException("Unexpected type of root expression returned by delta kernel: %d", root_expression->type);
+	}
+
+	if (root_expression->Cast<FunctionExpression>().function_name != "struct_pack") {
+		throw IOException("Unexpected function of root expression returned by delta kernel: %s",
+		                  root_expression->Cast<FunctionExpression>().function_name);
+	}
+
+	return root_expression->Cast<FunctionExpression>().children;
 }
 
 PredicateVisitor::PredicateVisitor(const vector<string> &column_names, optional_ptr<const TableFilterSet> filters) {
@@ -542,7 +635,13 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
                                                 ffi::KernelExpressionVisitorState *state) {
 	auto maybe_left =
 	    ffi::visit_expression_column(state, KernelUtils::ToDeltaString(col_name), DuckDBEngineError::AllocateError);
-	uintptr_t left = KernelUtils::UnpackResult(maybe_left, "VisitConstantFilter failed to visit_expression_column");
+
+	uintptr_t left;
+	auto left_res = KernelUtils::TryUnpackResult(maybe_left, left);
+	if (left_res.HasError()) {
+		error_data = left_res;
+		return ~0;
+	}
 
 	uintptr_t right = ~0;
 	auto &value = filter.constant;
@@ -574,7 +673,11 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
 		auto str = StringValue::Get(value);
 		auto maybe_right = ffi::visit_expression_literal_string(state, KernelUtils::ToDeltaString(str),
 		                                                        DuckDBEngineError::AllocateError);
-		right = KernelUtils::UnpackResult(maybe_right, "VisitConstantFilter failed to visit_expression_literal_string");
+		auto right_res = KernelUtils::TryUnpackResult(maybe_right, right);
+		if (right_res.HasError()) {
+			error_data = right_res;
+			return ~0;
+		}
 		break;
 	}
 	default:
@@ -619,7 +722,13 @@ uintptr_t PredicateVisitor::VisitAndFilter(const string &col_name, const Conjunc
 uintptr_t PredicateVisitor::VisitIsNull(const string &col_name, ffi::KernelExpressionVisitorState *state) {
 	auto maybe_inner =
 	    ffi::visit_expression_column(state, KernelUtils::ToDeltaString(col_name), DuckDBEngineError::AllocateError);
-	uintptr_t inner = KernelUtils::UnpackResult(maybe_inner, "VisitIsNull failed to visit_expression_column");
+	uintptr_t inner;
+
+	auto err = KernelUtils::TryUnpackResult(maybe_inner, inner);
+	if (err.HasError()) {
+		error_data = err;
+		return ~0;
+	}
 	return ffi::visit_expression_is_null(state, inner);
 }
 

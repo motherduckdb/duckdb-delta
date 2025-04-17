@@ -18,10 +18,6 @@
 
 namespace duckdb {
 
-static void *allocate_string(const struct ffi::KernelStringSlice slice) {
-	return new string(slice.ptr, slice.len);
-}
-
 static string url_decode(string input) {
 	string result;
 	result.reserve(input.size());
@@ -71,7 +67,13 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 	    !StringUtil::StartsWith(path, "abfs://") && !StringUtil::StartsWith(path, "abfss://")) {
 		auto interface_builder_res =
 		    ffi::get_engine_builder(KernelUtils::ToDeltaString(path), DuckDBEngineError::AllocateError);
-		return KernelUtils::UnpackResult(interface_builder_res, "get_engine_interface_builder for path " + path);
+
+		ffi::EngineBuilder *return_value;
+		auto res = KernelUtils::TryUnpackResult(interface_builder_res, return_value);
+		if (res.HasError()) {
+			res.Throw();
+		}
+		return return_value;
 	}
 
 	string bucket;
@@ -156,7 +158,11 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 
 	auto interface_builder_res =
 	    ffi::get_engine_builder(KernelUtils::ToDeltaString(cleaned_path), DuckDBEngineError::AllocateError);
-	builder = KernelUtils::UnpackResult(interface_builder_res, "get_engine_interface_builder for path " + cleaned_path);
+
+	auto res = KernelUtils::TryUnpackResult(interface_builder_res, builder);
+	if (res.HasError()) {
+		res.Throw();
+	}
 
 	// For S3 or Azure paths we need to trim the url, set the container, and fetch a potential secret
 	auto &secret_manager = SecretManager::Get(context);
@@ -335,9 +341,19 @@ static void KernelPartitionStringVisitor(ffi::NullableCvoid engine_context, ffi:
 	data->partitions.push_back(KernelUtils::FromDeltaString(slice));
 }
 
+static Value GetPartitionValueFromExpression(const vector<unique_ptr<ParsedExpression>> &parsed_expression,
+                                             idx_t index) {
+	auto &column_expressions = KernelUtils::UnpackTopLevelStruct(parsed_expression);
+	auto &child = column_expressions[index];
+	if (!child || child->type != ExpressionType::VALUE_CONSTANT) {
+		throw IOException("Failed to parse partition value from kernel-provided transformation");
+	}
+	return child->Cast<ConstantExpression>().value;
+}
+
 void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path,
                                              int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
-                                             const ffi::CStringMap *partition_values) {
+                                             const ffi::Expression *transform) {
 	auto context = (ScanDataCallBack *)engine_context;
 	auto &snapshot = context->snapshot;
 
@@ -374,31 +390,52 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 	}
 
 	if (!do_workaround) {
-		auto selection_vector =
-		    KernelUtils::UnpackResult(selection_vector_res, "selection_vector_from_dv for path " + snapshot.GetPath());
+		ffi::KernelBoolSlice selection_vector;
+		auto res = KernelUtils::TryUnpackResult(selection_vector_res, selection_vector);
+		if (res.HasError()) {
+			context->error = res;
+			return;
+		}
 		if (selection_vector.ptr) {
 			snapshot.metadata.back()->selection_vector = selection_vector;
 		}
 	}
 
 	// Lookup all columns for potential hits in the constant map
-	case_insensitive_map_t<string> constant_map;
-	for (const auto &col : snapshot.names) {
-		auto key = KernelUtils::ToDeltaString(col);
-		auto *partition_val = (string *)ffi::get_from_string_map(partition_values, key, allocate_string);
-		if (partition_val) {
-			constant_map[col] = *partition_val;
-			delete partition_val;
+	if (transform) {
+		ExpressionVisitor visitor;
+		auto parsed_transformation_expression = visitor.VisitKernelExpression(transform);
+
+		if (!parsed_transformation_expression) {
+			context->error = ErrorData(ExceptionType::IO,
+			                           "Failed to parse transformation expression from delta kernel: null returned");
+			return;
+		}
+
+		case_insensitive_map_t<Value> constant_map;
+		for (idx_t i = 0; i < snapshot.partitions.size(); ++i) {
+			const auto &partition_id = context->snapshot.partition_ids[i];
+			const auto &partition_name = context->snapshot.partitions[i];
+
+			constant_map[partition_name] =
+			    GetPartitionValueFromExpression(*parsed_transformation_expression, partition_id);
+		}
+		snapshot.metadata.back()->partition_map = std::move(constant_map);
+		snapshot.metadata.back()->transform_expression = std::move(parsed_transformation_expression);
+	} else {
+		if (!snapshot.partitions.empty()) {
+			context->error = ErrorData(ExceptionType::IO,
+			                           "Failed to fetch partitions from delta kernel transform! Transform is empty");
+			return;
 		}
 	}
-	snapshot.metadata.back()->partition_map = std::move(constant_map);
 }
 
 void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
                                      const ffi::Stats *stats, const ffi::DvInfo *dv_info,
                                      const ffi::Expression *transform, const ffi::CStringMap *partition_values) {
 	try {
-		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, partition_values);
+		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, transform);
 	} catch (std::runtime_error &e) {
 		auto context = (ScanDataCallBack *)engine_context;
 		context->error = ErrorData(e);
@@ -407,7 +444,7 @@ void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::Ker
 
 void ScanDataCallBack::VisitData(void *engine_context, ffi::ExclusiveEngineData *engine_data,
                                  const struct ffi::KernelBoolSlice selection_vec, const ffi::CTransforms *transforms) {
-	ffi::visit_scan_data(engine_data, selection_vec, transforms, engine_context, ScanDataCallBack::VisitCallback);
+	ffi::visit_scan_data(engine_data, selection_vec, transforms, engine_context, VisitCallback);
 }
 
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path)
@@ -455,7 +492,6 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	EnsureSnapshotInitialized();
 
 	unique_ptr<SchemaVisitor::FieldList> schema;
-
 	{
 		auto snapshot_ref = snapshot->GetLockingRef();
 		schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr());
@@ -493,7 +529,11 @@ OpenFileInfo DeltaMultiFileList::GetFileInternal(idx_t i) const {
 			callback_context.error.Throw();
 		}
 
-		auto have_scan_data = TryUnpackKernelResult(have_scan_data_res);
+		bool have_scan_data;
+		auto scan_data_res = KernelUtils::TryUnpackResult<bool>(have_scan_data_res, have_scan_data);
+		if (scan_data_res.HasError()) {
+			throw IOException("Failed to unpack scan data from kernel: %s", scan_data_res.RawMessage());
+		}
 
 		// kernel has indicated that we have no more data to scan
 		if (!have_scan_data) {
@@ -544,6 +584,11 @@ void DeltaMultiFileList::InitializeScan() const {
 	PredicateVisitor visitor(names, &table_filters);
 	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
 
+	if (visitor.error_data.HasError()) {
+		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", paths[0].path,
+		                  visitor.error_data.Message());
+	}
+
 	// Create GlobalState
 	global_state = ffi::get_global_scan_state(scan.get());
 
@@ -551,14 +596,27 @@ void DeltaMultiFileList::InitializeScan() const {
 	scan_data_iterator = TryUnpackKernelResult(ffi::kernel_scan_data_init(extern_engine.get(), scan.get()));
 
 	// Load partitions
-	auto partition_count = ffi::get_partition_column_count(global_state.get());
+	auto partition_count = ffi::get_partition_column_count(snapshot_ref.GetPtr());
 	if (partition_count > 0) {
-		auto string_slice_iterator = ffi::get_partition_columns(global_state.get());
+		auto string_slice_iterator = ffi::get_partition_columns(snapshot_ref.GetPtr());
 
 		KernelPartitionVisitorData data;
 		while (string_slice_next(string_slice_iterator, &data, KernelPartitionStringVisitor)) {
 		}
 		partitions = data.partitions;
+
+		for (auto &partition : partitions) {
+			for (idx_t i = 0; i < names.size(); i++) {
+				if (partition == names[i]) {
+					partition_ids.push_back(i);
+					break;
+				}
+			}
+		}
+
+		if (partitions.size() != partition_ids.size()) {
+			throw IOException("Failed to map partitions to columns");
+		}
 	}
 	initialized_scan = true;
 }
