@@ -67,9 +67,8 @@ static void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const Mul
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		auto global_idx = MultiFileGlobalIndex(i);
 		auto &col_idx = global_column_ids[i];
-		if (col_idx.IsRowIdColumn()) {
+		if (col_idx.GetPrimaryIndex() == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER) {
 			// row-id
-			reader_data.constant_map.Add(global_idx, Value::BIGINT(42));
 			continue;
 		}
 		auto column_id = col_idx.GetPrimaryIndex();
@@ -93,41 +92,6 @@ static void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const Mul
 			}
 		}
 	}
-}
-
-// TODO: upstream this into MultiFileColumnDefinition?
-static vector<MultiFileColumnDefinition> ColumnsFromNamesAndTypes(const vector<string> &names,
-                                                                        const vector<LogicalType> &types) {
-	vector<MultiFileColumnDefinition> columns;
-	D_ASSERT(names.size() == types.size());
-	for (idx_t i = 0; i < names.size(); i++) {
-		auto &name = names[i];
-		auto &type = types[i];
-		columns.emplace_back(name, type);
-
-		if (type.IsNested()) {
-			if (type.InternalType() == PhysicalType::STRUCT) {
-				auto &struct_children = StructType::GetChildTypes(type);
-				vector<string> child_names;
-				vector<LogicalType> child_types;
-				for (const auto &child : struct_children) {
-					child_names.push_back(child.first);
-					child_types.push_back(child.second);
-				}
-				columns.back().children = ColumnsFromNamesAndTypes(child_names, child_types);
-			} else if (type.InternalType() == PhysicalType::LIST) {
-				auto &list_child = ListType::GetChildType(type);
-				columns.back().children = ColumnsFromNamesAndTypes({""}, {list_child});
-			} else if (type.InternalType() == PhysicalType::ARRAY) {
-				auto &list_child = ArrayType::GetChildType(type);
-				columns.back().children = ColumnsFromNamesAndTypes({""}, {list_child});
-			} else {
-				throw InternalException("Unknown nested type found in ColumnsFromNamesAndTypes: '%s'", type.ToString());
-			}
-		}
-	}
-
-	return columns;
 }
 
 // Parses the columns that are used by the delta extension into
@@ -207,7 +171,7 @@ void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList 
 	}
 
 	// FIXME: this is slightly hacky here
-	bind_data.schema = ColumnsFromNamesAndTypes(names, return_types);
+	bind_data.schema = MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, return_types);
 }
 
 void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
@@ -224,12 +188,11 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 			D_ASSERT(global_state);
 			auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
 			D_ASSERT(delta_global_state.delta_file_number_idx != DConstants::INVALID_INDEX);
-
 			// We add the constant column for the delta_file_number option
 			// NOTE: we add a placeholder here, to demonstrate how we can also populate extra columns in the
 			// FinalizeChunk
 			auto global_idx = MultiFileGlobalIndex(delta_global_state.delta_file_number_idx);
-			reader_data.constant_map.Add(global_idx, Value::UBIGINT(0));
+			reader_data.constant_map.Add(global_idx, Value::UBIGINT(7));
 		}
 	}
 
@@ -242,7 +205,7 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 		for (idx_t i = 0; i < global_column_ids.size(); i++) {
 			auto global_idx = MultiFileGlobalIndex(i);
 			column_t col_id = global_column_ids[i].GetPrimaryIndex();
-			if (IsRowIdColumnId(col_id)) {
+			if (col_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER) {
 				continue;
 			}
 			auto col_partition_entry = file_metadata.partition_map.find(global_columns[col_id].name);
@@ -284,7 +247,7 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 	case_insensitive_map_t<idx_t> selected_columns;
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		auto global_id = global_column_ids[i].GetPrimaryIndex();
-		if (IsRowIdColumnId(global_id)) {
+		if (global_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER) {
 			continue;
 		}
 
@@ -516,11 +479,11 @@ void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFile
 	MultiFileReader::FinalizeChunk(context, bind_data, reader, reader_data, input_chunk, output_chunk, executor,
 	                               global_state);
 
-	//! NOTE: this should be handled in FinalizeBind, we should add the deletion vector there
-	//D_ASSERT(global_state);
-	//auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
-	//D_ASSERT(delta_global_state.file_list);
+	D_ASSERT(global_state);
+	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
+	D_ASSERT(delta_global_state.file_list);
 
+	//! NOTE: this should be handled in FinalizeBind, we should add the deletion vector there
 	//// Get the metadata for this file
 	//const auto &snapshot = dynamic_cast<const DeltaMultiFileList &>(*global_state->file_list);
 	//auto &metadata = snapshot.GetMetaData(reader_data.file_list_idx.GetIndex());
@@ -533,28 +496,6 @@ void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFile
 	//	idx_t select_count;
 	//	auto sv = DuckSVFromDeltaSV(metadata.selection_vector, file_row_number_column, chunk.size(), select_count);
 	//	chunk.Slice(sv, select_count);
-	//}
-
-	//// Note: this demo function shows how we can use DuckDB's Binder create expression-based generated columns
-	//if (delta_global_state.delta_file_number_idx != DConstants::INVALID_INDEX) {
-	//	//! Create Dummy expression (0 + file_number)
-	//	vector<unique_ptr<ParsedExpression>> child_expr;
-	//	child_expr.push_back(make_uniq<ConstantExpression>(Value::UBIGINT(0)));
-	//	child_expr.push_back(make_uniq<ConstantExpression>(Value::UBIGINT(7)));
-	//	unique_ptr<ParsedExpression> expr =
-	//	    make_uniq<FunctionExpression>("+", std::move(child_expr), nullptr, nullptr, false, true);
-
-	//	//! s dummy expression
-	//	auto binder = Binder::CreateBinder(context);
-	//	ExpressionBinder expr_binder(*binder, context);
-	//	auto bound_expr = expr_binder.Bind(expr, nullptr);
-
-	//	//! Execute dummy expression into result column
-	//	ExpressionExecutor expr_executor(context);
-	//	expr_executor.AddExpression(*bound_expr);
-
-	//	//! Execute the expression directly into the output Chunk
-	//	expr_executor.ExecuteExpression(chunk.data[delta_global_state.delta_file_number_idx]);
 	//}
 };
 

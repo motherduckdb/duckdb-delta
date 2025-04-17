@@ -62,7 +62,6 @@ virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionD
 	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::BIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_ROW_ID, TableColumn("rowid", LogicalType::BIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalType::BOOLEAN)));
-	//! TODO: should this contain 'delta_file_number' ??
 
 	auto &bind_data = bind_data_p->Cast<MultiFileBindData>();
 	bind_data.virtual_columns = result;
