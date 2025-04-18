@@ -21,31 +21,30 @@
 
 namespace duckdb {
 
-// Generate the correct Selection Vector Based on the Raw delta KernelBoolSlice dv and the row_id_column
-// TODO: this probably is slower than needed (we can do with less branches in the for loop for most cases)
-static SelectionVector DuckSVFromDeltaSV(const ffi::KernelBoolSlice &dv, Vector row_id_column, idx_t count,
-                                         idx_t &select_count) {
-	D_ASSERT(row_id_column.GetType() == LogicalType::BIGINT);
-
-	UnifiedVectorFormat data;
-	row_id_column.ToUnifiedFormat(count, data);
-	auto row_ids = UnifiedVectorFormat::GetData<int64_t>(data);
-
-	SelectionVector result {count};
-	idx_t current_select = 0;
-	for (idx_t i = 0; i < count; i++) {
-		auto row_id = row_ids[data.sel->get_index(i)];
-
-		if (row_id >= dv.len || dv.ptr[row_id]) {
-			result.data()[current_select] = i;
-			current_select++;
-		}
+struct DeltaDeleteFilter : public DeleteFilter {
+public:
+	DeltaDeleteFilter(const ffi::KernelBoolSlice &dv) : dv(dv) {
 	}
 
-	select_count = current_select;
+public:
+	idx_t Filter(row_t start_row_index, idx_t count, SelectionVector &result_sel) override {
+		if (count == 0) {
+			return 0;
+		}
+		result_sel.Initialize(STANDARD_VECTOR_SIZE);
+		idx_t current_select = 0;
+		for (idx_t i = 0; i < count; i++) {
+			auto row_id = i + start_row_index;
 
-	return result;
-}
+			const bool is_selected = row_id >= dv.len || dv.ptr[row_id];
+			result_sel.set_index(current_select, i);
+			current_select += is_selected;
+		}
+		return current_select;
+	}
+public:
+	const ffi::KernelBoolSlice &dv;
+};
 
 // Note: this overrides MultifileReader::FinalizeBind removing the lines adding the hive_partitioning indexes
 //       the reason is that we (ab)use those to use them to forward the delta partitioning information.
@@ -216,6 +215,12 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 			}
 		}
 	}
+
+	auto &reader = *reader_data.reader;
+	if (file_metadata.selection_vector.ptr) {
+		//! Push the deletes into the parquet scan
+		reader.deletion_filter = make_uniq<DeltaDeleteFilter>(file_metadata.selection_vector);
+	}
 }
 
 shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
@@ -247,7 +252,7 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 	case_insensitive_map_t<idx_t> selected_columns;
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		auto global_id = global_column_ids[i].GetPrimaryIndex();
-		if (global_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER) {
+		if (global_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER || global_id == COLUMN_IDENTIFIER_EMPTY) {
 			continue;
 		}
 
@@ -482,21 +487,6 @@ void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFile
 	D_ASSERT(global_state);
 	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
 	D_ASSERT(delta_global_state.file_list);
-
-	//! NOTE: this should be handled in FinalizeBind, we should add the deletion vector there
-	//// Get the metadata for this file
-	//const auto &snapshot = dynamic_cast<const DeltaMultiFileList &>(*global_state->file_list);
-	//auto &metadata = snapshot.GetMetaData(reader_data.file_list_idx.GetIndex());
-
-	//if (metadata.selection_vector.ptr && chunk.size() != 0) {
-	//	D_ASSERT(delta_global_state.file_row_number_idx != DConstants::INVALID_INDEX);
-	//	auto &file_row_number_column = chunk.data[delta_global_state.file_row_number_idx];
-
-	//	// Construct the selection vector using the file_row_number column and the raw selection vector from delta
-	//	idx_t select_count;
-	//	auto sv = DuckSVFromDeltaSV(metadata.selection_vector, file_row_number_column, chunk.size(), select_count);
-	//	chunk.Slice(sv, select_count);
-	//}
 };
 
 bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, MultiFileOptions &options,
