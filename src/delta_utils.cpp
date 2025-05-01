@@ -276,13 +276,6 @@ void ExpressionVisitor::VisitIsNullExpression(void *state, uintptr_t sibling_lis
 	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
-//// Note: hack to get the DECIMAL thing goin
-//template <class hugeint_t>
-//hugeint_t &Value::GetReferenceUnsafe() {
-//	D_ASSERT(type_.InternalType() == PhysicalType::INT128);
-//	return value_.hugeint;
-//}
-
 // This function is a workaround for the fact that duckdb disallows using hugeints to store decimals with precision < 18
 // whereas kernel does allow this.
 static int64_t GetTruncatedDecimalValue(int64_t value_ms, uint64_t value_ls) {
