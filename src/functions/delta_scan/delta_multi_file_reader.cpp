@@ -20,6 +20,40 @@
 
 namespace duckdb {
 
+
+// Returns a map of every local field name to a global field name (both columns and struct fields)
+static void ParseNameMaps(vector<unique_ptr<ParsedExpression>> &transform_expression,
+                          const vector<MultiFileColumnDefinition> &global_columns,
+                          unordered_map<string, string> &global_to_local) {
+    auto &column_expressions = KernelUtils::UnpackTopLevelStruct(transform_expression);
+
+    D_ASSERT(column_expressions.size() <= global_columns.size()); // tODO throw
+
+    for (idx_t i = 0; i < column_expressions.size(); i++) {
+        auto &expression = column_expressions[i];
+        // printf("pr: %s\n", expression->ToString().c_str());
+        // auto &column_definition = global_columns[i];
+
+        if (expression->type == ExpressionType::FUNCTION) {
+            if (expression->Cast<FunctionExpression>().function_name != "struct_pack") {
+                throw IOException("Unexpected function of root expression returned by delta kernel: %s",
+                                  expression->Cast<FunctionExpression>().function_name);
+            }
+            // FIXME: Currently we don't traverse into nested types, since the kernel transforms don't contain them yet
+
+            // auto &expression_children = expression->Cast<FunctionExpression>().children;
+            // ParseNameMaps(expression_children, column_definition.children, local_to_global, global_to_local);
+
+        } else if (expression->type == ExpressionType::COLUMN_REF) {
+            auto local_name = expression->Cast<ColumnRefExpression>().GetColumnName();
+            auto global_name = global_columns[i].name;
+
+            global_to_local[global_name] = local_name;
+        }
+    }
+}
+
+
 struct DeltaDeleteFilter : public DeleteFilter {
 public:
 	DeltaDeleteFilter(const ffi::KernelBoolSlice &dv) : dv(dv) {
@@ -45,17 +79,16 @@ public:
 	const ffi::KernelBoolSlice &dv;
 };
 
-// Note: this overrides MultifileReader::FinalizeBind removing the lines adding the hive_partitioning indexes
-//       the reason is that we (ab)use those to use them to forward the delta partitioning information.
-static void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
-	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
-	                  const vector<ColumnIndex> &global_column_ids, ClientContext &context,
-	                  optional_ptr<MultiFileReaderGlobalState> global_state) {
+void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
+                                   const MultiFileReaderBindData &options,
+                                   const vector<MultiFileColumnDefinition> &global_columns,
+                                   const vector<ColumnIndex> &global_column_ids, ClientContext &context,
+                                   optional_ptr<MultiFileReaderGlobalState> global_state) {
 
 	// create a map of name -> column index
+	auto &local_columns = reader_data.reader->GetColumns();
+	auto &filename = reader_data.reader->GetFileName();
 	case_insensitive_map_t<idx_t> name_map;
-	auto &local_columns = reader_data.reader->columns;
-	auto &filename = reader_data.reader->file.path;
 	if (file_options.union_by_name) {
 		for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
 			auto &column = local_columns[col_idx];
@@ -64,16 +97,20 @@ static void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const Mul
 	}
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		auto global_idx = MultiFileGlobalIndex(i);
-		auto &col_idx = global_column_ids[i];
-		if (col_idx.GetPrimaryIndex() == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER) {
-			// row-id
-		    // TODO: do we need to add to the constant map here?
-			continue;
-		}
-		auto column_id = col_idx.GetPrimaryIndex();
-		if (options.filename_idx.IsValid() && column_id == options.filename_idx.GetIndex()) {
+		auto &col_id = global_column_ids[i];
+		auto column_id = col_id.GetPrimaryIndex();
+		if ((options.filename_idx.IsValid() && column_id == options.filename_idx.GetIndex()) ||
+		    column_id == MultiFileReader::COLUMN_IDENTIFIER_FILENAME) {
 			// filename
 			reader_data.constant_map.Add(global_idx, Value(filename));
+			continue;
+		}
+		if (column_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_INDEX) {
+			// filename
+			reader_data.constant_map.Add(global_idx, Value::UBIGINT(reader_data.reader->file_list_idx.GetIndex()));
+			continue;
+		}
+		if (IsVirtualColumn(column_id)) {
 			continue;
 		}
 		if (file_options.union_by_name) {
@@ -125,7 +162,7 @@ bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
 	//}
 
 	return true;
-};
+}
 
 void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &files,
                                        vector<LogicalType> &return_types, vector<string> &names,
@@ -171,6 +208,11 @@ void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList 
 
 	// FIXME: this is slightly hacky here
 	bind_data.schema = MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, return_types);
+
+    // Set defaults
+    for (auto &col : bind_data.schema) {
+        col.default_expression = make_uniq<ConstantExpression>(Value(col.type));
+    }
 }
 
 void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
@@ -200,13 +242,17 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 	const auto &snapshot = dynamic_cast<const DeltaMultiFileList &>(*global_state->file_list);
 	auto &file_metadata = snapshot.GetMetaData(reader_data.reader->file_list_idx.GetIndex());
 
+    // TODO: we don't actually need to do both this and the transform expression
 	if (!file_metadata.partition_map.empty()) {
 		for (idx_t i = 0; i < global_column_ids.size(); i++) {
 			auto global_idx = MultiFileGlobalIndex(i);
 			column_t col_id = global_column_ids[i].GetPrimaryIndex();
-			if (col_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER) {
+
+		    // TODO: is this correct??
+			if (col_id == COLUMN_IDENTIFIER_EMPTY || col_id == COLUMN_IDENTIFIER_ROW_ID || col_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER) {
 				continue;
 			}
+
 			auto col_partition_entry = file_metadata.partition_map.find(global_columns[col_id].name);
 			if (col_partition_entry != file_metadata.partition_map.end()) {
 				auto &current_type = global_columns[col_id].type;
@@ -222,6 +268,42 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 		//! Push the deletes into the parquet scan
 		reader.deletion_filter = make_uniq<DeltaDeleteFilter>(file_metadata.selection_vector);
 	}
+
+    if (file_metadata.transform_expression) {
+        unordered_map<string, string> global_to_local;
+        ParseNameMaps(*file_metadata.transform_expression, global_columns, global_to_local);
+
+        unordered_map<string, string> local_to_global;
+        for (auto &entry: global_to_local) {
+            local_to_global[entry.second] = entry.first;
+        }
+
+        unordered_set<string> columns_in_file;
+        auto &local_columns = reader_data.reader->columns;
+        for (auto &column: local_columns) {
+            auto identifier = local_to_global[column.name];
+            column.identifier = Value(identifier);
+            columns_in_file.insert(identifier);
+        }
+
+        for (idx_t i = 0; i < global_column_ids.size(); i++) {
+            auto global_idx = MultiFileGlobalIndex(i);
+            column_t col_id = global_column_ids[i].GetPrimaryIndex();
+            if (IsVirtualColumn(col_id)) {
+                continue;
+            }
+            auto &column = global_columns[col_id];
+
+            if (!columns_in_file.count(column.name)) {
+                auto &constant_expression = column.default_expression->Cast<ConstantExpression>();
+                reader_data.constant_map.Add(global_idx, constant_expression.value);
+            }
+        }
+    }
+}
+
+ReaderInitializeType DeltaMultiFileReader::CreateMapping(ClientContext &context, MultiFileReaderData &reader_data, const vector<MultiFileColumnDefinition> &global_columns, const vector<ColumnIndex> &global_column_ids, optional_ptr<TableFilterSet> filters, const OpenFileInfo &initial_file, const MultiFileReaderBindData &bind_data, const virtual_column_map_t &virtual_columns) {
+    return MultiFileReader::CreateMapping(context, reader_data, global_columns, global_column_ids, filters, initial_file, bind_data, virtual_columns);
 }
 
 shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
@@ -253,7 +335,8 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 	case_insensitive_map_t<idx_t> selected_columns;
 	for (idx_t i = 0; i < global_column_ids.size(); i++) {
 		auto global_id = global_column_ids[i].GetPrimaryIndex();
-		if (global_id == MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER || global_id == COLUMN_IDENTIFIER_EMPTY) {
+
+		if (IsVirtualColumn(global_id)) {
 			continue;
 		}
 
@@ -307,37 +390,6 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 	return std::move(res);
 }
 
-// Returns a map of every local field name to a global field name (both columns and struct fields)
-static void ParseNameMaps(vector<unique_ptr<ParsedExpression>> &transform_expression,
-                          const vector<MultiFileColumnDefinition> &global_columns,
-                          unordered_map<string, string> &global_to_local) {
-	auto &column_expressions = KernelUtils::UnpackTopLevelStruct(transform_expression);
-
-	D_ASSERT(column_expressions.size() <= global_columns.size()); // tODO throw
-
-	for (idx_t i = 0; i < column_expressions.size(); i++) {
-		auto &expression = column_expressions[i];
-		// auto &column_definition = global_columns[i];
-
-		if (expression->type == ExpressionType::FUNCTION) {
-			if (expression->Cast<FunctionExpression>().function_name != "struct_pack") {
-				throw IOException("Unexpected function of root expression returned by delta kernel: %s",
-				                  expression->Cast<FunctionExpression>().function_name);
-			}
-			// FIXME: Currently we don't traverse into nested types, since the kernel transforms don't contain them yet
-
-			// auto &expression_children = expression->Cast<FunctionExpression>().children;
-			// ParseNameMaps(expression_children, column_definition.children, local_to_global, global_to_local);
-
-		} else if (expression->type == ExpressionType::COLUMN_REF) {
-			auto local_name = expression->Cast<ColumnRefExpression>().GetColumnName();
-			auto global_name = global_columns[i].name;
-
-			global_to_local[global_name] = local_name;
-		}
-	}
-}
-
 //static void DetectUnsupportedTypeCast(const LogicalType &local_type, const LogicalType &global_type) {
 //	if (local_type.IsNested() && local_type != global_type) {
 //		throw NotImplementedException("Unsupported type cast detected in Delta table '%s' -> '%s'. DuckDB currently "
@@ -346,8 +398,8 @@ static void ParseNameMaps(vector<unique_ptr<ParsedExpression>> &transform_expres
 //	}
 //}
 
-// This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
-// in the parquet files, we just add null constant columns
+ // This code is duplicated from MultiFileReader::CreateNameMapping the difference is that for columns that are not found
+ // in the parquet files, we just add null constant columns
 // static void CustomMulfiFileNameMapping(const string &file_name,
 //                                        const vector<MultiFileColumnDefinition> &local_columns,
 //                                        const vector<MultiFileColumnDefinition> &global_columns,

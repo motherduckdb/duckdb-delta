@@ -693,7 +693,8 @@ unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContex
 		combiner.AddFilter(riter->get()->Copy());
 	}
 
-	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes);
+    vector<FilterPushdownResult> pushdown_results;
+	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes, pushdown_results);
 	if (filter_set.filters.empty()) {
 		return nullptr;
 	}

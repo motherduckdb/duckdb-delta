@@ -52,7 +52,7 @@ WHERE value > 3
 
 # With filter: ensures the deletion vector is applied properly on top of pushed down filters with the file_row_number column
 query II
-FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/table-with-dv-small/', file_row_number=1)
+SELECT *, file_row_number FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/table-with-dv-small/')
 WHERE value > 3
 ----
 4	4
