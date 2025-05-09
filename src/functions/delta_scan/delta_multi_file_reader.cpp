@@ -43,15 +43,16 @@ public:
 		}
 		return current_select;
 	}
+
 public:
 	const ffi::KernelBoolSlice &dv;
 };
 
 void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
-                                   const MultiFileReaderBindData &options,
-                                   const vector<MultiFileColumnDefinition> &global_columns,
-                                   const vector<ColumnIndex> &global_column_ids, ClientContext &context,
-                                   optional_ptr<MultiFileReaderGlobalState> global_state) {
+                              const MultiFileReaderBindData &options,
+                              const vector<MultiFileColumnDefinition> &global_columns,
+                              const vector<ColumnIndex> &global_column_ids, ClientContext &context,
+                              optional_ptr<MultiFileReaderGlobalState> global_state) {
 
 	// create a map of name -> column index
 	auto &local_columns = reader_data.reader->GetColumns();
@@ -78,7 +79,7 @@ void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileO
 			reader_data.constant_map.Add(global_idx, Value::UBIGINT(reader_data.reader->file_list_idx.GetIndex()));
 			continue;
 		}
-	    if (column_id == DeltaMultiFileReader::DELTA_FILE_NUMBER_COLUMN_ID) {
+		if (column_id == DeltaMultiFileReader::DELTA_FILE_NUMBER_COLUMN_ID) {
 			// filename
 			reader_data.constant_map.Add(global_idx, Value::UBIGINT(7));
 			continue;
@@ -104,17 +105,16 @@ void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileO
 	}
 }
 
-bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
-                                vector<LogicalType> &return_types, vector<string> &names,
-                                MultiFileReaderBindData &bind_data) {
+bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+                                vector<string> &names, MultiFileReaderBindData &bind_data) {
 	auto &delta_snapshot = dynamic_cast<DeltaMultiFileList &>(files);
 
 	delta_snapshot.Bind(return_types, names);
 
 	//! NOTE: this *should* be fixed by adding DeltaVirtualColumns
 	//// We need to parse this option
-	//bool file_row_number_enabled = options.custom_options.find("file_row_number") != options.custom_options.end();
-	//if (file_row_number_enabled) {
+	// bool file_row_number_enabled = options.custom_options.find("file_row_number") != options.custom_options.end();
+	// if (file_row_number_enabled) {
 	//	bind_data.file_row_number_idx = names.size();
 	//	return_types.emplace_back(LogicalType::BIGINT);
 	//	names.emplace_back("file_row_number");
@@ -163,53 +163,56 @@ void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList 
 	// FIXME: this is slightly hacky here
 	bind_data.schema = MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, return_types);
 
-    // Set defaults
-    for (auto &col : bind_data.schema) {
-        col.default_expression = make_uniq<ConstantExpression>(Value(col.type));
-    }
+	// Set defaults
+	for (auto &col : bind_data.schema) {
+		col.default_expression = make_uniq<ConstantExpression>(Value(col.type));
+	}
 }
 
-ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData &reader_data, const MultiFileBindData &bind_data,
-                                                  const vector<MultiFileColumnDefinition> &global_columns,
-                                                  const vector<ColumnIndex> &global_column_ids,
-                                                  optional_ptr<TableFilterSet> table_filters, ClientContext &context,
-                                                  optional_ptr<MultiFileReaderGlobalState> global_state) {
-    D_ASSERT(global_state);
-    auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
-    auto &snapshot = delta_global_state.file_list->Cast<DeltaMultiFileList>();
+ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
+                                                            const MultiFileBindData &bind_data,
+                                                            const vector<MultiFileColumnDefinition> &global_columns,
+                                                            const vector<ColumnIndex> &global_column_ids,
+                                                            optional_ptr<TableFilterSet> table_filters,
+                                                            ClientContext &context,
+                                                            optional_ptr<MultiFileReaderGlobalState> global_state) {
+	D_ASSERT(global_state);
+	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
+	auto &snapshot = delta_global_state.file_list->Cast<DeltaMultiFileList>();
 
-    vector<MultiFileColumnDefinition> *global_columns_to_use;
-    auto &scan_columns = snapshot.GetLazyLoadedGlobalColumns();
-    vector<MultiFileColumnDefinition> column_copy;
-    if (scan_columns.size() != global_columns.size()) {
-        column_copy = scan_columns;
-        for (idx_t i = scan_columns.size(); i < global_columns.size(); i++) {
-            column_copy.push_back(global_columns[i]);
-        }
-        global_columns_to_use = &column_copy;
-    } else {
-        global_columns_to_use = &scan_columns;
-    }
+	vector<MultiFileColumnDefinition> *global_columns_to_use;
+	auto &scan_columns = snapshot.GetLazyLoadedGlobalColumns();
+	vector<MultiFileColumnDefinition> column_copy;
+	if (scan_columns.size() != global_columns.size()) {
+		column_copy = scan_columns;
+		for (idx_t i = scan_columns.size(); i < global_columns.size(); i++) {
+			column_copy.push_back(global_columns[i]);
+		}
+		global_columns_to_use = &column_copy;
+	} else {
+		global_columns_to_use = &scan_columns;
+	}
 
-    FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, *global_columns_to_use, global_column_ids,
-                 context, global_state);
-    return CreateMapping(context, reader_data, *global_columns_to_use, global_column_ids, table_filters,
-                         bind_data.file_list->GetFirstFile(), bind_data.reader_bind, bind_data.virtual_columns);
+	FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, *global_columns_to_use, global_column_ids,
+	             context, global_state);
+	return CreateMapping(context, reader_data, *global_columns_to_use, global_column_ids, table_filters,
+	                     bind_data.file_list->GetFirstFile(), bind_data.reader_bind, bind_data.virtual_columns);
 }
 
 void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
-	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
-	                  const vector<ColumnIndex> &global_column_ids, ClientContext &context,
-	                  optional_ptr<MultiFileReaderGlobalState> global_state) {
+                                        const MultiFileReaderBindData &options,
+                                        const vector<MultiFileColumnDefinition> &global_columns,
+                                        const vector<ColumnIndex> &global_column_ids, ClientContext &context,
+                                        optional_ptr<MultiFileReaderGlobalState> global_state) {
 	FinalizeBindBaseOverride(reader_data, file_options, options, global_columns, global_column_ids, context,
-	                              global_state);
+	                         global_state);
 
 	// Get the metadata for this file
 	D_ASSERT(global_state->file_list);
 	const auto &snapshot = dynamic_cast<const DeltaMultiFileList &>(*global_state->file_list);
 	auto &file_metadata = snapshot.GetMetaData(reader_data.reader->file_list_idx.GetIndex());
 
-    // TODO: inject these in the global column definitions instead?
+	// TODO: inject these in the global column definitions instead?
 	if (!file_metadata.partition_map.empty()) {
 		for (idx_t i = 0; i < global_column_ids.size(); i++) {
 			auto global_idx = MultiFileGlobalIndex(i);
@@ -235,8 +238,15 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 	}
 }
 
-ReaderInitializeType DeltaMultiFileReader::CreateMapping(ClientContext &context, MultiFileReaderData &reader_data, const vector<MultiFileColumnDefinition> &global_columns, const vector<ColumnIndex> &global_column_ids, optional_ptr<TableFilterSet> filters, const OpenFileInfo &initial_file, const MultiFileReaderBindData &bind_data, const virtual_column_map_t &virtual_columns) {
-    return MultiFileReader::CreateMapping(context, reader_data, global_columns, global_column_ids, filters, initial_file, bind_data, virtual_columns);
+ReaderInitializeType DeltaMultiFileReader::CreateMapping(ClientContext &context, MultiFileReaderData &reader_data,
+                                                         const vector<MultiFileColumnDefinition> &global_columns,
+                                                         const vector<ColumnIndex> &global_column_ids,
+                                                         optional_ptr<TableFilterSet> filters,
+                                                         const OpenFileInfo &initial_file,
+                                                         const MultiFileReaderBindData &bind_data,
+                                                         const virtual_column_map_t &virtual_columns) {
+	return MultiFileReader::CreateMapping(context, reader_data, global_columns, global_column_ids, filters,
+	                                      initial_file, bind_data, virtual_columns);
 }
 
 shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
@@ -283,10 +293,9 @@ DeltaMultiFileReader::InitializeGlobalState(ClientContext &context, const MultiF
 }
 
 void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFileBindData &bind_data,
-                                           BaseFileReader &reader, const MultiFileReaderData &reader_data,
-                                           DataChunk &input_chunk, DataChunk &output_chunk,
-                                           ExpressionExecutor &executor,
-                                           optional_ptr<MultiFileReaderGlobalState> global_state) {
+                                         BaseFileReader &reader, const MultiFileReaderData &reader_data,
+                                         DataChunk &input_chunk, DataChunk &output_chunk, ExpressionExecutor &executor,
+                                         optional_ptr<MultiFileReaderGlobalState> global_state) {
 	// Base class finalization first
 	MultiFileReader::FinalizeChunk(context, bind_data, reader, reader_data, input_chunk, output_chunk, executor,
 	                               global_state);

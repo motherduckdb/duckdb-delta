@@ -71,7 +71,7 @@ public:
 	idx_t GetVersion();
 	vector<string> GetPartitionColumns();
 
-    vector<MultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
+	vector<MultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
 
 protected:
 	//! Get the i-th expanded file
@@ -134,8 +134,9 @@ protected:
 
 	ClientContext &context;
 
-    // The schema containing the proper column identifiers, lazily loaded to avoid prematurely initializing the kernel scan
-    mutable vector<MultiFileColumnDefinition> lazy_loaded_schema;
+	// The schema containing the proper column identifiers, lazily loaded to avoid prematurely initializing the kernel
+	// scan
+	mutable vector<MultiFileColumnDefinition> lazy_loaded_schema;
 };
 
 // Callback for the ffi::kernel_scan_data_next callback

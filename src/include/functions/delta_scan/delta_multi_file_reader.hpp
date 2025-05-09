@@ -24,7 +24,7 @@ struct DeltaMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 };
 
 struct DeltaMultiFileReader : public MultiFileReader {
-    static constexpr column_t DELTA_FILE_NUMBER_COLUMN_ID = UINT64_C(10000000000000000000);
+	static constexpr column_t DELTA_FILE_NUMBER_COLUMN_ID = UINT64_C(10000000000000000000);
 
 	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
 	//! Return a DeltaMultiFileList
@@ -33,19 +33,20 @@ struct DeltaMultiFileReader : public MultiFileReader {
 
 	//! Override the regular parquet bind using the MultiFileReader Bind. The bind from these are what DuckDB's file
 	//! readers will try read
-	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
-	          vector<string> &names, MultiFileReaderBindData &bind_data) override;
+	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types, vector<string> &names,
+	          MultiFileReaderBindData &bind_data) override;
 
 	//! Override the Options bind
 	void BindOptions(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
 	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
 
-    //! Create all required mappings from the global types/names to the file-local types/names
-    ReaderInitializeType
-    CreateMapping(ClientContext &context, MultiFileReaderData &reader_data,
-                  const vector<MultiFileColumnDefinition> &global_columns, const vector<ColumnIndex> &global_column_ids,
-                  optional_ptr<TableFilterSet> filters, const OpenFileInfo &initial_file,
-                  const MultiFileReaderBindData &bind_data, const virtual_column_map_t &virtual_columns) override;
+	//! Create all required mappings from the global types/names to the file-local types/names
+	ReaderInitializeType CreateMapping(ClientContext &context, MultiFileReaderData &reader_data,
+	                                   const vector<MultiFileColumnDefinition> &global_columns,
+	                                   const vector<ColumnIndex> &global_column_ids,
+	                                   optional_ptr<TableFilterSet> filters, const OpenFileInfo &initial_file,
+	                                   const MultiFileReaderBindData &bind_data,
+	                                   const virtual_column_map_t &virtual_columns) override;
 
 	unique_ptr<MultiFileReaderGlobalState>
 	InitializeGlobalState(ClientContext &context, const MultiFileOptions &file_options,
@@ -53,11 +54,11 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	                      const vector<MultiFileColumnDefinition> &global_columns,
 	                      const vector<ColumnIndex> &global_column_ids) override;
 
-    ReaderInitializeType InitializeReader(MultiFileReaderData &reader_data, const MultiFileBindData &bind_data,
-                                                  const vector<MultiFileColumnDefinition> &global_columns,
-                                                  const vector<ColumnIndex> &global_column_ids,
-                                                  optional_ptr<TableFilterSet> table_filters, ClientContext &context,
-                                                  optional_ptr<MultiFileReaderGlobalState> global_state) override;
+	ReaderInitializeType InitializeReader(MultiFileReaderData &reader_data, const MultiFileBindData &bind_data,
+	                                      const vector<MultiFileColumnDefinition> &global_columns,
+	                                      const vector<ColumnIndex> &global_column_ids,
+	                                      optional_ptr<TableFilterSet> table_filters, ClientContext &context,
+	                                      optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	void FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
 	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,
@@ -70,8 +71,7 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	                   ExpressionExecutor &executor, optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	//! Override the ParseOption call to parse delta_scan specific options
-	bool ParseOption(const string &key, const Value &val, MultiFileOptions &options,
-	                 ClientContext &context) override;
+	bool ParseOption(const string &key, const Value &val, MultiFileOptions &options, ClientContext &context) override;
 
 	// A snapshot can be injected into the multifilereader, this ensures the GetMultiFileList can return this snapshot
 	// (note that the path should match the one passed to CreateFileList)

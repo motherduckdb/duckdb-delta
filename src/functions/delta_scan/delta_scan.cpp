@@ -58,13 +58,14 @@ static InsertionOrderPreservingMap<string> DeltaFunctionToString(TableFunctionTo
 virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionData> bind_data_p) {
 	virtual_column_map_t result;
 	result.insert(
-		make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILENAME, TableColumn("filename", LogicalType::VARCHAR)));
-	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER, TableColumn("file_row_number", LogicalType::BIGINT)));
+	    make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILENAME, TableColumn("filename", LogicalType::VARCHAR)));
+	result.insert(make_pair(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER,
+	                        TableColumn("file_row_number", LogicalType::BIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_ROW_ID, TableColumn("rowid", LogicalType::BIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalType::BOOLEAN)));
 
-    result.insert(make_pair(DeltaMultiFileReader::DELTA_FILE_NUMBER_COLUMN_ID,
-                            TableColumn("delta_file_number", LogicalType::UBIGINT)));
+	result.insert(make_pair(DeltaMultiFileReader::DELTA_FILE_NUMBER_COLUMN_ID,
+	                        TableColumn("delta_file_number", LogicalType::UBIGINT)));
 
 	auto &bind_data = bind_data_p->Cast<MultiFileBindData>();
 	bind_data.virtual_columns = result;

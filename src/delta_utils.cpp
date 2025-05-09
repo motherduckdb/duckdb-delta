@@ -415,16 +415,17 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 	return state.TakeFieldList(result);
 }
 
-unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotGlobalReadSchema(ffi::SharedGlobalScanState *state, bool logical) {
+unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotGlobalReadSchema(ffi::SharedGlobalScanState *state,
+                                                                                  bool logical) {
 	SchemaVisitor visitor_state;
 	auto visitor = CreateSchemaVisitor(visitor_state);
 
-    ffi::Handle<ffi::SharedSchema> schema;
-    if (logical) {
-        schema = ffi::get_global_logical_schema(state);
-    } else {
-        schema = ffi::get_global_read_schema(state);
-    }
+	ffi::Handle<ffi::SharedSchema> schema;
+	if (logical) {
+		schema = ffi::get_global_logical_schema(state);
+	} else {
+		schema = ffi::get_global_read_schema(state);
+	}
 
 	uintptr_t result = visit_schema(schema, &visitor);
 	free_schema(schema);

@@ -34,7 +34,9 @@ void DeltaCatalog::ScanSchemas(ClientContext &context, std::function<void(Schema
 	callback(*main_schema);
 }
 
-optional_ptr<SchemaCatalogEntry> DeltaCatalog::LookupSchema(CatalogTransaction transaction, const EntryLookupInfo &schema_lookup, OnEntryNotFound if_not_found) {
+optional_ptr<SchemaCatalogEntry> DeltaCatalog::LookupSchema(CatalogTransaction transaction,
+                                                            const EntryLookupInfo &schema_lookup,
+                                                            OnEntryNotFound if_not_found) {
 	auto &schema_name = schema_lookup.GetEntryName();
 	if (schema_name == DEFAULT_SCHEMA || schema_name == INVALID_SCHEMA) {
 		return main_schema.get();
@@ -90,23 +92,23 @@ DatabaseSize DeltaCatalog::GetDatabaseSize(ClientContext &context) {
 }
 
 PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanGenerator &planner, LogicalInsert &op,
-                                        optional_ptr<PhysicalOperator> plan) {
+                                           optional_ptr<PhysicalOperator> plan) {
 	throw NotImplementedException("DeltaCatalog PlanInsert");
 }
 PhysicalOperator &DeltaCatalog::PlanCreateTableAs(ClientContext &context, PhysicalPlanGenerator &planner,
-                                               LogicalCreateTable &op, PhysicalOperator &plan) {
+                                                  LogicalCreateTable &op, PhysicalOperator &plan) {
 	throw NotImplementedException("DeltaCatalog PlanCreateTableAs");
 }
 PhysicalOperator &DeltaCatalog::PlanDelete(ClientContext &context, PhysicalPlanGenerator &planner, LogicalDelete &op,
-                                        PhysicalOperator &plan) {
+                                           PhysicalOperator &plan) {
 	throw NotImplementedException("DeltaCatalog PlanDelete");
 }
 PhysicalOperator &DeltaCatalog::PlanUpdate(ClientContext &context, PhysicalPlanGenerator &planner, LogicalUpdate &op,
-                                        PhysicalOperator &plan) {
+                                           PhysicalOperator &plan) {
 	throw NotImplementedException("DeltaCatalog PlanUpdate");
 }
-unique_ptr<LogicalOperator> DeltaCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt, TableCatalogEntry &table,
-                                                       unique_ptr<LogicalOperator> plan) {
+unique_ptr<LogicalOperator> DeltaCatalog::BindCreateIndex(Binder &binder, CreateStatement &stmt,
+                                                          TableCatalogEntry &table, unique_ptr<LogicalOperator> plan) {
 	throw NotImplementedException("DeltaCatalog BindCreateIndex");
 }
 
