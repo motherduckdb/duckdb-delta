@@ -21,15 +21,11 @@ struct DeltaMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 	DeltaMultiFileReaderGlobalState(vector<LogicalType> extra_columns_p, optional_ptr<const MultiFileList> file_list_p)
 	    : MultiFileReaderGlobalState(extra_columns_p, file_list_p) {
 	}
-	//! The idx of the file number column in the result chunk
-	idx_t delta_file_number_idx = DConstants::INVALID_INDEX;
-	//! The idx of the file_row_number column in the result chunk
-	idx_t file_row_number_idx = DConstants::INVALID_INDEX;
-
-	void SetColumnIdx(const string &column, idx_t idx);
 };
 
 struct DeltaMultiFileReader : public MultiFileReader {
+    static constexpr column_t DELTA_FILE_NUMBER_COLUMN_ID = UINT64_C(10000000000000000000);
+
 	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
 	//! Return a DeltaMultiFileList
 	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
@@ -56,6 +52,12 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	                      const MultiFileReaderBindData &bind_data, const MultiFileList &file_list,
 	                      const vector<MultiFileColumnDefinition> &global_columns,
 	                      const vector<ColumnIndex> &global_column_ids) override;
+
+    ReaderInitializeType InitializeReader(MultiFileReaderData &reader_data, const MultiFileBindData &bind_data,
+                                                  const vector<MultiFileColumnDefinition> &global_columns,
+                                                  const vector<ColumnIndex> &global_column_ids,
+                                                  optional_ptr<TableFilterSet> table_filters, ClientContext &context,
+                                                  optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	void FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
 	                  const MultiFileReaderBindData &options, const vector<MultiFileColumnDefinition> &global_columns,

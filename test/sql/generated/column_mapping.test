@@ -24,7 +24,6 @@ from delta_scan('./data/generated/evolution_simple/delta_lake') order by a
 1	NULL
 2	2
 
-
 # evolution_column_change:
 # CREATE TABLE evolution_column_change AS SELECT 'value1' AS a, 'value2' AS b;
 # ALTER TABLE evolution_column_change DROP COLUMN b;
@@ -48,7 +47,7 @@ value4	5
 
 # Ensure we play ball with projections and generated columns, etc
 query IIII
-SELECT file_row_number, filename.substring(-8,8), b, a from delta_scan('./data/generated/evolution_column_change/delta_lake', filename=1, file_row_number=1) order by a
+SELECT file_row_number, filename.substring(-8,8), b, a from delta_scan('./data/generated/evolution_column_change/delta_lake') order by a
 ----
 0	.parquet	NULL	value1
 0	.parquet	NULL	value3

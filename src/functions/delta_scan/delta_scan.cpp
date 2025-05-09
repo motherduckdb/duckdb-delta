@@ -63,6 +63,9 @@ virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionD
 	result.insert(make_pair(COLUMN_IDENTIFIER_ROW_ID, TableColumn("rowid", LogicalType::BIGINT)));
 	result.insert(make_pair(COLUMN_IDENTIFIER_EMPTY, TableColumn("", LogicalType::BOOLEAN)));
 
+    result.insert(make_pair(DeltaMultiFileReader::DELTA_FILE_NUMBER_COLUMN_ID,
+                            TableColumn("delta_file_number", LogicalType::UBIGINT)));
+
 	auto &bind_data = bind_data_p->Cast<MultiFileBindData>();
 	bind_data.virtual_columns = result;
 	return result;
@@ -94,9 +97,6 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance
 
 		// Schema param is just confusing here
 		function.named_parameters.erase("schema");
-
-		// Demonstration of a generated column based on information from DeltaMultiFileList
-		function.named_parameters["delta_file_number"] = LogicalType::BOOLEAN;
 
 		function.named_parameters["pushdown_partition_info"] = LogicalType::BOOLEAN;
 		function.named_parameters["pushdown_filters"] = LogicalType::VARCHAR;

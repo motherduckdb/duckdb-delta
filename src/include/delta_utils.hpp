@@ -137,6 +137,7 @@ public:
 	using FieldList = child_list_t<LogicalType>;
 
 	static unique_ptr<FieldList> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot);
+    static unique_ptr<FieldList> VisitSnapshotGlobalReadSchema(ffi::SharedGlobalScanState *state, bool logical);
 
 private:
 	unordered_map<uintptr_t, unique_ptr<FieldList>> inflight_lists;
