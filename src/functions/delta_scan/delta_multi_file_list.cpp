@@ -364,7 +364,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 	path_string = url_decode(path_string);
 
 	// First we append the file to our resolved files
-	snapshot.resolved_files.push_back(DeltaMultiFileList::ToDuckDBPath(path_string));
+	snapshot.resolved_files.emplace_back(DeltaMultiFileList::ToDuckDBPath(path_string));
 	snapshot.metadata.emplace_back(make_uniq<DeltaFileMetaData>());
 
 	D_ASSERT(snapshot.resolved_files.size() == snapshot.metadata.size());
@@ -421,7 +421,8 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 			    GetPartitionValueFromExpression(*parsed_transformation_expression, partition_id);
 		}
 		snapshot.metadata.back()->partition_map = std::move(constant_map);
-		snapshot.metadata.back()->transform_expression = std::move(parsed_transformation_expression);
+		snapshot.metadata.back()->transform_expression =
+		    std::move(parsed_transformation_expression); // FIXME: currently not used
 	} else {
 		if (!snapshot.partitions.empty()) {
 			context->error = ErrorData(ExceptionType::IO,
@@ -452,7 +453,7 @@ DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &p
 }
 
 string DeltaMultiFileList::GetPath() const {
-	return GetPaths()[0];
+	return GetPaths()[0].path;
 }
 
 string DeltaMultiFileList::ToDuckDBPath(const string &raw_path) {
@@ -507,7 +508,7 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	this->types = return_types;
 }
 
-string DeltaMultiFileList::GetFileInternal(idx_t i) const {
+OpenFileInfo DeltaMultiFileList::GetFileInternal(idx_t i) const {
 	EnsureScanInitialized();
 
 	// We already have this file
@@ -516,7 +517,7 @@ string DeltaMultiFileList::GetFileInternal(idx_t i) const {
 	}
 
 	if (files_exhausted) {
-		return "";
+		return OpenFileInfo();
 	}
 
 	ScanDataCallBack callback_context(*this);
@@ -538,7 +539,7 @@ string DeltaMultiFileList::GetFileInternal(idx_t i) const {
 		// kernel has indicated that we have no more data to scan
 		if (!have_scan_data) {
 			files_exhausted = true;
-			return "";
+			return OpenFileInfo();
 		}
 	}
 
@@ -547,22 +548,22 @@ string DeltaMultiFileList::GetFileInternal(idx_t i) const {
 
 idx_t DeltaMultiFileList::GetTotalFileCountInternal() const {
 	idx_t i = resolved_files.size();
-	while (!GetFileInternal(i).empty()) {
+	while (!GetFileInternal(i).path.empty()) {
 		i++;
 	}
 	return resolved_files.size();
 }
 
-string DeltaMultiFileList::GetFile(idx_t i) {
+OpenFileInfo DeltaMultiFileList::GetFile(idx_t i) {
 	// TODO: profile this: we should be able to use atomics here to optimize
 	unique_lock<mutex> lck(lock);
 	return GetFileInternal(i);
 }
 
 void DeltaMultiFileList::InitializeSnapshot() const {
-	auto path_slice = KernelUtils::ToDeltaString(paths[0]);
+	auto path_slice = KernelUtils::ToDeltaString(paths[0].path);
 
-	auto interface_builder = CreateBuilder(context, paths[0]);
+	auto interface_builder = CreateBuilder(context, paths[0].path);
 	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
 
 	if (!snapshot) {
@@ -577,6 +578,99 @@ void DeltaMultiFileList::InitializeSnapshot() const {
 	initialized_snapshot = true;
 }
 
+static void InjectColumnIdentifiers(const vector<string> &names, const vector<LogicalType> &types,
+                                    const vector<string> &all_names, const vector<LogicalType> &all_types,
+                                    vector<MultiFileColumnDefinition> &global_column_defs) {
+	for (idx_t i = 0; i < names.size(); i++) {
+		auto &col = global_column_defs[i];
+		col.default_expression = make_uniq<ConstantExpression>(Value(col.type));
+		col.identifier = Value(all_names[i]);
+
+		if (col.type.id() == LogicalTypeId::STRUCT) {
+			vector<string> child_names;
+			vector<LogicalType> child_types;
+			for (idx_t j = 0; j < StructType::GetChildCount(col.type); j++) {
+				child_names.emplace_back(StructType::GetChildName(col.type, j));
+				child_types.emplace_back(StructType::GetChildType(col.type, j));
+			}
+
+			vector<string> child_all_names;
+			vector<LogicalType> child_all_types;
+			for (idx_t j = 0; j < StructType::GetChildCount(all_types[i]); j++) {
+				child_all_names.emplace_back(StructType::GetChildName(all_types[i], j));
+				child_all_types.emplace_back(StructType::GetChildType(all_types[i], j));
+			}
+
+			InjectColumnIdentifiers(child_names, child_types, child_all_names, child_all_types, col.children);
+		}
+	}
+}
+
+static vector<MultiFileColumnDefinition> ConstructGlobalColDefs(const vector<string> &names,
+                                                                const vector<LogicalType> &types,
+                                                                const vector<string> &partitions,
+                                                                ffi::SharedGlobalScanState *scan_state) {
+	vector<string> physical_names;
+	vector<LogicalType> physical_types;
+	vector<string> logical_names;
+	vector<LogicalType> logical_types;
+	unordered_map<string, string> name_map;
+	unordered_map<string, LogicalType> physical_type_map;
+	unordered_set<string> partition_set;
+
+	for (const auto &partition : partitions) {
+		partition_set.insert(partition);
+	}
+
+	auto schema_physical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan_state, false);
+	auto schema_logical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan_state, true);
+
+	for (idx_t i = 0; i < schema_physical->size(); i++) {
+		physical_names.push_back((*schema_physical)[i].first);
+		physical_types.push_back((*schema_physical)[i].second);
+	}
+	for (idx_t i = 0; i < schema_logical->size(); i++) {
+		logical_names.push_back((*schema_logical)[i].first);
+		logical_types.push_back((*schema_logical)[i].second);
+	}
+
+	idx_t physical_idx = 0;
+	for (idx_t i = 0; i < logical_names.size(); i++) {
+		auto &logical_name = logical_names[i];
+		if (partition_set.find(logical_name) != partition_set.end()) {
+			continue;
+		}
+		if (physical_idx >= physical_names.size()) {
+			throw IOException("Failed to map physical schema to logical");
+		}
+		name_map[logical_names[i]] = physical_names[physical_idx];
+		physical_type_map[logical_names[i]] = physical_types[physical_idx];
+		physical_idx++;
+	}
+
+	vector<string> all_names;
+	vector<LogicalType> all_types;
+	for (idx_t i = 0; i < names.size(); i++) {
+		auto &name = names[i];
+		auto &type = types[i];
+
+		auto lu = name_map.find(name);
+		if (lu != name_map.end()) {
+			all_names.push_back(lu->second);
+			all_types.push_back(physical_type_map[name]);
+		} else {
+			all_names.push_back(name);
+			all_types.push_back(type);
+		}
+	}
+
+	auto global_column_defs = MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, types);
+
+	InjectColumnIdentifiers(names, types, all_names, all_types, global_column_defs);
+
+	return global_column_defs;
+}
+
 void DeltaMultiFileList::InitializeScan() const {
 	auto snapshot_ref = snapshot->GetLockingRef();
 
@@ -585,7 +679,7 @@ void DeltaMultiFileList::InitializeScan() const {
 	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
 
 	if (visitor.error_data.HasError()) {
-		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", paths[0],
+		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", paths[0].path,
 		                  visitor.error_data.Message());
 	}
 
@@ -618,6 +712,9 @@ void DeltaMultiFileList::InitializeScan() const {
 			throw IOException("Failed to map partitions to columns");
 		}
 	}
+
+	lazy_loaded_schema = ConstructGlobalColDefs(names, types, partitions, global_state.get());
+
 	initialized_scan = true;
 }
 
@@ -636,7 +733,7 @@ void DeltaMultiFileList::EnsureScanInitialized() const {
 
 unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context,
                                                                     TableFilterSet &new_filters) const {
-	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0]);
+	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0].path);
 
 	TableFilterSet result_filter_set;
 
@@ -654,6 +751,8 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
 
 	filtered_list->table_filters = std::move(result_filter_set);
 	filtered_list->names = names;
+	filtered_list->types = types;
+	filtered_list->lazy_loaded_schema = lazy_loaded_schema;
 
 	// Copy over the snapshot, this avoids reparsing metadata
 	{
@@ -664,8 +763,7 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
 	return filtered_list;
 }
 
-static DeltaFilterPushdownMode GetDeltaFilterPushdownMode(ClientContext &context,
-                                                          const MultiFileReaderOptions &options) {
+static DeltaFilterPushdownMode GetDeltaFilterPushdownMode(ClientContext &context, const MultiFileOptions &options) {
 	auto res = options.custom_options.find("pushdown_filters");
 	if (res != options.custom_options.end()) {
 		auto str = res->second.GetValue<string>();
@@ -675,7 +773,7 @@ static DeltaFilterPushdownMode GetDeltaFilterPushdownMode(ClientContext &context
 	return DEFAULT_PUSHDOWN_MODE;
 }
 unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContext &context,
-                                                                    const MultiFileReaderOptions &options,
+                                                                    const MultiFileOptions &options,
                                                                     MultiFilePushdownInfo &info,
                                                                     vector<unique_ptr<Expression>> &filters) {
 	auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
@@ -693,7 +791,8 @@ unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContex
 		combiner.AddFilter(riter->get()->Copy());
 	}
 
-	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes);
+	vector<FilterPushdownResult> pushdown_results;
+	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes, pushdown_results);
 	if (filter_set.filters.empty()) {
 		return nullptr;
 	}
@@ -807,7 +906,7 @@ void DeltaMultiFileList::ReportFilterPushdown(ClientContext &context, DeltaMulti
 }
 
 unique_ptr<MultiFileList>
-DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileReaderOptions &options,
+DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
                                           const vector<string> &names, const vector<LogicalType> &types,
                                           const vector<column_t> &column_ids, TableFilterSet &filters) const {
 	auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
@@ -840,11 +939,11 @@ DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFil
 	return nullptr;
 }
 
-vector<string> DeltaMultiFileList::GetAllFiles() {
+vector<OpenFileInfo> DeltaMultiFileList::GetAllFiles() {
 	unique_lock<mutex> lck(lock);
 	idx_t i = resolved_files.size();
 	// TODO: this can probably be improved
-	while (!GetFileInternal(i).empty()) {
+	while (!GetFileInternal(i).path.empty()) {
 		i++;
 	}
 	return resolved_files;
@@ -908,6 +1007,12 @@ vector<string> DeltaMultiFileList::GetPartitionColumns() {
 	unique_lock<mutex> lck(lock);
 	EnsureScanInitialized();
 	return partitions;
+}
+
+vector<MultiFileColumnDefinition> &DeltaMultiFileList::GetLazyLoadedGlobalColumns() const {
+	unique_lock<mutex> lck(lock);
+	EnsureScanInitialized();
+	return lazy_loaded_schema;
 }
 
 unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {

@@ -125,12 +125,14 @@ void DeltaSchemaEntry::Scan(ClientContext &context, CatalogType type,
                             const std::function<void(CatalogEntry &)> &callback) {
 	if (CatalogTypeIsSupported(type)) {
 		auto transaction = catalog.GetCatalogTransaction(context);
-		auto default_table = GetEntry(transaction, type, catalog.GetName());
+		auto lookup_info = EntryLookupInfo(type, catalog.GetName());
+		auto default_table = LookupEntry(transaction, lookup_info);
 		if (default_table) {
 			callback(*default_table);
 		}
 	}
 }
+
 void DeltaSchemaEntry::Scan(CatalogType type, const std::function<void(CatalogEntry &)> &callback) {
 	throw NotImplementedException("Scan without context not supported");
 }
@@ -146,7 +148,9 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction tran
 	}
 	auto &context = transaction.GetContext();
 
-	if (lookup_info.GetCatalogType() == CatalogType::TABLE_ENTRY && lookup_info.GetEntryName() == catalog.GetName()) {
+	auto type = lookup_info.GetCatalogType();
+	auto &name = lookup_info.GetEntryName();
+	if (type == CatalogType::TABLE_ENTRY && name == catalog.GetName()) {
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
@@ -164,9 +168,7 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction tran
 		}
 
 		return delta_transaction.InitializeTableEntry(context, *this);
-		;
 	}
-
 	return nullptr;
 }
 

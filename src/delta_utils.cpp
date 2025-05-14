@@ -3,7 +3,6 @@
 #include "duckdb/common/operator/decimal_cast_operators.hpp"
 
 #include "duckdb.hpp"
-#include "../duckdb/third_party/catch/catch.hpp"
 #include "duckdb/common/types/decimal.hpp"
 #include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
@@ -414,6 +413,28 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 	}
 
 	return state.TakeFieldList(result);
+}
+
+unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotGlobalReadSchema(ffi::SharedGlobalScanState *state,
+                                                                                  bool logical) {
+	SchemaVisitor visitor_state;
+	auto visitor = CreateSchemaVisitor(visitor_state);
+
+	ffi::Handle<ffi::SharedSchema> schema;
+	if (logical) {
+		schema = ffi::get_global_logical_schema(state);
+	} else {
+		schema = ffi::get_global_read_schema(state);
+	}
+
+	uintptr_t result = visit_schema(schema, &visitor);
+	free_schema(schema);
+
+	if (visitor_state.error.HasError()) {
+		visitor_state.error.Throw();
+	}
+
+	return visitor_state.TakeFieldList(result);
 }
 
 void SchemaVisitor::VisitDecimal(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,

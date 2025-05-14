@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8.12)
+cmake_minimum_required(VERSION 3.5)
 include(ExternalProject)
 
 # Core config
@@ -153,8 +153,9 @@ ExternalProject_Add(
   # Build debug build
   BUILD_COMMAND
     ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS} ${RUST_ENV_VARS} cargo build
-    --package delta_kernel_ffi --workspace $<$<CONFIG:Release>:--release>
-    --all-features ${RUST_PLATFORM_PARAM}
+    --package delta_kernel_ffi --workspace
+    $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:--release> --all-features
+    ${RUST_PLATFORM_PARAM}
   # Build DATs
   COMMAND
     ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS} ${RUST_ENV_VARS} cargo build

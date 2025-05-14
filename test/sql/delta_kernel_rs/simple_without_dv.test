@@ -28,7 +28,7 @@ SELECT value, parse_filename(filename)[-15:-1] FROM delta_scan('${DELTA_KERNEL_T
 
 # FileRowNumer param (i.e. ParquetReader provided)
 query II
-SELECT * FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/table-without-dv-small', file_row_number=1)
+SELECT *, file_row_number FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/table-without-dv-small')
 ----
 0	0
 1	1
