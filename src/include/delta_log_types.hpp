@@ -32,25 +32,6 @@ public:
 	}
 };
 
-class DeltaFilterPushdownLogType : public LogType {
-public:
-	static constexpr const char *NAME = "DeltaFilterPushdown";
-	static constexpr LogLevel LEVEL =
-	    LogLevel::LOG_INFO; // WARNING: DeltaKernelLogType is special in that it overrides this base logtype
-
-	//! Construct the log types
-	DeltaFilterPushdownLogType();
-
-	static LogicalType GetLogType();
-
-	static string ConstructLogMessage(ffi::Event event);
-
-	// FIXME: HTTPLogType should be structured probably
-	static string ConstructLogMessage(const string &str) {
-		return str;
-	}
-};
-
 class DeltaLogTypes {
 public:
 	static void RegisterLogTypes(DatabaseInstance &instance) {
