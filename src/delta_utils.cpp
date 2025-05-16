@@ -780,9 +780,11 @@ void LoggerCallback::CallbackEvent(ffi::Event event) {
 	auto &instance = GetInstance();
 	auto db_locked = instance.db.lock();
 	if (db_locked) {
-	    // Note: this slightly offbeat invocation of logging API is because we are passing through the log level instead of using the same
-	    //       log level for every message of this log type. We may
-	    DUCKDB_LOG_INTERNAL(*db_locked, DeltaKernelLogType::NAME, GetDuckDBLogLevel(event.level), DeltaKernelLogType::ConstructLogMessage(event));
+		// Note: this slightly offbeat invocation of logging API is because we are passing through the log level instead
+		// of using the same
+		//       log level for every message of this log type. We may
+		DUCKDB_LOG_INTERNAL(*db_locked, DeltaKernelLogType::NAME, GetDuckDBLogLevel(event.level),
+		                    DeltaKernelLogType::ConstructLogMessage(event));
 	}
 }
 

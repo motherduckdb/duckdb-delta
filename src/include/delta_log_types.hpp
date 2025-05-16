@@ -15,45 +15,47 @@ namespace duckdb {
 
 class DeltaKernelLogType : public LogType {
 public:
-    static constexpr const char *NAME = "DeltaKernel";
-    static constexpr LogLevel LEVEL = LogLevel::LOG_DEBUG; // WARNING: DeltaKernelLogType is special in that it overrides this base logtype
+	static constexpr const char *NAME = "DeltaKernel";
+	static constexpr LogLevel LEVEL =
+	    LogLevel::LOG_DEBUG; // WARNING: DeltaKernelLogType is special in that it overrides this base logtype
 
-    //! Construct the log types
-    DeltaKernelLogType();
+	//! Construct the log types
+	DeltaKernelLogType();
 
-    static LogicalType GetLogType();
+	static LogicalType GetLogType();
 
-    static string ConstructLogMessage(ffi::Event event);
+	static string ConstructLogMessage(ffi::Event event);
 
-    // FIXME: HTTPLogType should be structured probably
-    static string ConstructLogMessage(const string &str) {
-        return str;
-    }
+	// FIXME: HTTPLogType should be structured probably
+	static string ConstructLogMessage(const string &str) {
+		return str;
+	}
 };
 
 class DeltaFilterPushdownLogType : public LogType {
 public:
-    static constexpr const char *NAME = "DeltaFilterPushdown";
-    static constexpr LogLevel LEVEL = LogLevel::LOG_INFO; // WARNING: DeltaKernelLogType is special in that it overrides this base logtype
+	static constexpr const char *NAME = "DeltaFilterPushdown";
+	static constexpr LogLevel LEVEL =
+	    LogLevel::LOG_INFO; // WARNING: DeltaKernelLogType is special in that it overrides this base logtype
 
-    //! Construct the log types
-    DeltaFilterPushdownLogType();
+	//! Construct the log types
+	DeltaFilterPushdownLogType();
 
-    static LogicalType GetLogType();
+	static LogicalType GetLogType();
 
-    static string ConstructLogMessage(ffi::Event event);
+	static string ConstructLogMessage(ffi::Event event);
 
-    // FIXME: HTTPLogType should be structured probably
-    static string ConstructLogMessage(const string &str) {
-        return str;
-    }
+	// FIXME: HTTPLogType should be structured probably
+	static string ConstructLogMessage(const string &str) {
+		return str;
+	}
 };
 
 class DeltaLogTypes {
 public:
-    static void RegisterLogTypes(DatabaseInstance &instance) {
-        instance.GetLogManager().RegisterLogType(make_uniq<DeltaKernelLogType>());
-    }
+	static void RegisterLogTypes(DatabaseInstance &instance) {
+		instance.GetLogManager().RegisterLogType(make_uniq<DeltaKernelLogType>());
+	}
 };
 
 } // namespace duckdb

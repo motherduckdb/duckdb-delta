@@ -84,7 +84,7 @@ static void LoadInternal(DatabaseInstance &instance) {
 
 	DeltaMacros::RegisterMacros(instance);
 
-    DeltaLogTypes::RegisterLogTypes(instance);
+	DeltaLogTypes::RegisterLogTypes(instance);
 
 	LoggerCallback::Initialize(instance);
 }
