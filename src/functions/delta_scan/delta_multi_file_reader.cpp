@@ -174,8 +174,8 @@ ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData 
                                                             const vector<MultiFileColumnDefinition> &global_columns,
                                                             const vector<ColumnIndex> &global_column_ids,
                                                             optional_ptr<TableFilterSet> table_filters,
-                                                            ClientContext &context,
-                                                            optional_ptr<MultiFileReaderGlobalState> global_state) {
+                                                            ClientContext &context, MultiFileGlobalState &gstate) {
+	auto &global_state = gstate.multi_file_reader_state;
 	D_ASSERT(global_state);
 	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
 	auto &snapshot = delta_global_state.file_list->Cast<DeltaMultiFileList>();
@@ -196,7 +196,7 @@ ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData 
 	FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, *global_columns_to_use, global_column_ids,
 	             context, global_state);
 	return CreateMapping(context, reader_data, *global_columns_to_use, global_column_ids, table_filters,
-	                     bind_data.file_list->GetFirstFile(), bind_data.reader_bind, bind_data.virtual_columns);
+	                     gstate.file_list, bind_data.reader_bind, bind_data.virtual_columns);
 }
 
 void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const MultiFileOptions &file_options,
@@ -236,17 +236,6 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 		//! Push the deletes into the parquet scan
 		reader.deletion_filter = make_uniq<DeltaDeleteFilter>(file_metadata.selection_vector);
 	}
-}
-
-ReaderInitializeType DeltaMultiFileReader::CreateMapping(ClientContext &context, MultiFileReaderData &reader_data,
-                                                         const vector<MultiFileColumnDefinition> &global_columns,
-                                                         const vector<ColumnIndex> &global_column_ids,
-                                                         optional_ptr<TableFilterSet> filters,
-                                                         const OpenFileInfo &initial_file,
-                                                         const MultiFileReaderBindData &bind_data,
-                                                         const virtual_column_map_t &virtual_columns) {
-	return MultiFileReader::CreateMapping(context, reader_data, global_columns, global_column_ids, filters,
-	                                      initial_file, bind_data, virtual_columns);
 }
 
 shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
