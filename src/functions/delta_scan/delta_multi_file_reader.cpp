@@ -111,18 +111,6 @@ bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
 
 	delta_snapshot.Bind(return_types, names);
 
-	//! NOTE: this *should* be fixed by adding DeltaVirtualColumns
-	//// We need to parse this option
-	// bool file_row_number_enabled = options.custom_options.find("file_row_number") != options.custom_options.end();
-	// if (file_row_number_enabled) {
-	//	bind_data.file_row_number_idx = names.size();
-	//	return_types.emplace_back(LogicalType::BIGINT);
-	//	names.emplace_back("file_row_number");
-	//} else {
-	//	// TODO: this is a bogus ID? Change for flag indicating it should be enabled?
-	//	bind_data.file_row_number_idx = names.size();
-	//}
-
 	return true;
 }
 
