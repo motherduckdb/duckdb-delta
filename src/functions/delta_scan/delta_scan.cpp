@@ -93,6 +93,7 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance
 		function.table_scan_progress = nullptr;
 		function.get_bind_info = nullptr;
 		function.get_virtual_columns = DeltaVirtualColumns;
+		function.late_materialization = false;
 
 		function.to_string = DeltaFunctionToString;
 
