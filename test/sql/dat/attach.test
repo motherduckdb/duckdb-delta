@@ -29,7 +29,7 @@ dt	main	dt
 query IIIIII
 show all tables;
 ----
-dt	main	dt	[utf8, int64, int32, int16, int8, float32, float64, bool, binary, decimal, date32, timestamp]	[VARCHAR, BIGINT, INTEGER, SMALLINT, TINYINT, FLOAT, DOUBLE, BOOLEAN, BLOB, DECIMAL(5,3), DATE, TIMESTAMP WITH TIME ZONE]	false
+dt	main	dt	[utf8, int64, int32, int16, int8, float32, float64, bool, binary, decimal, date32, timestamp]	[VARCHAR, BIGINT, INTEGER, SMALLINT, TINYINT, FLOAT, DOUBLE, BOOLEAN, BLOB, 'DECIMAL(5,3)', DATE, TIMESTAMP WITH TIME ZONE]	0
 
 # We can query the table using the catalog name + the table name
 query I

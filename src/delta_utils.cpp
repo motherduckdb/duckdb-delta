@@ -1,5 +1,6 @@
 #include "delta_utils.hpp"
 
+#include "delta_log_types.hpp"
 #include "duckdb/common/operator/decimal_cast_operators.hpp"
 
 #include "duckdb.hpp"
@@ -276,13 +277,6 @@ void ExpressionVisitor::VisitIsNullExpression(void *state, uintptr_t sibling_lis
 	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
-// Note: hack to get the DECIMAL thing goin
-template <class hugeint_t>
-hugeint_t &Value::GetReferenceUnsafe() {
-	D_ASSERT(type_.InternalType() == PhysicalType::INT128);
-	return value_.hugeint;
-}
-
 // This function is a workaround for the fact that duckdb disallows using hugeints to store decimals with precision < 18
 // whereas kernel does allow this.
 static int64_t GetTruncatedDecimalValue(int64_t value_ms, uint64_t value_ls) {
@@ -420,6 +414,28 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 	}
 
 	return state.TakeFieldList(result);
+}
+
+unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotGlobalReadSchema(ffi::SharedGlobalScanState *state,
+                                                                                  bool logical) {
+	SchemaVisitor visitor_state;
+	auto visitor = CreateSchemaVisitor(visitor_state);
+
+	ffi::Handle<ffi::SharedSchema> schema;
+	if (logical) {
+		schema = ffi::get_global_logical_schema(state);
+	} else {
+		schema = ffi::get_global_read_schema(state);
+	}
+
+	uintptr_t result = visit_schema(schema, &visitor);
+	free_schema(schema);
+
+	if (visitor_state.error.HasError()) {
+		visitor_state.error.Throw();
+	}
+
+	return visitor_state.TakeFieldList(result);
 }
 
 void SchemaVisitor::VisitDecimal(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
@@ -760,25 +776,15 @@ void LoggerCallback::Initialize(DatabaseInstance &db_p) {
 	}
 }
 
-static string ConvertLogMessage(ffi::Event event) {
-	auto log_type = KernelUtils::FromDeltaString(event.target);
-	auto message = KernelUtils::FromDeltaString(event.message);
-	auto file = KernelUtils::FromDeltaString(event.file);
-	string constructed_log_message;
-	if (!file.empty()) {
-		constructed_log_message = StringUtil::Format("[%s] %s@%u : %s ", log_type, file, event.line, message);
-	} else {
-		constructed_log_message = message;
-	}
-
-	return constructed_log_message;
-}
 void LoggerCallback::CallbackEvent(ffi::Event event) {
 	auto &instance = GetInstance();
 	auto db_locked = instance.db.lock();
 	if (db_locked) {
-		auto transformed_log_level = GetDuckDBLogLevel(event.level);
-		DUCKDB_LOG(*db_locked, "delta.Kernel", transformed_log_level, ConvertLogMessage(event));
+		// Note: this slightly offbeat invocation of logging API is because we are passing through the log level instead
+		// of using the same
+		//       log level for every message of this log type. We may
+		DUCKDB_LOG_INTERNAL(*db_locked, DeltaKernelLogType::NAME, GetDuckDBLogLevel(event.level),
+		                    DeltaKernelLogType::ConstructLogMessage(event));
 	}
 }
 
