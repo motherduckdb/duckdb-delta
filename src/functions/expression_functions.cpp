@@ -9,39 +9,37 @@
 namespace duckdb {
 
 static void AddTestExpressions(vector<Value> &result, vector<unique_ptr<ParsedExpression>> &parsed_expressions) {
-    if (parsed_expressions.size() != 1) {
-        throw InternalException("Unexpected result: expected single expression");
-    }
+	if (parsed_expressions.size() != 1) {
+		throw InternalException("Unexpected result: expected single expression");
+	}
 
-    auto &expression = parsed_expressions.back();
-    if (expression->GetExpressionType() == ExpressionType::FUNCTION) {
-        for (auto &expr : expression->Cast<FunctionExpression>().children) {
-            result.push_back(expr->ToString());
-        }
-    } else if (expression->GetExpressionType() == ExpressionType::CONJUNCTION_AND) {
-        for (auto &expr : expression->Cast<ConjunctionExpression>().children) {
-            result.push_back(expr->ToString());
-        }
-    } else {
-        throw InternalException("Unexpected result: expected top level struct or conjunction");
-    }
-
-
+	auto &expression = parsed_expressions.back();
+	if (expression->GetExpressionType() == ExpressionType::FUNCTION) {
+		for (auto &expr : expression->Cast<FunctionExpression>().children) {
+			result.push_back(expr->ToString());
+		}
+	} else if (expression->GetExpressionType() == ExpressionType::CONJUNCTION_AND) {
+		for (auto &expr : expression->Cast<ConjunctionExpression>().children) {
+			result.push_back(expr->ToString());
+		}
+	} else {
+		throw InternalException("Unexpected result: expected top level struct or conjunction");
+	}
 }
 
 static void GetDeltaTestExpression(DataChunk &input, ExpressionState &state, Vector &output) {
 	output.SetVectorType(VectorType::CONSTANT_VECTOR);
-    vector<Value> result_to_string;
+	vector<Value> result_to_string;
 
-    auto kernel_testing_expr = ffi::get_testing_kernel_expression();
-    ExpressionVisitor visitor;
-    auto parsed_expressions = visitor.VisitKernelExpression(&kernel_testing_expr);
-    AddTestExpressions(result_to_string, *parsed_expressions);
+	auto kernel_testing_expr = ffi::get_testing_kernel_expression();
+	ExpressionVisitor visitor;
+	auto parsed_expressions = visitor.VisitKernelExpression(&kernel_testing_expr);
+	AddTestExpressions(result_to_string, *parsed_expressions);
 
-    auto kernel_testing_pred = ffi::get_testing_kernel_predicate();
-    ExpressionVisitor visitor_pred;
-    auto parsed_pred = visitor_pred.VisitKernelPredicate(&kernel_testing_pred);
-    AddTestExpressions(result_to_string, *parsed_pred);
+	auto kernel_testing_pred = ffi::get_testing_kernel_predicate();
+	ExpressionVisitor visitor_pred;
+	auto parsed_pred = visitor_pred.VisitKernelPredicate(&kernel_testing_pred);
+	AddTestExpressions(result_to_string, *parsed_pred);
 
 	output.SetValue(0, Value::LIST(result_to_string));
 };
@@ -57,7 +55,3 @@ ScalarFunctionSet DeltaFunctions::GetExpressionFunction(DatabaseInstance &instan
 }
 
 } // namespace duckdb
-
-
-
-

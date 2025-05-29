@@ -83,7 +83,7 @@ ffi::EngineExpressionVisitor ExpressionVisitor::CreateVisitor(ExpressionVisitor 
 	visitor.visit_not = VisitNotExpression;
 	visitor.visit_is_null = VisitIsNullExpression;
 
-    visitor.visit_literal_map = VisitLiteralMap;
+	visitor.visit_literal_map = VisitLiteralMap;
 
 	return visitor;
 }
@@ -118,16 +118,16 @@ ExpressionVisitor::VisitKernelExpression(const ffi::Handle<ffi::SharedExpression
 
 unique_ptr<vector<unique_ptr<ParsedExpression>>>
 ExpressionVisitor::VisitKernelPredicate(const ffi::Handle<ffi::SharedPredicate> *predicate) {
-    ExpressionVisitor state;
-    auto visitor = CreateVisitor(state);
+	ExpressionVisitor state;
+	auto visitor = CreateVisitor(state);
 
-    uintptr_t result = ffi::visit_predicate(predicate, &visitor);
+	uintptr_t result = ffi::visit_predicate(predicate, &visitor);
 
-    if (state.error.HasError()) {
-        state.error.Throw();
-    }
+	if (state.error.HasError()) {
+		state.error.Throw();
+	}
 
-    return state.TakeFieldList(result);
+	return state.TakeFieldList(result);
 }
 
 void ExpressionVisitor::VisitAdditionExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id) {
@@ -289,42 +289,46 @@ void ExpressionVisitor::VisitIsNullExpression(void *state, uintptr_t sibling_lis
 	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
-void ExpressionVisitor::VisitLiteralMap(void *state, uintptr_t sibling_list_id, uintptr_t key_list_id, uintptr_t value_list_id) {
-    auto state_cast = static_cast<ExpressionVisitor *>(state);
+void ExpressionVisitor::VisitLiteralMap(void *state, uintptr_t sibling_list_id, uintptr_t key_list_id,
+                                        uintptr_t value_list_id) {
+	auto state_cast = static_cast<ExpressionVisitor *>(state);
 
-    auto key_children = state_cast->TakeFieldList(key_list_id);
-    if (!key_children) {
-        return;
-    }
-    auto value_children = state_cast->TakeFieldList(value_list_id);
-    if (!value_children) {
-        return;
-    }
+	auto key_children = state_cast->TakeFieldList(key_list_id);
+	if (!key_children) {
+		return;
+	}
+	auto value_children = state_cast->TakeFieldList(value_list_id);
+	if (!value_children) {
+		return;
+	}
 
-    vector<Value> key_values;
-    LogicalType key_type;
-    for (const auto &key_field : *key_children) {
-        if (key_field->GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
-            state_cast->error = ErrorData("DuckDB only supports parsing Map literals from delta kernel that consist for constants!");
-            return;
-        }
-        key_values.push_back(key_field->Cast<ConstantExpression>().value);
-        key_type = key_field->Cast<ConstantExpression>().value.type();
-    }
+	vector<Value> key_values;
+	LogicalType key_type;
+	for (const auto &key_field : *key_children) {
+		if (key_field->GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+			state_cast->error =
+			    ErrorData("DuckDB only supports parsing Map literals from delta kernel that consist for constants!");
+			return;
+		}
+		key_values.push_back(key_field->Cast<ConstantExpression>().value);
+		key_type = key_field->Cast<ConstantExpression>().value.type();
+	}
 
-    vector<Value> value_values;
-    LogicalType value_type;
-    for (const auto &value_field : *value_children) {
-        if (value_field->GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
-            state_cast->error = ErrorData("DuckDB only supports parsing Map literals from delta kernel that consist for constants!");
-            return;
-        }
-        value_values.push_back(value_field->Cast<ConstantExpression>().value);
-        value_type = value_field->Cast<ConstantExpression>().value.type();
-    }
+	vector<Value> value_values;
+	LogicalType value_type;
+	for (const auto &value_field : *value_children) {
+		if (value_field->GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+			state_cast->error =
+			    ErrorData("DuckDB only supports parsing Map literals from delta kernel that consist for constants!");
+			return;
+		}
+		value_values.push_back(value_field->Cast<ConstantExpression>().value);
+		value_type = value_field->Cast<ConstantExpression>().value.type();
+	}
 
-    unique_ptr<ParsedExpression> expression = make_uniq<ConstantExpression>( Value::MAP(key_type, value_type, key_values, value_values));
-    state_cast->AppendToList(sibling_list_id, std::move(expression));
+	unique_ptr<ParsedExpression> expression =
+	    make_uniq<ConstantExpression>(Value::MAP(key_type, value_type, key_values, value_values));
+	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
 // This function is a workaround for the fact that duckdb disallows using hugeints to store decimals with precision < 18
