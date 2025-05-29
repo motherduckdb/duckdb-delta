@@ -9,101 +9,102 @@
 namespace ffi {
 
 enum class KernelError {
-	UnknownError,
-	FFIError,
-#if (defined(DEFINE_DEFAULT_ENGINE) || defined(DEFINE_SYNC_ENGINE))
-	ArrowError,
+  UnknownError,
+  FFIError,
+#if defined(DEFINE_DEFAULT_ENGINE)
+  ArrowError,
 #endif
-	EngineDataTypeError,
-	ExtractError,
-	GenericError,
-	IOErrorError,
-#if (defined(DEFINE_DEFAULT_ENGINE) || defined(DEFINE_SYNC_ENGINE))
-	ParquetError,
+  EngineDataTypeError,
+  ExtractError,
+  GenericError,
+  IOErrorError,
+#if defined(DEFINE_DEFAULT_ENGINE)
+  ParquetError,
 #endif
 #if defined(DEFINE_DEFAULT_ENGINE)
-	ObjectStoreError,
+  ObjectStoreError,
 #endif
 #if defined(DEFINE_DEFAULT_ENGINE)
-	ObjectStorePathError,
+  ObjectStorePathError,
 #endif
 #if defined(DEFINE_DEFAULT_ENGINE)
-	ReqwestError,
+  ReqwestError,
 #endif
-	FileNotFoundError,
-	MissingColumnError,
-	UnexpectedColumnTypeError,
-	MissingDataError,
-	MissingVersionError,
-	DeletionVectorError,
-	InvalidUrlError,
-	MalformedJsonError,
-	MissingMetadataError,
-	MissingProtocolError,
-	InvalidProtocolError,
-	MissingMetadataAndProtocolError,
-	ParseError,
-	JoinFailureError,
-	Utf8Error,
-	ParseIntError,
-	InvalidColumnMappingModeError,
-	InvalidTableLocationError,
-	InvalidDecimalError,
-	InvalidStructDataError,
-	InternalError,
-	InvalidExpression,
-	InvalidLogPath,
-	InvalidCommitInfo,
-	FileAlreadyExists,
-	MissingCommitInfo,
-	UnsupportedError,
-	ParseIntervalError,
-	ChangeDataFeedUnsupported,
-	ChangeDataFeedIncompatibleSchema,
-	InvalidCheckpoint,
-	LiteralExpressionTransformError,
+  FileNotFoundError,
+  MissingColumnError,
+  UnexpectedColumnTypeError,
+  MissingDataError,
+  MissingVersionError,
+  DeletionVectorError,
+  InvalidUrlError,
+  MalformedJsonError,
+  MissingMetadataError,
+  MissingProtocolError,
+  InvalidProtocolError,
+  MissingMetadataAndProtocolError,
+  ParseError,
+  JoinFailureError,
+  Utf8Error,
+  ParseIntError,
+  InvalidColumnMappingModeError,
+  InvalidTableLocationError,
+  InvalidDecimalError,
+  InvalidStructDataError,
+  InternalError,
+  InvalidExpression,
+  InvalidLogPath,
+  InvalidCommitInfo,
+  FileAlreadyExists,
+  MissingCommitInfo,
+  UnsupportedError,
+  ParseIntervalError,
+  ChangeDataFeedUnsupported,
+  ChangeDataFeedIncompatibleSchema,
+  InvalidCheckpoint,
+  LiteralExpressionTransformError,
+  CheckpointWriteError,
+  SchemaError,
 };
 
 /// Definitions of level verbosity. Verbose Levels are "greater than" less verbose ones. So
 /// Level::ERROR is the lowest, and Level::TRACE the highest.
 enum class Level {
-	ERROR = 0,
-	WARN = 1,
-	INFO = 2,
+  ERROR = 0,
+  WARN = 1,
+  INFO = 2,
 	DEBUGGING = 3,
-	TRACE = 4,
+  TRACE = 4,
 };
 
 /// Format to use for log lines. These correspond to the formats from [`tracing_subscriber`
 /// formats](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/index.html).
 enum class LogLineFormat {
-	/// The default formatter. This emits human-readable, single-line logs for each event that
-	/// occurs, with the context displayed before the formatted representation of the event.
-	/// Example:
-	/// `2022-02-15T18:40:14.289898Z  INFO fmt: preparing to shave yaks number_of_yaks=3`
-	FULL,
-	/// A variant of the FULL formatter, optimized for short line lengths. Fields from the context
-	/// are appended to the fields of the formatted event, and targets are not shown.
-	/// Example:
-	/// `2022-02-17T19:51:05.809287Z  INFO fmt_compact: preparing to shave yaks number_of_yaks=3`
-	COMPACT,
-	/// Emits excessively pretty, multi-line logs, optimized for human readability. This is
-	/// primarily intended to be used in local development and debugging, or for command-line
-	/// applications, where automated analysis and compact storage of logs is less of a priority
-	/// than readability and visual appeal.
-	/// Example:
-	/// ```ignore
-	///   2022-02-15T18:44:24.535324Z  INFO fmt_pretty: preparing to shave yaks, number_of_yaks: 3
-	///   at examples/examples/fmt-pretty.rs:16 on main
-	/// ```
-	PRETTY,
-	/// Outputs newline-delimited JSON logs. This is intended for production use with systems where
-	/// structured logs are consumed as JSON by analysis and viewing tools. The JSON output is not
-	/// optimized for human readability.
-	/// Example:
-	/// `{"timestamp":"2022-02-15T18:47:10.821315Z","level":"INFO","fields":{"message":"preparing to shave
-	/// yaks","number_of_yaks":3},"target":"fmt_json"}`
-	JSON,
+  /// The default formatter. This emits human-readable, single-line logs for each event that
+  /// occurs, with the context displayed before the formatted representation of the event.
+  /// Example:
+  /// `2022-02-15T18:40:14.289898Z  INFO fmt: preparing to shave yaks number_of_yaks=3`
+  FULL,
+  /// A variant of the FULL formatter, optimized for short line lengths. Fields from the context
+  /// are appended to the fields of the formatted event, and targets are not shown.
+  /// Example:
+  /// `2022-02-17T19:51:05.809287Z  INFO fmt_compact: preparing to shave yaks number_of_yaks=3`
+  COMPACT,
+  /// Emits excessively pretty, multi-line logs, optimized for human readability. This is
+  /// primarily intended to be used in local development and debugging, or for command-line
+  /// applications, where automated analysis and compact storage of logs is less of a priority
+  /// than readability and visual appeal.
+  /// Example:
+  /// ```ignore
+  ///   2022-02-15T18:44:24.535324Z  INFO fmt_pretty: preparing to shave yaks, number_of_yaks: 3
+  ///   at examples/examples/fmt-pretty.rs:16 on main
+  /// ```
+  PRETTY,
+  /// Outputs newline-delimited JSON logs. This is intended for production use with systems where
+  /// structured logs are consumed as JSON by analysis and viewing tools. The JSON output is not
+  /// optimized for human readability.
+  /// Example:
+  /// `{"timestamp":"2022-02-15T18:47:10.821315Z","level":"INFO","fields":{"message":"preparing to shave yaks","number_of_yaks":3},"target":"fmt_json"}`
+  JSON,
 };
 
 struct CStringMap;
@@ -145,8 +146,15 @@ struct Expression;
 
 struct KernelExpressionVisitorState;
 
-template <typename T = void>
+template<typename T = void>
 struct Option;
+
+/// A SQL predicate.
+///
+/// These predicates do not track or validate data types, other than the type
+/// of literals. It is up to the predicate evaluator to validate the
+/// predicate against a schema and add appropriate casts as required.
+struct Predicate;
 
 struct SharedExpression;
 
@@ -155,6 +163,8 @@ struct SharedExpressionEvaluator;
 struct SharedExternEngine;
 
 struct SharedGlobalScanState;
+
+struct SharedPredicate;
 
 struct SharedScan;
 
@@ -172,15 +182,15 @@ struct StringSliceIterator;
 /// receives a `KernelBoolSlice` as a return value from a kernel method, engine is responsible
 /// to free that slice, by calling [super::free_bool_slice] exactly once.
 struct KernelBoolSlice {
-	bool *ptr;
-	uintptr_t len;
+  bool *ptr;
+  uintptr_t len;
 };
 
 /// An owned slice of u64 row indexes allocated by the kernel. The engine is responsible for
 /// freeing this slice by calling [super::free_row_indexes] once.
 struct KernelRowIndexArray {
-	uint64_t *ptr;
-	uintptr_t len;
+  uint64_t *ptr;
+  uintptr_t len;
 };
 
 /// Represents an object that crosses the FFI boundary and which outlives the scope that created
@@ -215,8 +225,8 @@ struct KernelRowIndexArray {
 ///
 /// [reference rules]:
 /// https://doc.rust-lang.org/book/ch04-02-references-and-borrowing.html#the-rules-of-references
-template <typename H>
-using Handle = H *;
+template<typename H>
+using Handle = H*;
 
 /// An error that can be returned to the engine. Engines that wish to associate additional
 /// information can define and use any type that is [pointer
@@ -225,31 +235,31 @@ using Handle = H *;
 /// of a [standard layout](https://en.cppreference.com/w/cpp/language/data_members#Standard-layout)
 /// class.
 struct EngineError {
-	KernelError etype;
+  KernelError etype;
 };
 
 /// Semantics: Kernel will always immediately return the leaked engine error to the engine (if it
 /// allocated one at all), and engine is responsible for freeing it.
-template <typename T>
+template<typename T>
 struct ExternResult {
-	enum class Tag {
-		Ok,
-		Err,
-	};
+  enum class Tag {
+    Ok,
+    Err,
+  };
 
-	struct Ok_Body {
-		T _0;
-	};
+  struct Ok_Body {
+    T _0;
+  };
 
-	struct Err_Body {
-		EngineError *_0;
-	};
+  struct Err_Body {
+    EngineError *_0;
+  };
 
-	Tag tag;
-	union {
-		Ok_Body ok;
-		Err_Body err;
-	};
+  Tag tag;
+  union {
+    Ok_Body ok;
+    Err_Body err;
+  };
 };
 
 /// A non-owned slice of a UTF8 string, intended for arg-passing between kernel and engine. The
@@ -275,17 +285,17 @@ struct ExternResult {
 /// Meanwhile, the callee must assume that the slice is only valid until the function returns, and
 /// must not retain any references to the slice or its data that might outlive the function call.
 struct KernelStringSlice {
-	const char *ptr;
-	uintptr_t len;
+  const char *ptr;
+  uintptr_t len;
 };
 
-using AllocateErrorFn = EngineError *(*)(KernelError etype, KernelStringSlice msg);
+using AllocateErrorFn = EngineError*(*)(KernelError etype, KernelStringSlice msg);
 
-using NullableCvoid = void *;
+using NullableCvoid = void*;
 
 /// Allow engines to allocate strings of their own type. the contract of calling a passed allocate
 /// function is that `kernel_str` is _only_ valid until the return from this function
-using AllocateStringFn = NullableCvoid (*)(KernelStringSlice kernel_str);
+using AllocateStringFn = NullableCvoid(*)(KernelStringSlice kernel_str);
 
 /// ABI-compatible struct for ArrowArray from C Data Interface
 /// See <https://arrow.apache.org/docs/format/CDataInterface.html#structure-definitions>
@@ -298,16 +308,16 @@ using AllocateStringFn = NullableCvoid (*)(KernelStringSlice kernel_str);
 /// }
 /// ```
 struct FFI_ArrowArray {
-	int64_t length;
-	int64_t null_count;
-	int64_t offset;
-	int64_t n_buffers;
-	int64_t n_children;
-	const void **buffers;
-	FFI_ArrowArray **children;
-	FFI_ArrowArray *dictionary;
-	void (*release)(FFI_ArrowArray *arg1);
-	void *private_data;
+  int64_t length;
+  int64_t null_count;
+  int64_t offset;
+  int64_t n_buffers;
+  int64_t n_children;
+  const void **buffers;
+  FFI_ArrowArray **children;
+  FFI_ArrowArray *dictionary;
+  void (*release)(FFI_ArrowArray *arg1);
+  void *private_data;
 };
 
 /// ABI-compatible struct for `ArrowSchema` from C Data Interface
@@ -322,16 +332,16 @@ struct FFI_ArrowArray {
 /// ```
 ///
 struct FFI_ArrowSchema {
-	const char *format;
-	const char *name;
-	const char *metadata;
-	/// Refer to [Arrow Flags](https://arrow.apache.org/docs/format/CDataInterface.html#c.ArrowSchema.flags)
-	int64_t flags;
-	int64_t n_children;
-	FFI_ArrowSchema **children;
-	FFI_ArrowSchema *dictionary;
-	void (*release)(FFI_ArrowSchema *arg1);
-	void *private_data;
+  const char *format;
+  const char *name;
+  const char *metadata;
+  /// Refer to [Arrow Flags](https://arrow.apache.org/docs/format/CDataInterface.html#c.ArrowSchema.flags)
+  int64_t flags;
+  int64_t n_children;
+  FFI_ArrowSchema **children;
+  FFI_ArrowSchema *dictionary;
+  void (*release)(FFI_ArrowSchema *arg1);
+  void *private_data;
 };
 
 #if defined(DEFINE_DEFAULT_ENGINE)
@@ -339,40 +349,28 @@ struct FFI_ArrowSchema {
 /// Interface](https://arrow.apache.org/docs/format/CDataInterface.html). This includes the data and
 /// the schema.
 struct ArrowFFIData {
-	FFI_ArrowArray array;
-	FFI_ArrowSchema schema;
+  FFI_ArrowArray array;
+  FFI_ArrowSchema schema;
 };
 #endif
 
 struct FileMeta {
-	KernelStringSlice path;
-	int64_t last_modified;
-	uintptr_t size;
+  KernelStringSlice path;
+  int64_t last_modified;
+  uintptr_t size;
 };
 
-/// Model iterators. This allows an engine to specify iteration however it likes, and we simply wrap
-/// the engine functions. The engine retains ownership of the iterator.
-struct EngineIterator {
-	/// Opaque data that will be iterated over. This data will be passed to the get_next function
-	/// each time a next item is requested from the iterator
-	void *data;
-	/// A function that should advance the iterator and return the next time from the data
-	/// If the iterator is complete, it should return null. It should be safe to
-	/// call `get_next()` multiple times if it returns null.
-	const void *(*get_next)(void *data);
-};
+template<typename T>
+using VisitLiteralFn = void(*)(void *data, uintptr_t sibling_list_id, T value);
 
-template <typename T>
-using VisitLiteralFn = void (*)(void *data, uintptr_t sibling_list_id, T value);
+using VisitJunctionFn = void(*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
 
-using VisitJunctionFn = void (*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
+using VisitUnaryFn = void(*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
 
-using VisitUnaryFn = void (*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
-
-using VisitBinaryFn = void (*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
+using VisitBinaryFn = void(*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
 
 /// The [`EngineExpressionVisitor`] defines a visitor system to allow engines to build their own
-/// representation of a kernel expression.
+/// representation of a kernel expression or predicate.
 ///
 /// The model is list based. When the kernel needs a list, it will ask engine to allocate one of a
 /// particular size. Once allocated the engine returns an `id`, which can be any integer identifier
@@ -402,170 +400,184 @@ using VisitBinaryFn = void (*)(void *data, uintptr_t sibling_list_id, uintptr_t 
 /// visitor. Note that struct literals are currently in flux, and may change significantly. Here is
 /// the relevant issue: <https://github.com/delta-io/delta-kernel-rs/issues/412>
 struct EngineExpressionVisitor {
-	/// An opaque engine state pointer
-	void *data;
-	/// Creates a new expression list, optionally reserving capacity up front
-	uintptr_t (*make_field_list)(void *data, uintptr_t reserve);
-	/// Visit a 32bit `integer` belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<int32_t> visit_literal_int;
-	/// Visit a 64bit `long`  belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<int64_t> visit_literal_long;
-	/// Visit a 16bit `short` belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<int16_t> visit_literal_short;
-	/// Visit an 8bit `byte` belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<int8_t> visit_literal_byte;
-	/// Visit a 32bit `float` belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<float> visit_literal_float;
-	/// Visit a 64bit `double` belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<double> visit_literal_double;
-	/// Visit a `string` belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<KernelStringSlice> visit_literal_string;
-	/// Visit a `boolean` belonging to the list identified by `sibling_list_id`.
-	VisitLiteralFn<bool> visit_literal_bool;
-	/// Visit a 64bit timestamp belonging to the list identified by `sibling_list_id`.
-	/// The timestamp is microsecond precision and adjusted to UTC.
-	VisitLiteralFn<int64_t> visit_literal_timestamp;
-	/// Visit a 64bit timestamp belonging to the list identified by `sibling_list_id`.
-	/// The timestamp is microsecond precision with no timezone.
-	VisitLiteralFn<int64_t> visit_literal_timestamp_ntz;
-	/// Visit a 32bit integer `date` representing days since UNIX epoch 1970-01-01.  The `date` belongs
-	/// to the list identified by `sibling_list_id`.
-	VisitLiteralFn<int32_t> visit_literal_date;
-	/// Visit binary data at the `buffer` with length `len` belonging to the list identified by
-	/// `sibling_list_id`.
-	void (*visit_literal_binary)(void *data, uintptr_t sibling_list_id, const uint8_t *buffer, uintptr_t len);
-	/// Visit a 128bit `decimal` value with the given precision and scale. The 128bit integer
-	/// is split into the most significant 64 bits in `value_ms`, and the least significant 64
-	/// bits in `value_ls`. The `decimal` belongs to the list identified by `sibling_list_id`.
-	void (*visit_literal_decimal)(void *data, uintptr_t sibling_list_id, int64_t value_ms, uint64_t value_ls,
-	                              uint8_t precision, uint8_t scale);
-	/// Visit a struct literal belonging to the list identified by `sibling_list_id`.
-	/// The field names of the struct are in a list identified by `child_field_list_id`.
-	/// The values of the struct are in a list identified by `child_value_list_id`.
-	void (*visit_literal_struct)(void *data, uintptr_t sibling_list_id, uintptr_t child_field_list_id,
-	                             uintptr_t child_value_list_id);
-	/// Visit an array literal belonging to the list identified by `sibling_list_id`.
-	/// The values of the array are in a list identified by `child_list_id`.
-	void (*visit_literal_array)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
-	/// Visits a null value belonging to the list identified by `sibling_list_id.
-	void (*visit_literal_null)(void *data, uintptr_t sibling_list_id);
-	/// Visits an `and` expression belonging to the list identified by `sibling_list_id`.
-	/// The sub-expressions of the array are in a list identified by `child_list_id`
-	VisitJunctionFn visit_and;
-	/// Visits an `or` expression belonging to the list identified by `sibling_list_id`.
-	/// The sub-expressions of the array are in a list identified by `child_list_id`
-	VisitJunctionFn visit_or;
-	/// Visits a `not` expression belonging to the list identified by `sibling_list_id`.
-	/// The sub-expression will be in a _one_ item list identified by `child_list_id`
-	VisitUnaryFn visit_not;
-	/// Visits a `is_null` expression belonging to the list identified by `sibling_list_id`.
-	/// The sub-expression will be in a _one_ item list identified by `child_list_id`
-	VisitUnaryFn visit_is_null;
-	/// Visits the `LessThan` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_lt;
-	/// Visits the `LessThanOrEqual` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_le;
-	/// Visits the `GreaterThan` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_gt;
-	/// Visits the `GreaterThanOrEqual` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_ge;
-	/// Visits the `Equal` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_eq;
-	/// Visits the `NotEqual` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_ne;
-	/// Visits the `Distinct` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_distinct;
-	/// Visits the `In` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_in;
-	/// Visits the `NotIn` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_not_in;
-	/// Visits the `Add` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_add;
-	/// Visits the `Minus` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_minus;
-	/// Visits the `Multiply` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_multiply;
-	/// Visits the `Divide` binary operator belonging to the list identified by `sibling_list_id`.
-	/// The operands will be in a _two_ item list identified by `child_list_id`
-	VisitBinaryFn visit_divide;
-	/// Visits the `column` belonging to the list identified by `sibling_list_id`.
-	void (*visit_column)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
-	/// Visits a `StructExpression` belonging to the list identified by `sibling_list_id`.
-	/// The sub-expressions of the `StructExpression` are in a list identified by `child_list_id`
-	void (*visit_struct_expr)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
+  /// An opaque engine state pointer
+  void *data;
+  /// Creates a new expression list, optionally reserving capacity up front
+  uintptr_t (*make_field_list)(void *data, uintptr_t reserve);
+  /// Visit a 32bit `integer` belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<int32_t> visit_literal_int;
+  /// Visit a 64bit `long`  belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<int64_t> visit_literal_long;
+  /// Visit a 16bit `short` belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<int16_t> visit_literal_short;
+  /// Visit an 8bit `byte` belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<int8_t> visit_literal_byte;
+  /// Visit a 32bit `float` belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<float> visit_literal_float;
+  /// Visit a 64bit `double` belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<double> visit_literal_double;
+  /// Visit a `string` belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<KernelStringSlice> visit_literal_string;
+  /// Visit a `boolean` belonging to the list identified by `sibling_list_id`.
+  VisitLiteralFn<bool> visit_literal_bool;
+  /// Visit a 64bit timestamp belonging to the list identified by `sibling_list_id`.
+  /// The timestamp is microsecond precision and adjusted to UTC.
+  VisitLiteralFn<int64_t> visit_literal_timestamp;
+  /// Visit a 64bit timestamp belonging to the list identified by `sibling_list_id`.
+  /// The timestamp is microsecond precision with no timezone.
+  VisitLiteralFn<int64_t> visit_literal_timestamp_ntz;
+  /// Visit a 32bit integer `date` representing days since UNIX epoch 1970-01-01.  The `date` belongs
+  /// to the list identified by `sibling_list_id`.
+  VisitLiteralFn<int32_t> visit_literal_date;
+  /// Visit binary data at the `buffer` with length `len` belonging to the list identified by
+  /// `sibling_list_id`.
+  void (*visit_literal_binary)(void *data,
+                               uintptr_t sibling_list_id,
+                               const uint8_t *buffer,
+                               uintptr_t len);
+  /// Visit a 128bit `decimal` value with the given precision and scale. The 128bit integer
+  /// is split into the most significant 64 bits in `value_ms`, and the least significant 64
+  /// bits in `value_ls`. The `decimal` belongs to the list identified by `sibling_list_id`.
+  void (*visit_literal_decimal)(void *data,
+                                uintptr_t sibling_list_id,
+                                int64_t value_ms,
+                                uint64_t value_ls,
+                                uint8_t precision,
+                                uint8_t scale);
+  /// Visit a struct literal belonging to the list identified by `sibling_list_id`.
+  /// The field names of the struct are in a list identified by `child_field_list_id`.
+  /// The values of the struct are in a list identified by `child_value_list_id`.
+  void (*visit_literal_struct)(void *data,
+                               uintptr_t sibling_list_id,
+                               uintptr_t child_field_list_id,
+                               uintptr_t child_value_list_id);
+  /// Visit an array literal belonging to the list identified by `sibling_list_id`.
+  /// The values of the array are in a list identified by `child_list_id`.
+  void (*visit_literal_array)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
+  /// Visit a map literal belonging to the list identified by `sibling_list_id`.
+  /// The keys of the map are in order in a list identified by `key_list_id`. The values of the
+  /// map are in order in a list identified by `value_list_id`.
+  void (*visit_literal_map)(void *data,
+                            uintptr_t sibling_list_id,
+                            uintptr_t key_list_id,
+                            uintptr_t value_list_id);
+  /// Visits a null value belonging to the list identified by `sibling_list_id.
+  void (*visit_literal_null)(void *data, uintptr_t sibling_list_id);
+  /// Visits an `and` expression belonging to the list identified by `sibling_list_id`.
+  /// The sub-expressions of the array are in a list identified by `child_list_id`
+  VisitJunctionFn visit_and;
+  /// Visits an `or` expression belonging to the list identified by `sibling_list_id`.
+  /// The sub-expressions of the array are in a list identified by `child_list_id`
+  VisitJunctionFn visit_or;
+  /// Visits a `not` expression belonging to the list identified by `sibling_list_id`.
+  /// The sub-expression will be in a _one_ item list identified by `child_list_id`
+  VisitUnaryFn visit_not;
+  /// Visits a `is_null` expression belonging to the list identified by `sibling_list_id`.
+  /// The sub-expression will be in a _one_ item list identified by `child_list_id`
+  VisitUnaryFn visit_is_null;
+  /// Visits the `LessThan` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_lt;
+  /// Visits the `GreaterThan` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_gt;
+  /// Visits the `Equal` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_eq;
+  /// Visits the `Distinct` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_distinct;
+  /// Visits the `In` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_in;
+  /// Visits the `Add` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_add;
+  /// Visits the `Minus` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_minus;
+  /// Visits the `Multiply` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_multiply;
+  /// Visits the `Divide` binary operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a _two_ item list identified by `child_list_id`
+  VisitBinaryFn visit_divide;
+  /// Visits the `column` belonging to the list identified by `sibling_list_id`.
+  void (*visit_column)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
+  /// Visits a `StructExpression` belonging to the list identified by `sibling_list_id`.
+  /// The sub-expressions of the `StructExpression` are in a list identified by `child_list_id`
+  void (*visit_struct_expr)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
+};
+
+/// Model iterators. This allows an engine to specify iteration however it likes, and we simply wrap
+/// the engine functions. The engine retains ownership of the iterator.
+struct EngineIterator {
+  /// Opaque data that will be iterated over. This data will be passed to the get_next function
+  /// each time a next item is requested from the iterator
+  void *data;
+  /// A function that should advance the iterator and return the next time from the data
+  /// If the iterator is complete, it should return null. It should be safe to
+  /// call `get_next()` multiple times if it returns null.
+  const void *(*get_next)(void *data);
 };
 
 // This trickery is from https://github.com/mozilla/cbindgen/issues/402#issuecomment-578680163
 struct im_an_unused_struct_that_tricks_msvc_into_compilation {
-	ExternResult<KernelBoolSlice> field;
-	ExternResult<bool> field2;
-	ExternResult<EngineBuilder *> field3;
-	ExternResult<Handle<SharedExternEngine>> field4;
-	ExternResult<Handle<SharedSnapshot>> field5;
-	ExternResult<uintptr_t> field6;
-	ExternResult<ArrowFFIData *> field7;
-	ExternResult<Handle<SharedScanMetadataIterator>> field8;
-	ExternResult<Handle<SharedScan>> field9;
-	ExternResult<Handle<ExclusiveFileReadResultIterator>> field10;
-	ExternResult<KernelRowIndexArray> field11;
-	ExternResult<Handle<ExclusiveEngineData>> field12;
+    ExternResult<KernelBoolSlice> field;
+    ExternResult<bool> field2;
+    ExternResult<EngineBuilder *> field3;
+    ExternResult<Handle<SharedExternEngine>> field4;
+    ExternResult<Handle<SharedSnapshot>> field5;
+    ExternResult<uintptr_t> field6;
+    ExternResult<ArrowFFIData *> field7;
+    ExternResult<Handle<SharedScanMetadataIterator>> field8;
+    ExternResult<Handle<SharedScan>> field9;
+    ExternResult<Handle<ExclusiveFileReadResultIterator>> field10;
+    ExternResult<KernelRowIndexArray> field11;
+    ExternResult<Handle<ExclusiveEngineData>> field12;
 };
 
 /// An `Event` can generally be thought of a "log message". It contains all the relevant bits such
 /// that an engine can generate a log message in its format
 struct Event {
-	/// The log message associated with the event
-	KernelStringSlice message;
-	/// Level that the event was emitted at
-	Level level;
-	/// A string that specifies in what part of the system the event occurred
-	KernelStringSlice target;
-	/// source file line number where the event occurred, or 0 (zero) if unknown
-	uint32_t line;
-	/// file where the event occurred. If unknown the slice `ptr` will be null and the len will be 0
-	KernelStringSlice file;
+  /// The log message associated with the event
+  KernelStringSlice message;
+  /// Level that the event was emitted at
+  Level level;
+  /// A string that specifies in what part of the system the event occurred
+  KernelStringSlice target;
+  /// source file line number where the event occurred, or 0 (zero) if unknown
+  uint32_t line;
+  /// file where the event occurred. If unknown the slice `ptr` will be null and the len will be 0
+  KernelStringSlice file;
 };
 
-using TracingEventFn = void (*)(Event event);
+using TracingEventFn = void(*)(Event event);
 
-using TracingLogLineFn = void (*)(KernelStringSlice line);
+using TracingLogLineFn = void(*)(KernelStringSlice line);
 
 /// A predicate that can be used to skip data when scanning.
 ///
-/// When invoking [`scan::scan`], The engine provides a pointer to the (engine's native) predicate,
-/// along with a visitor function that can be invoked to recursively visit the predicate. This
-/// engine state must be valid until the call to [`scan::scan`] returns. Inside that method, the
-/// kernel allocates visitor state, which becomes the second argument to the predicate visitor
-/// invocation along with the engine-provided predicate pointer. The visitor state is valid for the
-/// lifetime of the predicate visitor invocation. Thanks to this double indirection, engine and
-/// kernel each retain ownership of their respective objects, with no need to coordinate memory
-/// lifetimes with the other.
-///
-/// [`scan::scan`]: crate::scan::scan
+/// When invoking [`scan`], The engine provides a pointer to the (engine's native) predicate, along
+/// with a visitor function that can be invoked to recursively visit the predicate. This engine
+/// state must be valid until the call to [`scan`] returns. Inside that method, the kernel allocates
+/// visitor state, which becomes the second argument to the predicate visitor invocation along with
+/// the engine-provided predicate pointer. The visitor state is valid for the lifetime of the
+/// predicate visitor invocation. Thanks to this double indirection, engine and kernel each retain
+/// ownership of their respective objects, with no need to coordinate memory lifetimes with the
+/// other.
 struct EnginePredicate {
-	void *predicate;
-	uintptr_t (*visitor)(void *predicate, KernelExpressionVisitorState *state);
+  void *predicate;
+  uintptr_t (*visitor)(void *predicate, KernelExpressionVisitorState *state);
 };
 
 /// Give engines an easy way to consume stats
 struct Stats {
-	/// For any file where the deletion vector is not present (see [`DvInfo::has_vector`]), the
-	/// `num_records` statistic must be present and accurate, and must equal the number of records
-	/// in the data file. In the presence of Deletion Vectors the statistics may be somewhat
-	/// outdated, i.e. not reflecting deleted rows yet.
-	uint64_t num_records;
+  /// For any file where the deletion vector is not present (see [`DvInfo::has_vector`]), the
+  /// `num_records` statistic must be present and accurate, and must equal the number of records
+  /// in the data file. In the presence of Deletion Vectors the statistics may be somewhat
+  /// outdated, i.e. not reflecting deleted rows yet.
+  uint64_t num_records;
 };
 
 /// This callback will be invoked for each valid file that needs to be read for a scan.
@@ -578,8 +590,13 @@ struct Stats {
 /// * `transform`: An optional expression that, if not `NULL`, _must_ be applied to physical data to
 ///   convert it to the correct logical format. If this is `NULL`, no transform is needed.
 /// * `partition_values`: [DEPRECATED] a `HashMap<String, String>` which are partition values
-using CScanCallback = void (*)(NullableCvoid engine_context, KernelStringSlice path, int64_t size, const Stats *stats,
-                               const DvInfo *dv_info, const Expression *transform, const CStringMap *partition_map);
+using CScanCallback = void(*)(NullableCvoid engine_context,
+                              KernelStringSlice path,
+                              int64_t size,
+                              const Stats *stats,
+                              const DvInfo *dv_info,
+                              const Expression *transform,
+                              const CStringMap *partition_map);
 
 /// The `EngineSchemaVisitor` defines a visitor system to allow engines to build their own
 /// representation of a schema from a particular schema within kernel.
@@ -607,62 +624,115 @@ using CScanCallback = void (*)(NullableCvoid engine_context, KernelStringSlice p
 ///     that element's (already-visited) children.
 ///  4. The [`visit_schema`] method returns the id of the list of top-level columns
 struct EngineSchemaVisitor {
-	/// opaque state pointer
-	void *data;
-	/// Creates a new field list, optionally reserving capacity up front
-	uintptr_t (*make_field_list)(void *data, uintptr_t reserve);
-	/// Indicate that the schema contains a `Struct` type. The top level of a Schema is always a
-	/// `Struct`. The fields of the `Struct` are in the list identified by `child_list_id`.
-	void (*visit_struct)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                     const CStringMap *metadata, uintptr_t child_list_id);
-	/// Indicate that the schema contains an Array type. `child_list_id` will be a _one_ item list
-	/// with the array's element type
-	void (*visit_array)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                    const CStringMap *metadata, uintptr_t child_list_id);
-	/// Indicate that the schema contains an Map type. `child_list_id` will be a _two_ item list
-	/// where the first element is the map's key type and the second element is the
-	/// map's value type
-	void (*visit_map)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                  const CStringMap *metadata, uintptr_t child_list_id);
-	/// visit a `decimal` with the specified `precision` and `scale`
-	void (*visit_decimal)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                      const CStringMap *metadata, uint8_t precision, uint8_t scale);
-	/// Visit a `string` belonging to the list identified by `sibling_list_id`.
-	void (*visit_string)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                     const CStringMap *metadata);
-	/// Visit a `long` belonging to the list identified by `sibling_list_id`.
-	void (*visit_long)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                   const CStringMap *metadata);
-	/// Visit an `integer` belonging to the list identified by `sibling_list_id`.
-	void (*visit_integer)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                      const CStringMap *metadata);
-	/// Visit a `short` belonging to the list identified by `sibling_list_id`.
-	void (*visit_short)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                    const CStringMap *metadata);
-	/// Visit a `byte` belonging to the list identified by `sibling_list_id`.
-	void (*visit_byte)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                   const CStringMap *metadata);
-	/// Visit a `float` belonging to the list identified by `sibling_list_id`.
-	void (*visit_float)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                    const CStringMap *metadata);
-	/// Visit a `double` belonging to the list identified by `sibling_list_id`.
-	void (*visit_double)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                     const CStringMap *metadata);
-	/// Visit a `boolean` belonging to the list identified by `sibling_list_id`.
-	void (*visit_boolean)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                      const CStringMap *metadata);
-	/// Visit `binary` belonging to the list identified by `sibling_list_id`.
-	void (*visit_binary)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                     const CStringMap *metadata);
-	/// Visit a `date` belonging to the list identified by `sibling_list_id`.
-	void (*visit_date)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                   const CStringMap *metadata);
-	/// Visit a `timestamp` belonging to the list identified by `sibling_list_id`.
-	void (*visit_timestamp)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                        const CStringMap *metadata);
-	/// Visit a `timestamp` with no timezone belonging to the list identified by `sibling_list_id`.
-	void (*visit_timestamp_ntz)(void *data, uintptr_t sibling_list_id, KernelStringSlice name, bool is_nullable,
-	                            const CStringMap *metadata);
+  /// opaque state pointer
+  void *data;
+  /// Creates a new field list, optionally reserving capacity up front
+  uintptr_t (*make_field_list)(void *data, uintptr_t reserve);
+  /// Indicate that the schema contains a `Struct` type. The top level of a Schema is always a
+  /// `Struct`. The fields of the `Struct` are in the list identified by `child_list_id`.
+  void (*visit_struct)(void *data,
+                       uintptr_t sibling_list_id,
+                       KernelStringSlice name,
+                       bool is_nullable,
+                       const CStringMap *metadata,
+                       uintptr_t child_list_id);
+  /// Indicate that the schema contains an Array type. `child_list_id` will be a _one_ item list
+  /// with the array's element type
+  void (*visit_array)(void *data,
+                      uintptr_t sibling_list_id,
+                      KernelStringSlice name,
+                      bool is_nullable,
+                      const CStringMap *metadata,
+                      uintptr_t child_list_id);
+  /// Indicate that the schema contains an Map type. `child_list_id` will be a _two_ item list
+  /// where the first element is the map's key type and the second element is the
+  /// map's value type
+  void (*visit_map)(void *data,
+                    uintptr_t sibling_list_id,
+                    KernelStringSlice name,
+                    bool is_nullable,
+                    const CStringMap *metadata,
+                    uintptr_t child_list_id);
+  /// visit a `decimal` with the specified `precision` and `scale`
+  void (*visit_decimal)(void *data,
+                        uintptr_t sibling_list_id,
+                        KernelStringSlice name,
+                        bool is_nullable,
+                        const CStringMap *metadata,
+                        uint8_t precision,
+                        uint8_t scale);
+  /// Visit a `string` belonging to the list identified by `sibling_list_id`.
+  void (*visit_string)(void *data,
+                       uintptr_t sibling_list_id,
+                       KernelStringSlice name,
+                       bool is_nullable,
+                       const CStringMap *metadata);
+  /// Visit a `long` belonging to the list identified by `sibling_list_id`.
+  void (*visit_long)(void *data,
+                     uintptr_t sibling_list_id,
+                     KernelStringSlice name,
+                     bool is_nullable,
+                     const CStringMap *metadata);
+  /// Visit an `integer` belonging to the list identified by `sibling_list_id`.
+  void (*visit_integer)(void *data,
+                        uintptr_t sibling_list_id,
+                        KernelStringSlice name,
+                        bool is_nullable,
+                        const CStringMap *metadata);
+  /// Visit a `short` belonging to the list identified by `sibling_list_id`.
+  void (*visit_short)(void *data,
+                      uintptr_t sibling_list_id,
+                      KernelStringSlice name,
+                      bool is_nullable,
+                      const CStringMap *metadata);
+  /// Visit a `byte` belonging to the list identified by `sibling_list_id`.
+  void (*visit_byte)(void *data,
+                     uintptr_t sibling_list_id,
+                     KernelStringSlice name,
+                     bool is_nullable,
+                     const CStringMap *metadata);
+  /// Visit a `float` belonging to the list identified by `sibling_list_id`.
+  void (*visit_float)(void *data,
+                      uintptr_t sibling_list_id,
+                      KernelStringSlice name,
+                      bool is_nullable,
+                      const CStringMap *metadata);
+  /// Visit a `double` belonging to the list identified by `sibling_list_id`.
+  void (*visit_double)(void *data,
+                       uintptr_t sibling_list_id,
+                       KernelStringSlice name,
+                       bool is_nullable,
+                       const CStringMap *metadata);
+  /// Visit a `boolean` belonging to the list identified by `sibling_list_id`.
+  void (*visit_boolean)(void *data,
+                        uintptr_t sibling_list_id,
+                        KernelStringSlice name,
+                        bool is_nullable,
+                        const CStringMap *metadata);
+  /// Visit `binary` belonging to the list identified by `sibling_list_id`.
+  void (*visit_binary)(void *data,
+                       uintptr_t sibling_list_id,
+                       KernelStringSlice name,
+                       bool is_nullable,
+                       const CStringMap *metadata);
+  /// Visit a `date` belonging to the list identified by `sibling_list_id`.
+  void (*visit_date)(void *data,
+                     uintptr_t sibling_list_id,
+                     KernelStringSlice name,
+                     bool is_nullable,
+                     const CStringMap *metadata);
+  /// Visit a `timestamp` belonging to the list identified by `sibling_list_id`.
+  void (*visit_timestamp)(void *data,
+                          uintptr_t sibling_list_id,
+                          KernelStringSlice name,
+                          bool is_nullable,
+                          const CStringMap *metadata);
+  /// Visit a `timestamp` with no timezone belonging to the list identified by `sibling_list_id`.
+  void (*visit_timestamp_ntz)(void *data,
+                              uintptr_t sibling_list_id,
+                              KernelStringSlice name,
+                              bool is_nullable,
+                              const CStringMap *metadata);
 };
 
 extern "C" {
@@ -691,7 +761,8 @@ void free_engine_data(Handle<ExclusiveEngineData> engine_data);
 ///
 /// # Safety
 /// Caller is responsible for passing a valid path pointer.
-ExternResult<EngineBuilder *> get_engine_builder(KernelStringSlice path, AllocateErrorFn allocate_error);
+ExternResult<EngineBuilder*> get_engine_builder(KernelStringSlice path,
+                                                AllocateErrorFn allocate_error);
 #endif
 
 #if defined(DEFINE_DEFAULT_ENGINE)
@@ -719,14 +790,8 @@ ExternResult<Handle<SharedExternEngine>> builder_build(EngineBuilder *builder);
 /// # Safety
 ///
 /// Caller is responsible for passing a valid path pointer.
-ExternResult<Handle<SharedExternEngine>> get_default_engine(KernelStringSlice path, AllocateErrorFn allocate_error);
-#endif
-
-#if defined(DEFINE_SYNC_ENGINE)
-/// # Safety
-///
-/// Caller is responsible for passing a valid path pointer.
-ExternResult<Handle<SharedExternEngine>> get_sync_engine(AllocateErrorFn allocate_error);
+ExternResult<Handle<SharedExternEngine>> get_default_engine(KernelStringSlice path,
+                                                            AllocateErrorFn allocate_error);
 #endif
 
 /// # Safety
@@ -739,7 +804,8 @@ void free_engine(Handle<SharedExternEngine> engine);
 /// # Safety
 ///
 /// Caller is responsible for passing valid handles and path pointer.
-ExternResult<Handle<SharedSnapshot>> snapshot(KernelStringSlice path, Handle<SharedExternEngine> engine);
+ExternResult<Handle<SharedSnapshot>> snapshot(KernelStringSlice path,
+                                              Handle<SharedExternEngine> engine);
 
 /// # Safety
 ///
@@ -793,7 +859,8 @@ Handle<StringSliceIterator> get_partition_columns(Handle<SharedSnapshot> snapsho
 ///
 /// [`scan_metadata_iter_init`]: crate::scan::scan_metadata_iter_init
 /// [`free_scan_metadata_iter`]: crate::scan::free_scan_metadata_iter
-bool string_slice_next(Handle<StringSliceIterator> data, NullableCvoid engine_context,
+bool string_slice_next(Handle<StringSliceIterator> data,
+                       NullableCvoid engine_context,
                        void (*engine_visitor)(NullableCvoid engine_context, KernelStringSlice slice));
 
 /// # Safety
@@ -824,7 +891,8 @@ void *get_raw_engine_data(Handle<ExclusiveEngineData> data);
 /// # Safety
 /// data_handle must be a valid ExclusiveEngineData as read by the
 /// [`delta_kernel::engine::default::DefaultEngine`] obtained from `get_default_engine`.
-ExternResult<ArrowFFIData *> get_raw_arrow_data(Handle<ExclusiveEngineData> data, Handle<SharedExternEngine> engine);
+ExternResult<ArrowFFIData*> get_raw_arrow_data(Handle<ExclusiveEngineData> data,
+                                               Handle<SharedExternEngine> engine);
 #endif
 
 /// Call the engine back with the next `EngineData` batch read by Parquet/Json handler. The
@@ -838,7 +906,8 @@ ExternResult<ArrowFFIData *> get_raw_arrow_data(Handle<ExclusiveEngineData> data
 /// [`free_read_result_iter`]. The visitor function pointer must be non-null.
 ///
 /// [`free_engine_data`]: crate::free_engine_data
-ExternResult<bool> read_result_next(Handle<ExclusiveFileReadResultIterator> data, NullableCvoid engine_context,
+ExternResult<bool> read_result_next(Handle<ExclusiveFileReadResultIterator> data,
+                                    NullableCvoid engine_context,
                                     void (*engine_visitor)(NullableCvoid engine_context,
                                                            Handle<ExclusiveEngineData> engine_data));
 
@@ -853,8 +922,9 @@ void free_read_result_iter(Handle<ExclusiveFileReadResultIterator> data);
 ///
 /// # Safety
 /// Caller is responsible for calling with a valid `ExternEngineHandle` and `FileMeta`
-ExternResult<Handle<ExclusiveFileReadResultIterator>>
-read_parquet_file(Handle<SharedExternEngine> engine, const FileMeta *file, Handle<SharedSchema> physical_schema);
+ExternResult<Handle<ExclusiveFileReadResultIterator>> read_parquet_file(Handle<SharedExternEngine> engine,
+                                                                        const FileMeta *file,
+                                                                        Handle<SharedSchema> physical_schema);
 
 /// Creates a new expression evaluator as provided by the passed engines `EvaluationHandler`.
 ///
@@ -875,34 +945,102 @@ void free_expression_evaluator(Handle<SharedExpressionEvaluator> evaluator);
 ///
 /// # Safety
 /// Caller is responsible for calling with a valid `Engine`, `ExclusiveEngineData`, and `Evaluator`
-ExternResult<Handle<ExclusiveEngineData>> evaluate(Handle<SharedExternEngine> engine,
-                                                   Handle<ExclusiveEngineData> *batch,
-                                                   Handle<SharedExpressionEvaluator> evaluator);
+ExternResult<Handle<ExclusiveEngineData>> evaluate_expression(Handle<SharedExternEngine> engine,
+                                                              Handle<ExclusiveEngineData> *batch,
+                                                              Handle<SharedExpressionEvaluator> evaluator);
 
-uintptr_t visit_expression_and(KernelExpressionVisitorState *state, EngineIterator *children);
+/// Free the memory the passed SharedExpression
+///
+/// # Safety
+/// Engine is responsible for passing a valid SharedExpression
+void free_kernel_expression(Handle<SharedExpression> data);
 
-uintptr_t visit_expression_lt(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+/// Free the memory the passed SharedPredicate
+///
+/// # Safety
+/// Engine is responsible for passing a valid SharedPredicate
+void free_kernel_predicate(Handle<SharedPredicate> data);
 
-uintptr_t visit_expression_le(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+/// Visit the expression of the passed [`SharedExpression`] Handle using the provided `visitor`.
+/// See the documentation of [`EngineExpressionVisitor`] for a description of how this visitor
+/// works.
+///
+/// This method returns the id that the engine generated for the top level expression
+///
+/// # Safety
+///
+/// The caller must pass a valid SharedExpression Handle and expression visitor
+uintptr_t visit_expression(const Handle<SharedExpression> *expression,
+                           EngineExpressionVisitor *visitor);
 
-uintptr_t visit_expression_gt(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+/// Visit the expression of the passed [`Expression`] pointer using the provided `visitor`.  See the
+/// documentation of [`EngineExpressionVisitor`] for a description of how this visitor works.
+///
+/// This method returns the id that the engine generated for the top level expression
+///
+/// # Safety
+///
+/// The caller must pass a valid Expression pointer and expression visitor
+uintptr_t visit_expression_ref(const Expression *expression, EngineExpressionVisitor *visitor);
 
-uintptr_t visit_expression_ge(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+/// Visit the predicate of the passed [`SharedPredicate`] Handle using the provided `visitor`.
+/// See the documentation of [`EngineExpressionVisitor`] for a description of how this visitor
+/// works.
+///
+/// This method returns the id that the engine generated for the top level predicate
+///
+/// # Safety
+///
+/// The caller must pass a valid SharedPredicate Handle and expression visitor
+uintptr_t visit_predicate(const Handle<SharedPredicate> *predicate,
+                          EngineExpressionVisitor *visitor);
 
-uintptr_t visit_expression_eq(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+/// Visit the predicate of the passed [`Predicate`] pointer using the provided `visitor`.  See the
+/// documentation of [`EngineExpressionVisitor`] for a description of how this visitor works.
+///
+/// This method returns the id that the engine generated for the top level predicate
+///
+/// # Safety
+///
+/// The caller must pass a valid Predicate pointer and expression visitor
+uintptr_t visit_predicate_ref(const Predicate *predicate, EngineExpressionVisitor *visitor);
+
+uintptr_t visit_predicate_and(KernelExpressionVisitorState *state, EngineIterator *children);
+
+uintptr_t visit_expression_plus(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_expression_minus(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_expression_multiply(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_expression_divide(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_predicate_lt(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_predicate_le(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_predicate_gt(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_predicate_ge(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_predicate_eq(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
+
+uintptr_t visit_predicate_ne(KernelExpressionVisitorState *state, uintptr_t a, uintptr_t b);
 
 /// # Safety
 /// The string slice must be valid
-ExternResult<uintptr_t> visit_expression_column(KernelExpressionVisitorState *state, KernelStringSlice name,
+ExternResult<uintptr_t> visit_expression_column(KernelExpressionVisitorState *state,
+                                                KernelStringSlice name,
                                                 AllocateErrorFn allocate_error);
 
-uintptr_t visit_expression_not(KernelExpressionVisitorState *state, uintptr_t inner_expr);
+uintptr_t visit_predicate_not(KernelExpressionVisitorState *state, uintptr_t inner_pred);
 
-uintptr_t visit_expression_is_null(KernelExpressionVisitorState *state, uintptr_t inner_expr);
+uintptr_t visit_predicate_is_null(KernelExpressionVisitorState *state, uintptr_t inner_expr);
 
 /// # Safety
 /// The string slice must be valid
-ExternResult<uintptr_t> visit_expression_literal_string(KernelExpressionVisitorState *state, KernelStringSlice value,
+ExternResult<uintptr_t> visit_expression_literal_string(KernelExpressionVisitorState *state,
+                                                        KernelStringSlice value,
                                                         AllocateErrorFn allocate_error);
 
 uintptr_t visit_expression_literal_int(KernelExpressionVisitorState *state, int32_t value);
@@ -919,33 +1057,6 @@ uintptr_t visit_expression_literal_double(KernelExpressionVisitorState *state, d
 
 uintptr_t visit_expression_literal_bool(KernelExpressionVisitorState *state, bool value);
 
-/// Free the memory the passed SharedExpression
-///
-/// # Safety
-/// Engine is responsible for passing a valid SharedExpression
-void free_kernel_predicate(Handle<SharedExpression> data);
-
-/// Visit the expression of the passed [`SharedExpression`] Handle using the provided `visitor`.
-/// See the documentation of [`EngineExpressionVisitor`] for a description of how this visitor
-/// works.
-///
-/// This method returns the id that the engine generated for the top level expression
-///
-/// # Safety
-///
-/// The caller must pass a valid SharedExpression Handle and expression visitor
-uintptr_t visit_expression(const Handle<SharedExpression> *expression, EngineExpressionVisitor *visitor);
-
-/// Visit the expression of the passed [`Expression`] pointer using the provided `visitor`.  See the
-/// documentation of [`EngineExpressionVisitor`] for a description of how this visitor works.
-///
-/// This method returns the id that the engine generated for the top level expression
-///
-/// # Safety
-///
-/// The caller must pass a valid Expression pointer and expression visitor
-uintptr_t visit_expression_ref(const Expression *expression, EngineExpressionVisitor *visitor);
-
 /// Enable getting called back for tracing (logging) events in the kernel. `max_level` specifies
 /// that only events `<=` to the specified level should be reported.  More verbose Levels are "greater
 /// than" less verbose ones. So Level::ERROR is the lowest, and Level::TRACE the highest.
@@ -957,13 +1068,14 @@ uintptr_t visit_expression_ref(const Expression *expression, EngineExpressionVis
 /// Returns `true` if the callback was setup successfully, false on failure (i.e. if called a second
 /// time)
 ///
-/// [`event`] based tracing gives an engine maximal flexibility in formatting event log
+/// Event-based tracing gives an engine maximal flexibility in formatting event log
 /// lines. Kernel can also format events for the engine. If this is desired call
 /// [`enable_log_line_tracing`] instead of this method.
 ///
 /// # Safety
 /// Caller must pass a valid function pointer for the callback
-bool enable_event_tracing(TracingEventFn callback, Level max_level);
+bool enable_event_tracing(TracingEventFn callback,
+                          Level max_level);
 
 /// Enable getting called back with log lines in the kernel using default settings:
 /// - FULL format
@@ -1013,8 +1125,13 @@ bool enable_log_line_tracing(TracingLogLineFn callback, Level max_level);
 ///
 /// # Safety
 /// Caller must pass a valid function pointer for the callback
-bool enable_formatted_log_line_tracing(TracingLogLineFn callback, Level max_level, LogLineFormat format, bool ansi,
-                                       bool with_time, bool with_level, bool with_target);
+bool enable_formatted_log_line_tracing(TracingLogLineFn callback,
+                                       Level max_level,
+                                       LogLineFormat format,
+                                       bool ansi,
+                                       bool with_time,
+                                       bool with_level,
+                                       bool with_target);
 
 /// Drop a `SharedScanMetadata`.
 ///
@@ -1042,7 +1159,8 @@ void free_scan(Handle<SharedScan> scan);
 /// # Safety
 ///
 /// Caller is responsible for passing a valid snapshot pointer, and engine pointer
-ExternResult<Handle<SharedScan>> scan(Handle<SharedSnapshot> snapshot, Handle<SharedExternEngine> engine,
+ExternResult<Handle<SharedScan>> scan(Handle<SharedSnapshot> snapshot,
+                                      Handle<SharedExternEngine> engine,
                                       EnginePredicate *predicate);
 
 /// Get the global state for a scan. See the docs for [`delta_kernel::scan::state::GlobalScanState`]
@@ -1093,7 +1211,8 @@ ExternResult<Handle<SharedScanMetadataIterator>> scan_metadata_iter_init(Handle<
 ///
 /// [`free_bool_slice`]: crate::free_bool_slice
 /// [`free_engine_data`]: crate::free_engine_data
-ExternResult<bool> scan_metadata_next(Handle<SharedScanMetadataIterator> data, NullableCvoid engine_context,
+ExternResult<bool> scan_metadata_next(Handle<SharedScanMetadataIterator> data,
+                                      NullableCvoid engine_context,
                                       void (*engine_visitor)(NullableCvoid engine_context,
                                                              Handle<SharedScanMetadata> scan_metadata));
 
@@ -1110,7 +1229,9 @@ void free_scan_metadata_iter(Handle<SharedScanMetadataIterator> data);
 /// # Safety
 ///
 /// The engine is responsible for providing a valid [`CStringMap`] pointer and [`KernelStringSlice`]
-NullableCvoid get_from_string_map(const CStringMap *map, KernelStringSlice key, AllocateStringFn allocate_fn);
+NullableCvoid get_from_string_map(const CStringMap *map,
+                                  KernelStringSlice key,
+                                  AllocateStringFn allocate_fn);
 
 /// Allow getting the transform for a particular row. If the requested row is outside the range of
 /// the passed `CTransforms` returns `NULL`, otherwise returns the element at the index of the
@@ -1120,20 +1241,23 @@ NullableCvoid get_from_string_map(const CStringMap *map, KernelStringSlice key, 
 ///
 /// The engine is responsible for providing a valid [`CTransforms`] pointer, and for checking if the
 /// return value is `NULL` or not.
-// Option<Handle<SharedExpression>> get_transform_for_row(uintptr_t row, const CTransforms *transforms);
+// Option<Handle<SharedExpression>> get_transform_for_row(uintptr_t row,
+//                                                        const CTransforms *transforms);
 
 /// Get a selection vector out of a [`DvInfo`] struct
 ///
 /// # Safety
 /// Engine is responsible for providing valid pointers for each argument
-ExternResult<KernelBoolSlice> selection_vector_from_dv(const DvInfo *dv_info, Handle<SharedExternEngine> engine,
+ExternResult<KernelBoolSlice> selection_vector_from_dv(const DvInfo *dv_info,
+                                                       Handle<SharedExternEngine> engine,
                                                        Handle<SharedGlobalScanState> state);
 
 /// Get a vector of row indexes out of a [`DvInfo`] struct
 ///
 /// # Safety
 /// Engine is responsible for providing valid pointers for each argument
-ExternResult<KernelRowIndexArray> row_indexes_from_dv(const DvInfo *dv_info, Handle<SharedExternEngine> engine,
+ExternResult<KernelRowIndexArray> row_indexes_from_dv(const DvInfo *dv_info,
+                                                      Handle<SharedExternEngine> engine,
                                                       Handle<SharedGlobalScanState> state);
 
 /// Shim for ffi to call visit_scan_metadata. This will generally be called when iterating through scan
@@ -1141,7 +1265,8 @@ ExternResult<KernelRowIndexArray> row_indexes_from_dv(const DvInfo *dv_info, Han
 ///
 /// # Safety
 /// engine is responsible for passing a valid [`SharedScanMetadata`].
-void visit_scan_metadata(Handle<SharedScanMetadata> scan_metadata, NullableCvoid engine_context,
+void visit_scan_metadata(Handle<SharedScanMetadata> scan_metadata,
+                         NullableCvoid engine_context,
                          CScanCallback callback);
 
 /// Visit the given `schema` using the provided `visitor`. See the documentation of
@@ -1154,14 +1279,22 @@ void visit_scan_metadata(Handle<SharedScanMetadata> scan_metadata, NullableCvoid
 /// Caller is responsible for passing a valid schema handle and schema visitor.
 uintptr_t visit_schema(Handle<SharedSchema> schema, EngineSchemaVisitor *visitor);
 
-/// Constructs a kernel expression that is passed back as a SharedExpression handle. The expected
+/// Constructs a kernel expression that is passed back as a [`SharedExpression`] handle. The expected
 /// output expression can be found in `ffi/tests/test_expression_visitor/expected.txt`.
 ///
 /// # Safety
 /// The caller is responsible for freeing the returned memory, either by calling
-/// [`free_kernel_predicate`], or [`Handle::drop_handle`]
+/// [`crate::expressions::free_kernel_expression`], or [`crate::handle::Handle::drop_handle`].
 Handle<SharedExpression> get_testing_kernel_expression();
 
-} // extern "C"
+/// Constructs a kernel predicate that is passed back as a [`SharedPredicate`] handle. The expected
+/// output predicate can be found in `ffi/tests/test_predicate_visitor/expected.txt`.
+///
+/// # Safety
+/// The caller is responsible for freeing the returned memory, either by calling
+/// [`crate::expressions::free_kernel_predicate`], or [`crate::handle::Handle::drop_handle`].
+Handle<SharedPredicate> get_testing_kernel_predicate();
 
-} // namespace ffi
+}  // extern "C"
+
+}  // namespace ffi

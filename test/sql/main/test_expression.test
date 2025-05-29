@@ -9,6 +9,7 @@ require delta
 query I
 SELECT unnest(get_delta_test_expression())
 ----
+col
 127
 -128
 3.4028235e+38
@@ -30,18 +31,23 @@ false
 NULL
 struct_pack("'top'" := struct_pack("'a'" := 500, "'b'" := list_value(5, 0)))
 list_value(5, 0)
-struct_pack((5 OR 20))
-not((col is NULL))
-(0 IN (0))
-(0 + 0)
-(0 - 0)
-(0 = 0)
-(0 != 0)
-(0 NOT IN (0))
+{key1=val1, key2=val2}
+struct_pack(5, 20)
 (0 / 0)
 (0 * 0)
+(0 + 0)
+(0 - 0)
+col
+true
+false
+(10 IN (list_value(5, 0)))
+not((10 IN (list_value(5, 0))))
+((5 = 10) OR not((20 = 10)))
+not((col is NULL))
+(0 = 0)
+not((0 = 0))
 (0 < 0)
-(0 <= 0)
+not((0 > 0))
 (0 > 0)
-(0 >= 0)
+not((0 < 0))
 (0 IS DISTINCT FROM 0)
