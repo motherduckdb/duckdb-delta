@@ -63,29 +63,27 @@ ffi::EngineExpressionVisitor ExpressionVisitor::CreateVisitor(ExpressionVisitor 
 	visitor.visit_or = VisitVariadicExpression<ExpressionType::CONJUNCTION_OR, ConjunctionExpression>();
 
 	visitor.visit_lt = VisitBinaryExpression<ExpressionType::COMPARE_LESSTHAN, ComparisonExpression>();
-	visitor.visit_le = VisitBinaryExpression<ExpressionType::COMPARE_LESSTHANOREQUALTO, ComparisonExpression>();
 	visitor.visit_gt = VisitBinaryExpression<ExpressionType::COMPARE_GREATERTHAN, ComparisonExpression>();
-	visitor.visit_ge = VisitBinaryExpression<ExpressionType::COMPARE_GREATERTHANOREQUALTO, ComparisonExpression>();
 
 	visitor.visit_eq = VisitBinaryExpression<ExpressionType::COMPARE_EQUAL, ComparisonExpression>();
-	visitor.visit_ne = VisitBinaryExpression<ExpressionType::COMPARE_NOTEQUAL, ComparisonExpression>();
 	visitor.visit_distinct = VisitBinaryExpression<ExpressionType::COMPARE_DISTINCT_FROM, ComparisonExpression>();
 
 	visitor.visit_in = VisitVariadicExpression<ExpressionType::COMPARE_IN, OperatorExpression>();
-	visitor.visit_not_in = VisitVariadicExpression<ExpressionType::COMPARE_NOT_IN, OperatorExpression>();
 
 	visitor.visit_add = VisitAdditionExpression;
 	visitor.visit_minus = VisitSubctractionExpression;
 	visitor.visit_multiply = VisitMultiplyExpression;
 	visitor.visit_divide = VisitDivideExpression;
 
-	visitor.visit_column = &VisitColumnExpression;
-	visitor.visit_struct_expr = &VisitStructExpression;
+	visitor.visit_column = VisitColumnExpression;
+	visitor.visit_struct_expr = VisitStructExpression;
 
-	visitor.visit_literal_struct = &VisitStructLiteral;
+	visitor.visit_literal_struct = VisitStructLiteral;
 
-	visitor.visit_not = &VisitNotExpression;
-	visitor.visit_is_null = &VisitIsNullExpression;
+	visitor.visit_not = VisitNotExpression;
+	visitor.visit_is_null = VisitIsNullExpression;
+
+	visitor.visit_literal_map = VisitLiteralMap;
 
 	return visitor;
 }
@@ -110,6 +108,20 @@ ExpressionVisitor::VisitKernelExpression(const ffi::Handle<ffi::SharedExpression
 	auto visitor = CreateVisitor(state);
 
 	uintptr_t result = ffi::visit_expression(expression, &visitor);
+
+	if (state.error.HasError()) {
+		state.error.Throw();
+	}
+
+	return state.TakeFieldList(result);
+}
+
+unique_ptr<vector<unique_ptr<ParsedExpression>>>
+ExpressionVisitor::VisitKernelPredicate(const ffi::Handle<ffi::SharedPredicate> *predicate) {
+	ExpressionVisitor state;
+	auto visitor = CreateVisitor(state);
+
+	uintptr_t result = ffi::visit_predicate(predicate, &visitor);
 
 	if (state.error.HasError()) {
 		state.error.Throw();
@@ -274,6 +286,48 @@ void ExpressionVisitor::VisitIsNullExpression(void *state, uintptr_t sibling_lis
 	children->push_back(make_uniq<ConstantExpression>(Value()));
 	unique_ptr<ParsedExpression> expression =
 	    make_uniq<FunctionExpression>("IS", std::move(*children), nullptr, nullptr, false, true);
+	state_cast->AppendToList(sibling_list_id, std::move(expression));
+}
+
+void ExpressionVisitor::VisitLiteralMap(void *state, uintptr_t sibling_list_id, uintptr_t key_list_id,
+                                        uintptr_t value_list_id) {
+	auto state_cast = static_cast<ExpressionVisitor *>(state);
+
+	auto key_children = state_cast->TakeFieldList(key_list_id);
+	if (!key_children) {
+		return;
+	}
+	auto value_children = state_cast->TakeFieldList(value_list_id);
+	if (!value_children) {
+		return;
+	}
+
+	vector<Value> key_values;
+	LogicalType key_type;
+	for (const auto &key_field : *key_children) {
+		if (key_field->GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+			state_cast->error =
+			    ErrorData("DuckDB only supports parsing Map literals from delta kernel that consist for constants!");
+			return;
+		}
+		key_values.push_back(key_field->Cast<ConstantExpression>().value);
+		key_type = key_field->Cast<ConstantExpression>().value.type();
+	}
+
+	vector<Value> value_values;
+	LogicalType value_type;
+	for (const auto &value_field : *value_children) {
+		if (value_field->GetExpressionType() != ExpressionType::VALUE_CONSTANT) {
+			state_cast->error =
+			    ErrorData("DuckDB only supports parsing Map literals from delta kernel that consist for constants!");
+			return;
+		}
+		value_values.push_back(value_field->Cast<ConstantExpression>().value);
+		value_type = value_field->Cast<ConstantExpression>().value.type();
+	}
+
+	unique_ptr<ParsedExpression> expression =
+	    make_uniq<ConstantExpression>(Value::MAP(key_type, value_type, key_values, value_values));
 	state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
@@ -644,7 +698,7 @@ uintptr_t PredicateVisitor::VisitPredicate(PredicateVisitor *predicate, ffi::Ker
 	};
 	auto eit = EngineIteratorFromCallable(get_next);
 
-	return visit_expression_and(state, &eit);
+	return ffi::visit_predicate_and(state, &eit);
 }
 
 uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const ConstantFilter &filter,
@@ -703,15 +757,15 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
 	// TODO support other comparison types?
 	switch (filter.comparison_type) {
 	case ExpressionType::COMPARE_LESSTHAN:
-		return visit_expression_lt(state, left, right);
+		return visit_predicate_lt(state, left, right);
 	case ExpressionType::COMPARE_LESSTHANOREQUALTO:
-		return visit_expression_le(state, left, right);
+		return visit_predicate_le(state, left, right);
 	case ExpressionType::COMPARE_GREATERTHAN:
-		return visit_expression_gt(state, left, right);
+		return visit_predicate_gt(state, left, right);
 	case ExpressionType::COMPARE_GREATERTHANOREQUALTO:
-		return visit_expression_ge(state, left, right);
+		return visit_predicate_ge(state, left, right);
 	case ExpressionType::COMPARE_EQUAL:
-		return visit_expression_eq(state, left, right);
+		return visit_predicate_eq(state, left, right);
 
 	default:
 		// TODO: add more types
@@ -732,7 +786,7 @@ uintptr_t PredicateVisitor::VisitAndFilter(const string &col_name, const Conjunc
 		return VisitFilter(col_name, *child_filter, state);
 	};
 	auto eit = EngineIteratorFromCallable(get_next);
-	return visit_expression_and(state, &eit);
+	return visit_predicate_and(state, &eit);
 }
 
 uintptr_t PredicateVisitor::VisitIsNull(const string &col_name, ffi::KernelExpressionVisitorState *state) {
@@ -745,11 +799,11 @@ uintptr_t PredicateVisitor::VisitIsNull(const string &col_name, ffi::KernelExpre
 		error_data = err;
 		return ~0;
 	}
-	return ffi::visit_expression_is_null(state, inner);
+	return ffi::visit_predicate_is_null(state, inner);
 }
 
 uintptr_t PredicateVisitor::VisitIsNotNull(const string &col_name, ffi::KernelExpressionVisitorState *state) {
-	return ffi::visit_expression_not(state, VisitIsNull(col_name, state));
+	return ffi::visit_predicate_not(state, VisitIsNull(col_name, state));
 }
 
 uintptr_t PredicateVisitor::VisitFilter(const string &col_name, const TableFilter &filter,
