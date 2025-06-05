@@ -109,11 +109,13 @@ protected:
 	mutable shared_ptr<SharedKernelSnapshot> snapshot;
 	mutable KernelExternEngine extern_engine;
 	mutable KernelScan scan;
-	mutable KernelGlobalScanState global_state;
 	mutable KernelScanDataIterator scan_data_iterator;
 
 	mutable vector<string> partitions;
 	mutable vector<idx_t> partition_ids;
+
+    //! Root path of the table, necessary for certain kernel calls
+    mutable string root_path;
 
 	//! Current file list resolution state
 	mutable bool initialized_snapshot = false;

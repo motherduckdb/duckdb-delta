@@ -163,8 +163,6 @@ struct SharedExpressionEvaluator;
 
 struct SharedExternEngine;
 
-struct SharedGlobalScanState;
-
 struct SharedPredicate;
 
 struct SharedScan;
@@ -1076,31 +1074,25 @@ void free_scan(Handle<SharedScan> scan);
 ExternResult<Handle<SharedScan>> scan(Handle<SharedSnapshot> snapshot, Handle<SharedExternEngine> engine,
                                       EnginePredicate *predicate);
 
-/// Get the global state for a scan. See the docs for [`delta_kernel::scan::state::GlobalScanState`]
-/// for more information.
+/// Get the table root of a scan.
 ///
 /// # Safety
-/// Engine is responsible for providing a valid scan pointer
-Handle<SharedGlobalScanState> get_global_scan_state(Handle<SharedScan> scan);
+/// Engine is responsible for providing a valid scan pointer and allocate_fn (for allocating the
+/// string)
+NullableCvoid scan_table_root(Handle<SharedScan> scan, AllocateStringFn allocate_fn);
+
+/// Get the logical (i.e. output) schema of a scan.
+///
+/// # Safety
+/// Engine is responsible for providing a valid `SharedScan` handle
+Handle<SharedSchema> scan_logical_schema(Handle<SharedScan> scan);
 
 /// Get the kernel view of the physical read schema that an engine should read from parquet file in
 /// a scan
 ///
 /// # Safety
-/// Engine is responsible for providing a valid GlobalScanState pointer
-Handle<SharedSchema> get_global_read_schema(Handle<SharedGlobalScanState> state);
-
-/// Get the kernel view of the physical read schema that an engine should read from parquet file in
-/// a scan
-///
-/// # Safety
-/// Engine is responsible for providing a valid GlobalScanState pointer
-Handle<SharedSchema> get_global_logical_schema(Handle<SharedGlobalScanState> state);
-
-/// # Safety
-///
-/// Caller is responsible for passing a valid global scan state pointer.
-void free_global_scan_state(Handle<SharedGlobalScanState> state);
+/// Engine is responsible for providing a valid `SharedScan` handle
+Handle<SharedSchema> scan_physical_schema(Handle<SharedScan> scan);
 
 /// Get an iterator over the data needed to perform a scan. This will return a
 /// [`ScanMetadataIterator`] which can be passed to [`scan_metadata_next`] to get the
@@ -1152,21 +1144,21 @@ NullableCvoid get_from_string_map(const CStringMap *map, KernelStringSlice key, 
 /// The engine is responsible for providing a valid [`CTransforms`] pointer, and for checking if the
 /// return value is `NULL` or not.
 // Option<Handle<SharedExpression>> get_transform_for_row(uintptr_t row,
-//                                                        const CTransforms *transforms);
+//                                                       const CTransforms *transforms);
 
 /// Get a selection vector out of a [`DvInfo`] struct
 ///
 /// # Safety
 /// Engine is responsible for providing valid pointers for each argument
 ExternResult<KernelBoolSlice> selection_vector_from_dv(const DvInfo *dv_info, Handle<SharedExternEngine> engine,
-                                                       Handle<SharedGlobalScanState> state);
+                                                       KernelStringSlice root_url);
 
 /// Get a vector of row indexes out of a [`DvInfo`] struct
 ///
 /// # Safety
 /// Engine is responsible for providing valid pointers for each argument
 ExternResult<KernelRowIndexArray> row_indexes_from_dv(const DvInfo *dv_info, Handle<SharedExternEngine> engine,
-                                                      Handle<SharedGlobalScanState> state);
+                                                      KernelStringSlice root_url);
 
 /// Shim for ffi to call visit_scan_metadata. This will generally be called when iterating through scan
 /// data which provides the [`SharedScanMetadata`] as each element in the iterator.
