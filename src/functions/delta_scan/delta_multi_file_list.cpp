@@ -378,7 +378,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 
 	// Fetch the deletion vector
 	auto selection_vector_res =
-	    ffi::selection_vector_from_dv(dv_info, snapshot.extern_engine.get(), snapshot.global_state.get());
+	    ffi::selection_vector_from_dv(dv_info, snapshot.extern_engine.get(), KernelUtils::ToDeltaString(snapshot.root_path));
 
 	// TODO: remove workaround for https://github.com/duckdb/duckdb-delta/issues/150
 	bool do_workaround = false;
@@ -609,7 +609,7 @@ static void InjectColumnIdentifiers(const vector<string> &names, const vector<Lo
 static vector<MultiFileColumnDefinition> ConstructGlobalColDefs(const vector<string> &names,
                                                                 const vector<LogicalType> &types,
                                                                 const vector<string> &partitions,
-                                                                ffi::SharedGlobalScanState *scan_state) {
+                                                                ffi::SharedScan *scan) {
 	vector<string> physical_names;
 	vector<LogicalType> physical_types;
 	vector<string> logical_names;
@@ -622,8 +622,8 @@ static vector<MultiFileColumnDefinition> ConstructGlobalColDefs(const vector<str
 		partition_set.insert(partition);
 	}
 
-	auto schema_physical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan_state, false);
-	auto schema_logical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan_state, true);
+	auto schema_physical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, false);
+	auto schema_logical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, true);
 
 	for (idx_t i = 0; i < schema_physical->size(); i++) {
 		physical_names.push_back((*schema_physical)[i].first);
@@ -683,8 +683,14 @@ void DeltaMultiFileList::InitializeScan() const {
 		                  visitor.error_data.Message());
 	}
 
-	// Create GlobalState
-	global_state = ffi::get_global_scan_state(scan.get());
+	// Get table path
+	auto ptr = ffi::scan_table_root(scan.get(), [](ffi::KernelStringSlice kernel_str) -> ffi::NullableCvoid {
+	    string * test = new string;
+	    *test = KernelUtils::FromDeltaString(kernel_str);
+	    return test;
+	});
+    root_path = *static_cast<string*>(ptr);
+    free(ptr);
 
 	// Create scan data iterator
 	scan_data_iterator = TryUnpackKernelResult(ffi::scan_metadata_iter_init(extern_engine.get(), scan.get()));
@@ -713,7 +719,7 @@ void DeltaMultiFileList::InitializeScan() const {
 		}
 	}
 
-	lazy_loaded_schema = ConstructGlobalColDefs(names, types, partitions, global_state.get());
+	lazy_loaded_schema = ConstructGlobalColDefs(names, types, partitions, scan.get());
 
 	initialized_scan = true;
 }
