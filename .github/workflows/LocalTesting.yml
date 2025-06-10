@@ -234,6 +234,7 @@ jobs:
       GEN: ninja
       BUILD_BENCHMARK: 1
       VCPKG_TARGET_TRIPLET: x64-linux
+      VCPKG_BINARY_SOURCES: 'clear;http,https://vcpkg-cache.duckdb.org,read'
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
 
     steps:
