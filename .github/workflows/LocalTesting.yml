@@ -22,6 +22,7 @@ jobs:
       AZURE_STORAGE_CONNECTION_STRING: 'DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://127.0.0.1:10000/devstoreaccount1;QueueEndpoint=http://127.0.0.1:10001/devstoreaccount1;TableEndpoint=http://127.0.0.1:10002/devstoreaccount1;'
       AZURE_STORAGE_ACCOUNT: devstoreaccount1
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+      BUILD_TEST_EXTENSION_DEPS: full
 
     steps:
     - uses: actions/checkout@v4
@@ -94,6 +95,7 @@ jobs:
       VCPKG_TARGET_TRIPLET: x64-linux
       VCPKG_BINARY_SOURCES: 'clear;http,https://vcpkg-cache.duckdb.org,read'
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      BUILD_TEST_EXTENSION_DEPS: full
 
     steps:
       - uses: actions/checkout@v4
@@ -185,6 +187,7 @@ jobs:
       VCPKG_TARGET_TRIPLET: x64-linux
       VCPKG_BINARY_SOURCES: 'clear;http,https://vcpkg-cache.duckdb.org,read'
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      BUILD_TEST_EXTENSION_DEPS: full
 
     steps:
       - uses: actions/checkout@v4
@@ -236,6 +239,7 @@ jobs:
       VCPKG_TARGET_TRIPLET: x64-linux
       VCPKG_BINARY_SOURCES: 'clear;http,https://vcpkg-cache.duckdb.org,read'
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+      BUILD_TEST_EXTENSION_DEPS: full
 
     steps:
       - uses: actions/checkout@v4

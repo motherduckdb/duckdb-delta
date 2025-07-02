@@ -16,6 +16,7 @@ jobs:
       VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
       GEN: Ninja
       DUCKDB_PLATFORM: linux_amd64
+      BUILD_TEST_EXTENSION_DEPS: full
 
     steps:
       - name: Install required ubuntu packages
