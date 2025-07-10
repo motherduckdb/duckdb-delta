@@ -622,7 +622,7 @@ string DuckDBEngineError::IntoString() {
 	// Consume error by calling delete this (remember this error is created by
 	// kernel using AllocateError)
 	delete this;
-	return StringUtil::Format("DeltKernel %s (%u): %s", KernelErrorEnumToString(etype_copy), etype_copy, message_copy);
+	return StringUtil::Format("DeltaKernel %s (%u): %s", KernelErrorEnumToString(etype_copy), etype_copy, message_copy);
 }
 
 ffi::KernelStringSlice KernelUtils::ToDeltaString(const string &str) {

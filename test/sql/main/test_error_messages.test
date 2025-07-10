@@ -11,7 +11,7 @@ require httpfs
 statement error
 FROM delta_scan('./doesnt_exist_and_never_will_exist_i_hope');
 ----
-IO Error: DeltKernel InvalidTableLocationError (28): Invalid table location: Path does not exist:
+IO Error: DeltaKernel InvalidTableLocationError (28): Invalid table location: Path does not exist:
 
 statement ok
 ATTACH './doesnt_exist_and_never_will_exist_i_hope' AS s1 (TYPE delta);
@@ -19,7 +19,7 @@ ATTACH './doesnt_exist_and_never_will_exist_i_hope' AS s1 (TYPE delta);
 statement error
 SHOW ALL TABLES;
 ----
-IO Error: DeltKernel InvalidTableLocationError (28): Invalid table location: Path does not exist:
+IO Error: DeltaKernel InvalidTableLocationError (28): Invalid table location: Path does not exist:
 
 statement ok
 DETACH s1;
@@ -33,12 +33,12 @@ CREATE SECRET s1 (
 statement error
 FROM delta_scan('s3://bucket/doesnt/exist/either');
 ----
-IO Error: DeltKernel ObjectStoreError (8): Error interacting with object store: Generic S3 error: Error performing GET
+IO Error: DeltaKernel ObjectStoreError (8): Error interacting with object store: Generic S3 error: Error performing GET
 
 statement error
 FROM delta_scan('duck://bucket/doesnt/exist/either');
 ----
-IO Error: DeltKernel ObjectStoreError (8): Error interacting with object store: Generic URL error: Unable to recognise URL
+IO Error: DeltaKernel ObjectStoreError (8): Error interacting with object store: Generic URL error: Unable to recognise URL
 
 statement ok
 ATTACH 's3://bucket/doesnt/exist/either' AS s1 (TYPE delta);
@@ -46,4 +46,4 @@ ATTACH 's3://bucket/doesnt/exist/either' AS s1 (TYPE delta);
 statement error
 SHOW ALL TABLES;
 ----
-IO Error: DeltKernel ObjectStoreError (8): Error interacting with object store: Generic S3 error: Error performing GET
+IO Error: DeltaKernel ObjectStoreError (8): Error interacting with object store: Generic S3 error: Error performing GET
