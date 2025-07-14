@@ -13,6 +13,7 @@
 #include "duckdb/parser/constraints/list.hpp"
 #include "duckdb/common/unordered_set.hpp"
 #include "duckdb/parser/parsed_expression_iterator.hpp"
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
 
 namespace duckdb {
 
@@ -101,9 +102,9 @@ static bool CatalogTypeIsSupported(CatalogType type) {
 	}
 }
 
-unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &context) {
+unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &context, idx_t version) {
 	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
-	auto snapshot = make_shared_ptr<DeltaMultiFileList>(context, delta_catalog.GetDBPath());
+	auto snapshot = make_shared_ptr<DeltaMultiFileList>(context, delta_catalog.GetDBPath(), version);
 
 	// Get the names and types from the delta snapshot
 	vector<LogicalType> return_types;
@@ -154,20 +155,34 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction tran
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
-		auto transaction_table_entry = delta_transaction.GetTableEntry();
+	    idx_t version = delta_catalog.use_specific_version;
+
+	    // If there's an AT clause we are doing timetravel
+	    auto at_clause = lookup_info.GetAtClause();
+	    if (at_clause) {
+	        version = ParseDeltaVersionFromAtClause(*at_clause);
+	    }
+
+		auto transaction_table_entry = delta_transaction.GetTableEntry(version);
 		if (transaction_table_entry) {
 			return *transaction_table_entry;
 		}
 
 		if (delta_catalog.UseCachedSnapshot()) {
 			unique_lock<mutex> l(lock);
+
+		    // If the version being requested is different from the one we have cached, we
+		    if (delta_catalog.use_specific_version != version) {
+		        return delta_transaction.InitializeTableEntry(context, *this, version);
+		    }
+
 			if (!cached_table) {
-				cached_table = CreateTableEntry(context);
+				cached_table = CreateTableEntry(context, version);
 			}
 			return *cached_table;
 		}
 
-		return delta_transaction.InitializeTableEntry(context, *this);
+		return delta_transaction.InitializeTableEntry(context, *this, version);
 	}
 	return nullptr;
 }

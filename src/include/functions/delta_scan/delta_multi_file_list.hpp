@@ -44,7 +44,7 @@ class DeltaMultiFileList : public MultiFileList {
 	friend struct ScanDataCallBack;
 
 public:
-	DeltaMultiFileList(ClientContext &context, const string &path);
+	DeltaMultiFileList(ClientContext &context, const string &path, idx_t version);
 	string GetPath() const;
 	static string ToDuckDBPath(const string &raw_path);
 	static string ToDeltaPath(const string &raw_path);

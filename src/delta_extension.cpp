@@ -35,6 +35,10 @@ static unique_ptr<Catalog> DeltaCatalogAttach(StorageExtensionInfo *storage_info
 			auto str = option.second.GetValue<string>();
 			res->filter_pushdown_mode = DeltaEnumUtils::FromString(str);
 		}
+	    if (StringUtil::Lower(option.first) == "version") {
+	        res->use_cache = true;
+	        res->use_specific_version = UBigIntValue::Get(option.second.DefaultCastAs(LogicalType::UBIGINT));
+	    }
 	}
 
 	res->SetDefaultTable(DEFAULT_SCHEMA, name);
