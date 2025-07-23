@@ -85,6 +85,11 @@ ffi::EngineExpressionVisitor ExpressionVisitor::CreateVisitor(ExpressionVisitor 
 
 	visitor.visit_literal_map = VisitLiteralMap;
 
+    visitor.visit_opaque_expr = VisitOpaqueExpression;
+    visitor.visit_opaque_pred = VisitOpaquePredicate;
+
+    visitor.visit_unknown = VisitUnknown;
+
 	return visitor;
 }
 
@@ -329,6 +334,47 @@ void ExpressionVisitor::VisitLiteralMap(void *state, uintptr_t sibling_list_id, 
 	unique_ptr<ParsedExpression> expression =
 	    make_uniq<ConstantExpression>(Value::MAP(key_type, value_type, key_values, value_values));
 	state_cast->AppendToList(sibling_list_id, std::move(expression));
+}
+
+void ExpressionVisitor::VisitOpaqueExpression(void *data,
+                                uintptr_t sibling_list_id,
+                                ffi::Handle<ffi::SharedOpaqueExpressionOp> op,
+                                uintptr_t child_list_id) {
+    auto state_cast = static_cast<ExpressionVisitor *>(data);
+    auto children = state_cast->TakeFieldList(child_list_id);
+    if (!children) {
+        return;
+    }
+    unique_ptr<ParsedExpression> expression =
+        make_uniq<FunctionExpression>("delta_kernel_opaque_expression", std::move(*children), nullptr, nullptr, false, false);
+
+    // TODO: handle DuckDB opaque expressions here
+    state_cast->AppendToList(sibling_list_id, std::move(expression));
+}
+
+void ExpressionVisitor::VisitOpaquePredicate(void *data,
+                              uintptr_t sibling_list_id,
+                              ffi::Handle<ffi::SharedOpaquePredicateOp> op,
+                              uintptr_t child_list_id) {
+    auto state_cast = static_cast<ExpressionVisitor *>(data);
+    auto children = state_cast->TakeFieldList(child_list_id);
+    if (!children) {
+        return;
+    }
+    unique_ptr<ParsedExpression> expression =
+        make_uniq<FunctionExpression>("delta_kernel_opaque_predicate", std::move(*children), nullptr, nullptr, false, false);
+
+    // TODO: handle DuckDB opaque predicatae here
+    state_cast->AppendToList(sibling_list_id, std::move(expression));
+}
+
+void ExpressionVisitor::VisitUnknown(void *data, uintptr_t sibling_list_id, ffi::KernelStringSlice name) {
+    auto state_cast = static_cast<ExpressionVisitor *>(data);
+    vector<unique_ptr<ParsedExpression>> children;
+    unique_ptr<ParsedExpression> expression =
+        make_uniq<FunctionExpression>("delta_kernel_unknown", std::move(children), nullptr, nullptr, false, true);
+
+    state_cast->AppendToList(sibling_list_id, std::move(expression));
 }
 
 // This function is a workaround for the fact that duckdb disallows using hugeints to store decimals with precision < 18
