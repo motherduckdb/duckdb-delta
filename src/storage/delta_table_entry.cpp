@@ -9,6 +9,7 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
+#include "functions/delta_scan/delta_multi_file_list.hpp"
 
 namespace duckdb {
 
@@ -28,37 +29,54 @@ void DeltaTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &, Logica
 	throw NotImplementedException("BindUpdateConstraints for delta table");
 }
 
+TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, unique_ptr<FunctionData> &bind_data, optional_ptr<const EntryLookupInfo > lookup_info) {
+    auto &db = DatabaseInstance::GetDatabase(context);
+    auto &delta_function_set = ExtensionUtil::GetTableFunction(db, "delta_scan");
+
+    auto delta_scan_function = delta_function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
+    auto &delta_catalog = catalog.Cast<DeltaCatalog>();
+
+    // Copy over the internal kernel snapshot
+    auto function_info = make_shared_ptr<DeltaFunctionInfo>();
+
+    idx_t version = DConstants::INVALID_INDEX;
+    if (lookup_info && lookup_info->GetAtClause()) {
+        version = ParseDeltaVersionFromAtClause(*lookup_info->GetAtClause());
+    }
+
+    if (version != DConstants::INVALID_INDEX && snapshot->GetVersion() != version) {
+        throw InternalException("Delta table snapshot version does not match at clause version.");
+    }
+
+    function_info->snapshot = this->snapshot;
+    function_info->table_name = delta_catalog.GetName();
+    delta_scan_function.function_info = std::move(function_info);
+
+    vector<Value> inputs = {delta_catalog.GetDBPath()};
+    named_parameter_map_t param_map;
+    vector<LogicalType> return_types;
+    vector<string> names;
+    TableFunctionRef empty_ref;
+
+    // Propagate settings
+    param_map.insert({"pushdown_partition_info", delta_catalog.pushdown_partition_info});
+    param_map.insert({"pushdown_filters", DeltaEnumUtils::ToString(delta_catalog.filter_pushdown_mode)});
+
+    TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, delta_scan_function,
+                                      empty_ref);
+
+    auto result = delta_scan_function.bind(context, bind_input, return_types, names);
+    bind_data = std::move(result);
+
+    return delta_scan_function;
+}
+
+TableFunction DeltaTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data, const EntryLookupInfo &lookup_info) {
+    return GetScanFunctionInternal(context, bind_data, lookup_info);
+}
+
 TableFunction DeltaTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data) {
-	auto &db = DatabaseInstance::GetDatabase(context);
-	auto &delta_function_set = ExtensionUtil::GetTableFunction(db, "delta_scan");
-
-	auto delta_scan_function = delta_function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
-	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
-
-	// Copy over the internal kernel snapshot
-	auto function_info = make_shared_ptr<DeltaFunctionInfo>();
-
-	function_info->snapshot = this->snapshot;
-	function_info->table_name = delta_catalog.GetName();
-	delta_scan_function.function_info = std::move(function_info);
-
-	vector<Value> inputs = {delta_catalog.GetDBPath()};
-	named_parameter_map_t param_map;
-	vector<LogicalType> return_types;
-	vector<string> names;
-	TableFunctionRef empty_ref;
-
-	// Propagate settings
-	param_map.insert({"pushdown_partition_info", delta_catalog.pushdown_partition_info});
-	param_map.insert({"pushdown_filters", DeltaEnumUtils::ToString(delta_catalog.filter_pushdown_mode)});
-
-	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, delta_scan_function,
-	                                  empty_ref);
-
-	auto result = delta_scan_function.bind(context, bind_input, return_types, names);
-	bind_data = std::move(result);
-
-	return delta_scan_function;
+    return GetScanFunctionInternal(context, bind_data, nullptr);
 }
 
 TableStorageInfo DeltaTableEntry::GetStorageInfo(ClientContext &context) {

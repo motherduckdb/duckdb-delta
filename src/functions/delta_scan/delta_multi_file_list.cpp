@@ -448,8 +448,8 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 	ffi::visit_scan_metadata(scan_metadata, engine_context, VisitCallback);
 }
 
-DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path)
-    : MultiFileList({ToDeltaPath(path)}, FileGlobOptions::ALLOW_EMPTY), context(context_p) {
+DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path, idx_t version_p)
+    : MultiFileList({ToDeltaPath(path)}, FileGlobOptions::ALLOW_EMPTY), version (version_p), context(context_p) {
 }
 
 string DeltaMultiFileList::GetPath() const {
@@ -567,13 +567,25 @@ void DeltaMultiFileList::InitializeSnapshot() const {
 	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
 
 	if (!snapshot) {
-		snapshot = make_shared_ptr<SharedKernelSnapshot>(
-		    TryUnpackKernelResult(ffi::snapshot(path_slice, extern_engine.get())));
-	}
+	    if (version == DConstants::INVALID_INDEX) {
+	        // Get latest snapshot
+	        snapshot = make_shared_ptr<SharedKernelSnapshot>(
+            TryUnpackKernelResult(ffi::snapshot(path_slice, extern_engine.get())));
+	        // Set version
+	        auto snapshot_ref = snapshot->GetLockingRef();
+	        this->version = ffi::version(snapshot_ref.GetPtr());
+	    } else {
+	        // Get specific snapshot
+	        snapshot = make_shared_ptr<SharedKernelSnapshot>(
+            TryUnpackKernelResult(ffi::snapshot_at_version(path_slice, extern_engine.get(), version)));
 
-	// Set version
-	auto snapshot_ref = snapshot->GetLockingRef();
-	this->version = ffi::version(snapshot_ref.GetPtr());
+	        // Double check version
+	        auto snapshot_ref = snapshot->GetLockingRef();
+	        if (ffi::version(snapshot_ref.GetPtr()) != version) {
+	            throw InvalidInputException("Snapshot version does not match requested version");
+	        }
+	    }
+	}
 
 	initialized_snapshot = true;
 }
@@ -739,7 +751,7 @@ void DeltaMultiFileList::EnsureScanInitialized() const {
 
 unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context,
                                                                     TableFilterSet &new_filters) const {
-	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0].path);
+	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0].path, version);
 
 	TableFilterSet result_filter_set;
 

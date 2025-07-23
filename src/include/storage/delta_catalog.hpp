@@ -17,6 +17,8 @@
 namespace duckdb {
 class DeltaSchemaEntry;
 
+idx_t ParseDeltaVersionFromAtClause(const BoundAtClause &at_clause);
+
 class DeltaClearCacheFunction : public TableFunction {
 public:
 	DeltaClearCacheFunction();
@@ -32,6 +34,7 @@ public:
 	string path;
 	AccessMode access_mode;
 	bool use_cache;
+    idx_t use_specific_version;
 	bool pushdown_partition_info;
 	DeltaFilterPushdownMode filter_pushdown_mode;
 
@@ -39,6 +42,10 @@ public:
 	void Initialize(bool load_builtin) override;
 	string GetCatalogType() override {
 		return "delta";
+	}
+
+    bool SupportsTimeTravel() const override {
+	    return true;
 	}
 
 	optional_ptr<CatalogEntry> CreateSchema(CatalogTransaction transaction, CreateSchemaInfo &info) override;

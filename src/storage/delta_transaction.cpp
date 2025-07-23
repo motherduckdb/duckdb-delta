@@ -39,17 +39,40 @@ AccessMode DeltaTransaction::GetAccessMode() const {
 	return access_mode;
 }
 
-optional_ptr<DeltaTableEntry> DeltaTransaction::GetTableEntry() {
+optional_ptr<DeltaTableEntry> DeltaTransaction::GetTableEntry(idx_t version) {
 	unique_lock<mutex> lck(lock);
-	return table_entry;
+
+    if (version == DConstants::INVALID_INDEX) {
+        return table_entry;
+    }
+
+    auto lookup = versioned_table_entries.find(version);
+
+    if (lookup != versioned_table_entries.end()) {
+        return lookup->second;
+    }
+
+    return nullptr;
 }
 
-DeltaTableEntry &DeltaTransaction::InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry) {
+DeltaTableEntry &DeltaTransaction::InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry, idx_t version) {
 	unique_lock<mutex> lck(lock);
-	if (!table_entry) {
-		table_entry = schema_entry.CreateTableEntry(context);
-	}
-	return *table_entry;
+
+    // Latest version
+    if (version == DConstants::INVALID_INDEX) {
+        if (!table_entry) {
+            table_entry = schema_entry.CreateTableEntry(context, version);
+        }
+        return *table_entry;
+    }
+
+    // Specific version
+    auto lookup = versioned_table_entries.find(version);
+    if (lookup != versioned_table_entries.end()) {
+        return *lookup->second;
+    }
+    auto new_entry = schema_entry.CreateTableEntry(context, version);
+    return *(versioned_table_entries[version] = std::move(new_entry));
 }
 
 } // namespace duckdb

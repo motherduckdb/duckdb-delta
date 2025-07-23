@@ -1,0 +1,145 @@
+# name: test/sql/generated/timetravel.test
+# description: Test time travel
+# group: [generated]
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+# evolution_simple:
+# version 0: CREATE TABLE evolution_simple AS SELECT CAST(1 AS INT) AS a;
+# version 1: ALTER TABLE evolution_simple SET TBLPROPERTIES ('delta.minReaderVersion' = '2', 'delta.minWriterVersion' = '5', 'delta.columnMapping.mode' = 'name', 'delta.enableTypeWidening' = 'true');
+# version 2: ALTER TABLE evolution_simple ADD COLUMN b BIGINT;,
+# version 3: INSERT INTO evolution_simple VALUES (2, 2);
+
+statement ok
+ATTACH './data/generated/evolution_simple/delta_lake' as dt (TYPE delta)
+
+# Scan latest version (= 1)
+query II rowsort
+SELECT * FROM dt.dt
+----
+1	NULL
+2	2
+
+# TODO: to fix this we require changes upstream, see https://github.com/duckdb/duckdb/pull/18240
+# 		once duckdb is updated with that fix, this should start passing and we can remove all the dt.dt through this test
+statement error
+SELECT * FROM dt AT (VERSION => 0)
+----
+Binder Error: Catalog type does not support time travel
+
+# Scan version 0
+query I rowsort
+SELECT * FROM dt.dt AT (VERSION => 0)
+----
+1
+
+# Ensure transaction-local caching works by scanning both version and verifying that both are cached correctly 
+
+statement ok
+BEGIN TRANSACTION;
+
+# Scan latest version, this is now in transaction local cache
+query II rowsort
+SELECT * FROM dt.dt
+----
+1	NULL
+2	2
+
+# Scan version 0, this is now also in transaction local cache
+query I rowsort
+SELECT * FROM dt.dt AT (VERSION => 0)
+----
+1
+
+# Scan latest version, this is now in transaction local cache
+query II rowsort
+SELECT * FROM dt.dt
+----
+1	NULL
+2	2
+
+# Scan version 0, this is now also in transaction local cache
+query I rowsort
+SELECT * FROM dt.dt AT (VERSION => 0)
+----
+1
+
+statement ok
+COMMIT
+
+statement ok
+detach dt;
+
+# Now we try with a pinned snapshot -> this should still work, I 
+statement ok
+ATTACH './data/generated/evolution_simple/delta_lake' as dt (TYPE delta, PIN_SNAPSHOT)
+
+# Scan latest version (= 3) 
+query II rowsort
+SELECT * FROM dt.dt
+----
+1	NULL
+2	2
+
+# Scan version 0, this ignores the pinned snapshot 
+query I rowsort
+SELECT * FROM dt.dt AT (VERSION => 0)
+----
+1
+
+# Now run the whole thing in a transaction: only the latest version is cached and pinned catalog-wide, version 0 is cached transaction-wide
+statement ok
+BEGIN TRANSACTION
+
+# Scan version 0, this ignores the pinned snapshot 
+query I rowsort
+SELECT * FROM dt.dt AT (VERSION => 0)
+----
+1
+
+# Scan version 0, this ignores the pinned snapshot 
+query I rowsort
+SELECT * FROM dt.dt AT (VERSION => 0)
+----
+1
+
+query II rowsort
+SELECT * FROM dt.dt
+----
+1	NULL
+2	2
+
+statement ok
+COMMIT
+
+statement ok
+DETACH dt;
+
+# we can also set a specific version, which will automatically set PIN_SNAPSHOT too
+statement ok
+ATTACH './data/generated/evolution_simple/delta_lake' as dt (TYPE delta, VERSION 0)
+
+query I rowsort
+SELECT * FROM dt.dt;
+----
+1
+
+query II rowsort
+SELECT * FROM dt.dt AT (VERSION => 2)
+----
+1	NULL
+
+query II rowsort
+SELECT * FROM dt.dt AT (VERSION => 3)
+----
+1	NULL
+2	2
+
+query I rowsort
+SELECT * FROM dt.dt;
+----
+1

@@ -240,7 +240,7 @@ shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &co
 		}
 	}
 
-	return make_shared_ptr<DeltaMultiFileList>(context, paths[0]);
+	return make_shared_ptr<DeltaMultiFileList>(context, paths[0], DConstants::INVALID_INDEX);
 }
 
 unique_ptr<MultiFileReaderGlobalState>

@@ -12,6 +12,8 @@
 #include <duckdb/planner/filter/null_filter.hpp>
 #include <iostream>
 
+#include "duckdb/planner/tableref/bound_at_clause.hpp"
+
 // TODO: clean up this file as we go
 
 namespace duckdb {
