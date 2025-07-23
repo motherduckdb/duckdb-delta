@@ -71,6 +71,15 @@ private:
 	static void VisitNotExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id);
 	static void VisitIsNullExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id);
 	static void VisitLiteralMap(void *data, uintptr_t sibling_list_id, uintptr_t key_list_id, uintptr_t value_list_id);
+    static void VisitOpaqueExpression(void *data,
+                            uintptr_t sibling_list_id,
+                            ffi::Handle<ffi::SharedOpaqueExpressionOp> op,
+                            uintptr_t child_list_id);
+    static void VisitOpaquePredicate(void *data,
+                              uintptr_t sibling_list_id,
+                              ffi::Handle<ffi::SharedOpaquePredicateOp> op,
+                              uintptr_t child_list_id);
+    static void VisitUnknown(void *data, uintptr_t sibling_list_id, ffi::KernelStringSlice name);
 
 	template <ExpressionType EXPRESSION_TYPE, typename EXPRESSION_TYPENAME>
 	static ffi::VisitJunctionFn VisitUnaryExpression() {
