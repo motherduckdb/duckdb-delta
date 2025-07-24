@@ -14,7 +14,7 @@ statement ok
 CREATE VIEW lineitem AS FROM delta_scan('data/generated/tpch_sf0_01/lineitem/delta_lake');
 
 statement ok
-FROM lineitem ORDER BY l_orderkey DESC LIMIT 5;
+FROM lineitem ORDER BY l_orderkey, l_linenumber DESC LIMIT 5;
 
 statement ok
 ATTACH 'data/generated/tpch_sf0_01/lineitem/delta_lake' as dt (TYPE delta);
