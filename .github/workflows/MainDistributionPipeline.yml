@@ -18,7 +18,7 @@ jobs:
     secrets: inherit # required for writing to vcpkg binary cache
     with:
       # Main config
-      duckdb_version: v1.3.2
+      duckdb_version: main
       ci_tools_version: main
       extension_name: delta
       enable_rust: true

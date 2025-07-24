@@ -5,7 +5,6 @@
 
 #include "duckdb.hpp"
 #include "duckdb/common/types/decimal.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/common/exception/conversion_exception.hpp"
