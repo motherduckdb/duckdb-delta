@@ -81,4 +81,4 @@ select count(*), sum(i), sum(part), sum(new_col) FROM simple_table_column_mapped
 statement error
 INSERT INTO simple_table_column_mapped VALUES (5, 1, 1337);
 ----
-Unsupported: Unknown WriterFeatures: "checkConstraints", "generatedColumns", "typeWidening-preview", "changeDataFeed", "columnMapping". Supported WriterFeatures: "appendOnly", "deletionVectors", "invariants", "timestampNtz"
+IO Error: DeltaKernel UnsupportedError (35)
