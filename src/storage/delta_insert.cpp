@@ -49,11 +49,6 @@ unique_ptr<GlobalSinkState> DeltaInsert::GetGlobalSinkState(ClientContext &conte
 	return make_uniq<DeltaInsertGlobalState>();
 }
 
-//
-// unique_ptr<LocalSinkState> DeltaInsert::GetLocalSinkState(ExecutionContext &context) const {
-//     return physical_copy_to_file->GetLocalSinkState(context);
-// }
-
 //===--------------------------------------------------------------------===//
 // Sink
 //===--------------------------------------------------------------------===//
