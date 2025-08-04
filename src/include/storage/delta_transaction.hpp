@@ -42,6 +42,9 @@ public:
 	DeltaTableEntry &InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry, idx_t version);
     unique_ptr<SchemaVisitor::FieldList> GetWriteSchema(ClientContext &context);
 
+    //! Removes all outstanding appends and removes the files if possible
+    void CleanUpFiles();
+
 protected:
     void InitializeTransaction(ClientContext &context);
 

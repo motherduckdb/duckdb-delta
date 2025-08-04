@@ -149,6 +149,19 @@ unique_ptr<SchemaVisitor::FieldList> DeltaTransaction::GetWriteSchema(ClientCont
     return result;
 }
 
+void DeltaTransaction::CleanUpFiles() {
+    // Clean up the files created by this transaction
+    auto context_ptr = context.lock();
+    if (context_ptr) {
+        for (const auto &append : outstanding_appends) {
+            auto &fs = FileSystem::GetFileSystem(*context_ptr);
+            fs.TryRemoveFile(append.file_name);
+        }
+    }
+    outstanding_appends.clear();
+}
+
+
 void DeltaTransaction::Commit(ClientContext &context) {
 	if (transaction_state == DeltaTransactionState::TRANSACTION_STARTED) {
 		transaction_state = DeltaTransactionState::TRANSACTION_FINISHED;
@@ -181,13 +194,7 @@ void DeltaTransaction::Commit(ClientContext &context) {
 void DeltaTransaction::Rollback() {
 	if (transaction_state == DeltaTransactionState::TRANSACTION_STARTED) {
 		transaction_state = DeltaTransactionState::TRANSACTION_FINISHED;
-	    auto context_ptr = context.lock();
-	    if (context_ptr) {
-	        for (const auto &append : outstanding_appends) {
-	            auto &fs = FileSystem::GetFileSystem(*context_ptr);
-	            fs.TryRemoveFile(append.file_name);
-	        }
-	    }
+	    CleanUpFiles();
 	}
 }
 

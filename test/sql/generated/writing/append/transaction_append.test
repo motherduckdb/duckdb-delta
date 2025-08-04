@@ -96,13 +96,25 @@ INSERT INTO simple_table VALUES (5);
 statement ok con1
 COMMIT
 
-# TODO: commit retries 
+# there are now 4 files: of which 1 is uncommitted
+query I
+select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
+----
+4
+
+# The commit fails because it conflicts with the one from con1 
 statement error con2
 COMMIT
 ----
 TransactionContext Error: Failed to commit: DeltaKernel GenericError (5): Generic delta kernel error: commit conflict at version 3
 
-# Data is committed properly
+# The uncommitted file was cleaned up on rollback
+query I
+select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
+----
+3
+
+# Data is not committed
 query II con2
 select count(*), sum(i) FROM simple_table;
 ----
