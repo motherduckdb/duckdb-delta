@@ -10,6 +10,7 @@
 #include "duckdb/common/arrow/arrow_converter.hpp"
 #include "duckdb/common/arrow/arrow_appender.hpp"
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
+#include "duckdb/main/client_context_file_opener.hpp"
 #include "functions/delta_scan/delta_scan.hpp"
 #include "storage/delta_insert.hpp"
 #include "storage/delta_table_entry.hpp"
@@ -180,8 +181,13 @@ void DeltaTransaction::Commit(ClientContext &context) {
 void DeltaTransaction::Rollback() {
 	if (transaction_state == DeltaTransactionState::TRANSACTION_STARTED) {
 		transaction_state = DeltaTransactionState::TRANSACTION_FINISHED;
-		// NOP: we only support read-only transactions currently
-	    // TODO: can we delete files we've written when aborting?
+	    auto context_ptr = context.lock();
+	    if (context_ptr) {
+	        for (const auto &append : outstanding_appends) {
+	            auto &fs = FileSystem::GetFileSystem(*context_ptr);
+	            fs.TryRemoveFile(append.file_name);
+	        }
+	    }
 	}
 }
 

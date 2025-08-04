@@ -46,11 +46,11 @@ select count(*), sum(i) FROM simple_table;
 ----
 10	45
 
-# TODO: clean up file on rollback and change test to 1
+# The file is automatically cleaned up by DuckDB on rollback
 query I
 select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
 ----
-2
+1
 
 ###
 ## Transactions are properly isolated
