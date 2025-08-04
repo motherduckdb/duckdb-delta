@@ -7,6 +7,8 @@ require delta
 
 require tpch
 
+require-env GENERATED_DATA_AVAILABLE
+
 # Generate tpch
 statement ok
 call dbgen(sf=1, suffix='_mem')
