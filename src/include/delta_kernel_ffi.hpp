@@ -11,23 +11,23 @@ namespace ffi {
 enum class KernelError {
   UnknownError,
   FFIError,
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
   ArrowError,
 #endif
   EngineDataTypeError,
   ExtractError,
   GenericError,
   IOErrorError,
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
   ParquetError,
 #endif
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
   ObjectStoreError,
 #endif
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
   ObjectStorePathError,
 #endif
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
   ReqwestError,
 #endif
   FileNotFoundError,
@@ -53,9 +53,7 @@ enum class KernelError {
   InternalError,
   InvalidExpression,
   InvalidLogPath,
-  InvalidCommitInfo,
   FileAlreadyExists,
-  MissingCommitInfo,
   UnsupportedError,
   ParseIntervalError,
   ChangeDataFeedUnsupported,
@@ -123,7 +121,7 @@ struct CTransforms;
 /// this struct can be used by an engine to materialize a selection vector
 struct DvInfo;
 
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
 /// A builder that allows setting options on the `Engine` before actually building it
 struct EngineBuilder;
 #endif
@@ -136,6 +134,13 @@ struct EngineBuilder;
 struct ExclusiveEngineData;
 
 struct ExclusiveFileReadResultIterator;
+
+/// A handle representing an exclusive transaction on a Delta table. (Similar to a Box<_>)
+///
+/// This struct provides a safe wrapper around the underlying `Transaction` type,
+/// ensuring exclusive access to transaction operations. The transaction can be used
+/// to stage changes and commit them atomically to the Delta table.
+struct ExclusiveTransaction;
 
 /// A SQL expression.
 ///
@@ -177,6 +182,12 @@ struct SharedScanMetadataIterator;
 struct SharedSchema;
 
 struct SharedSnapshot;
+
+/// A [`WriteContext`] that provides schema and path information needed for writing data.
+/// This is a shared reference that can be cloned and used across multiple consumers.
+///
+/// The [`WriteContext`] must be freed using [`free_write_context`] when no longer needed.
+struct SharedWriteContext;
 
 struct StringSliceIterator;
 
@@ -349,7 +360,7 @@ struct FFI_ArrowSchema {
   void *private_data;
 };
 
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
 /// Struct to allow binding to the arrow [C Data
 /// Interface](https://arrow.apache.org/docs/format/CDataInterface.html). This includes the data and
 /// the schema.
@@ -555,6 +566,9 @@ struct im_an_unused_struct_that_tricks_msvc_into_compilation {
 	ExternResult<Handle<ExclusiveFileReadResultIterator>> field10;
 	ExternResult<KernelRowIndexArray> field11;
 	ExternResult<Handle<ExclusiveEngineData>> field12;
+    ExternResult<Handle<ExclusiveTransaction>> field13;
+    ExternResult<uint64_t> field14;
+    ExternResult<NullableCvoid> field15;
 };
 
 /// An `Event` can generally be thought of a "log message". It contains all the relevant bits such
@@ -753,6 +767,12 @@ struct EngineSchemaVisitor {
                               KernelStringSlice name,
                               bool is_nullable,
                               const CStringMap *metadata);
+  /// Visit a `variant` belonging to the list identified by `sibling_list_id`.
+  void (*visit_variant)(void *data,
+                        uintptr_t sibling_list_id,
+                        KernelStringSlice name,
+                        bool is_nullable,
+                        const CStringMap *metadata);
 };
 
 extern "C" {
@@ -774,7 +794,7 @@ void free_row_indexes(KernelRowIndexArray slice);
 /// Caller is responsible for passing a valid handle as engine_data
 void free_engine_data(Handle<ExclusiveEngineData> engine_data);
 
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
 /// Get a "builder" that can be used to construct an engine. The function
 /// [`set_builder_option`] can be used to set options on the builder prior to constructing the
 /// actual engine
@@ -785,7 +805,7 @@ ExternResult<EngineBuilder*> get_engine_builder(KernelStringSlice path,
                                                 AllocateErrorFn allocate_error);
 #endif
 
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
 /// Set an option on the builder
 ///
 /// # Safety
@@ -794,7 +814,7 @@ ExternResult<EngineBuilder*> get_engine_builder(KernelStringSlice path,
 void set_builder_option(EngineBuilder *builder, KernelStringSlice key, KernelStringSlice value);
 #endif
 
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
 /// Consume the builder and return a `default` engine. After calling, the passed pointer is _no
 /// longer valid_. Note that this _consumes_ and frees the builder, so there is no need to
 /// drop/free it afterwards.
@@ -806,7 +826,7 @@ void set_builder_option(EngineBuilder *builder, KernelStringSlice key, KernelStr
 ExternResult<Handle<SharedExternEngine>> builder_build(EngineBuilder *builder);
 #endif
 
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
 /// # Safety
 ///
 /// Caller is responsible for passing a valid path pointer.
@@ -897,6 +917,16 @@ bool string_slice_next(Handle<StringSliceIterator> data,
 /// Caller is responsible for (at most once) passing a valid pointer to a [`StringSliceIterator`]
 void free_string_slice_data(Handle<StringSliceIterator> data);
 
+/// Get the domain metadata as an optional string allocated by `AllocatedStringFn` for a specific domain in this snapshot
+///
+/// # Safety
+///
+/// Caller is responsible for passing in a valid handle
+ExternResult<NullableCvoid> get_domain_metadata(Handle<SharedSnapshot> snapshot,
+                                                KernelStringSlice domain,
+                                                Handle<SharedExternEngine> engine,
+                                                AllocateStringFn allocate_fn);
+
 /// Get the number of rows in an engine data
 ///
 /// # Safety
@@ -912,7 +942,7 @@ uintptr_t engine_data_length(Handle<ExclusiveEngineData> *data);
 /// ensure the handle outlives the returned pointer.
 void *get_raw_engine_data(Handle<ExclusiveEngineData> data);
 
-#if defined(DEFINE_DEFAULT_ENGINE)
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
 /// Get an [`ArrowFFIData`] to allow binding to the arrow [C Data
 /// Interface](https://arrow.apache.org/docs/format/CDataInterface.html). This includes the data and
 /// the schema. If this function returns an `Ok` variant the _engine_ must free the returned struct.
@@ -922,6 +952,22 @@ void *get_raw_engine_data(Handle<ExclusiveEngineData> data);
 /// [`delta_kernel::engine::default::DefaultEngine`] obtained from `get_default_engine`.
 ExternResult<ArrowFFIData*> get_raw_arrow_data(Handle<ExclusiveEngineData> data,
                                                Handle<SharedExternEngine> engine);
+#endif
+
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
+/// Creates engine data from Arrow C Data Interface array and schema.
+///
+/// Converts the provided Arrow C Data Interface array and schema into delta-kernel's internal
+/// engine data format. Note that ownership of the array is transferred to the kernel, whereas the
+/// ownership of the schema stays the engine's.
+///
+/// # Safety
+/// - `array` must be a valid FFI_ArrowArray
+/// - `schema` must be a valid pointer to a FFI_ArrowSchema
+/// - `engine` must be a valid Handle to a SharedExternEngine
+ExternResult<Handle<ExclusiveEngineData>> get_engine_data(FFI_ArrowArray array,
+                                                          const FFI_ArrowSchema *schema,
+                                                          Handle<SharedExternEngine> engine);
 #endif
 
 /// Call the engine back with the next `EngineData` batch read by Parquet/Json handler. The
@@ -1349,6 +1395,71 @@ Handle<SharedExpression> get_testing_kernel_expression();
 /// The caller is responsible for freeing the returned memory, either by calling
 /// [`crate::expressions::free_kernel_predicate`], or [`crate::handle::Handle::drop_handle`].
 Handle<SharedPredicate> get_testing_kernel_predicate();
+
+/// Start a transaction on the latest snapshot of the table.
+///
+/// # Safety
+///
+/// Caller is responsible for passing valid handles and path pointer.
+ExternResult<Handle<ExclusiveTransaction>> transaction(KernelStringSlice path,
+                                                       Handle<SharedExternEngine> engine);
+
+/// # Safety
+///
+/// Caller is responsible for passing a valid handle.
+void free_transaction(Handle<ExclusiveTransaction> txn);
+
+/// Attaches commit information to a transaction. The commit info contains metadata about the
+/// transaction that will be written to the log during commit.
+///
+/// # Safety
+///
+/// Caller is responsible for passing a valid handle. CONSUMES TRANSACTION and commit info
+ExternResult<Handle<ExclusiveTransaction>> with_engine_info(Handle<ExclusiveTransaction> txn,
+                                                            KernelStringSlice engine_info,
+                                                            Handle<SharedExternEngine> engine);
+
+/// Add file metadata to the transaction for files that have been written. The metadata contains
+/// information about files written during the transaction that will be added to the Delta log
+/// during commit.
+///
+/// # Safety
+///
+/// Caller is responsible for passing a valid handle. Consumes write_metadata.
+void add_files(Handle<ExclusiveTransaction> txn, Handle<ExclusiveEngineData> write_metadata);
+
+/// Attempt to commit a transaction to the table. Returns version number if successful.
+/// Returns error if the commit fails.
+///
+/// # Safety
+///
+/// Caller is responsible for passing a valid handle. And MUST NOT USE transaction after this
+/// method is called.
+ExternResult<uint64_t> commit(Handle<ExclusiveTransaction> txn, Handle<SharedExternEngine> engine);
+
+/// Gets the write context from a transaction. The write context provides schema and path information
+/// needed for writing data.
+///
+/// # Safety
+///
+/// Caller is responsible for passing a [valid][Handle#Validity] transaction handle.
+Handle<SharedWriteContext> get_write_context(Handle<ExclusiveTransaction> txn);
+
+void free_write_context(Handle<SharedWriteContext> write_context);
+
+/// Get schema from WriteContext handle. The schema must be freed when no longer needed via
+/// [`free_schema`].
+///
+/// # Safety
+/// Engine is responsible for providing a valid WriteContext pointer
+Handle<SharedSchema> get_write_schema(Handle<SharedWriteContext> write_context);
+
+/// Get write path from WriteContext handle.
+///
+/// # Safety
+/// Engine is responsible for providing a valid WriteContext pointer
+NullableCvoid get_write_path(Handle<SharedWriteContext> write_context,
+                             AllocateStringFn allocate_fn);
 
 }  // extern "C"
 

@@ -17,6 +17,7 @@ vector<ScalarFunctionSet> DeltaFunctions::GetScalarFunctions(DatabaseInstance &i
 	vector<ScalarFunctionSet> functions;
 
 	functions.push_back(GetExpressionFunction(instance));
+	functions.push_back(GetWriteFileFunction(instance));
 
 	return functions;
 }

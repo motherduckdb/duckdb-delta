@@ -1,6 +1,7 @@
 #include "functions/delta_scan/delta_scan.hpp"
 #include "storage/delta_catalog.hpp"
 #include "storage/delta_table_entry.hpp"
+#include "storage/delta_transaction.hpp"
 
 #include "duckdb/storage/statistics/base_statistics.hpp"
 #include "duckdb/storage/table_storage_info.hpp"
@@ -35,6 +36,11 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 
     auto delta_scan_function = delta_function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
     auto &delta_catalog = catalog.Cast<DeltaCatalog>();
+
+    auto &transaction = DeltaTransaction::Get(context, delta_catalog);
+    if (transaction.HasOutstandingAppends()) {
+        throw CatalogException("Scanning a table with uncommitted writes is not supported");
+    }
 
     // Copy over the internal kernel snapshot
     auto function_info = make_shared_ptr<DeltaFunctionInfo>();
