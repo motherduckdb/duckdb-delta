@@ -16,6 +16,7 @@ vector<ScalarFunctionSet> DeltaFunctions::GetScalarFunctions(ExtensionLoader &lo
 	vector<ScalarFunctionSet> functions;
 
 	functions.push_back(GetExpressionFunction(loader));
+	functions.push_back(GetWriteFileFunction(loader));
 
 	return functions;
 }

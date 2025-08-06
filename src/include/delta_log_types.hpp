@@ -8,6 +8,7 @@
 
 #pragma once
 
+#define DEFINE_DEFAULT_ENGINE_BASE 1
 #include "delta_kernel_ffi.hpp"
 #include "duckdb/main/database.hpp"
 

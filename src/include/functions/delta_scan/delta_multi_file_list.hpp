@@ -89,15 +89,20 @@ protected:
 	void ReportFilterPushdown(ClientContext &context, DeltaMultiFileList &new_list, const vector<column_t> &column_ids,
 	                          const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const;
 
-	template <class T>
-	T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
-		T return_value;
-		auto res = KernelUtils::TryUnpackResult<T>(result, return_value);
-		if (res.HasError()) {
-			res.Throw();
-		}
-		return return_value;
-	}
+
+
+public: // TODO: clean up
+    template <class T>
+    T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
+        T return_value;
+        auto res = KernelUtils::TryUnpackResult<T>(result, return_value);
+        if (res.HasError()) {
+            res.Throw();
+        }
+        return return_value;
+    }
+
+    mutable KernelExternEngine extern_engine;
 
 protected:
 	// Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
@@ -107,7 +112,7 @@ protected:
 
 	//! Delta Kernel Structures
 	mutable shared_ptr<SharedKernelSnapshot> snapshot;
-	mutable KernelExternEngine extern_engine;
+
 	mutable KernelScan scan;
 	mutable KernelScanDataIterator scan_data_iterator;
 

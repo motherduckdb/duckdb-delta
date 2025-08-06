@@ -766,6 +766,8 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
 		}
 	}
 
+    // TODO clean up this mess with a copy constructor?
+
 	filtered_list->table_filters = std::move(result_filter_set);
 	filtered_list->names = names;
 	filtered_list->types = types;
