@@ -4,7 +4,6 @@
 
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/main/client_data.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
 #include "functions/delta_scan/delta_scan.hpp"
 #include "duckdb/execution/physical_operator_states.hpp"
@@ -23,14 +22,14 @@
 
 namespace duckdb {
 
-DeltaInsert::DeltaInsert(LogicalOperator &op, TableCatalogEntry &table,
+DeltaInsert::DeltaInsert(PhysicalPlan &plan, LogicalOperator &op, TableCatalogEntry &table,
                      physical_index_vector_t<idx_t> column_index_map_p)
-: PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
+: PhysicalOperator(plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
   column_index_map(std::move(column_index_map_p)) {
 }
 
-DeltaInsert::DeltaInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(nullptr), schema(&schema),
+DeltaInsert::DeltaInsert(PhysicalPlan &plan, LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
+    : PhysicalOperator(plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(nullptr), schema(&schema),
       info(std::move(info)) {
 }
 
