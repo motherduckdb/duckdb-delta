@@ -247,7 +247,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for insertion into Delta table");
 	}
-	if (op.action_type != OnConflictAction::THROW) {
+	if (op.on_conflict_info.action_type != OnConflictAction::THROW) {
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into Delta table");
 	}
 
