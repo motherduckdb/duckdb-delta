@@ -4,6 +4,7 @@
 #include "duckdb/common/operator/decimal_cast_operators.hpp"
 
 #include "duckdb.hpp"
+#include "duckdb/common/extension_type_info.hpp"
 #include "duckdb/common/types/decimal.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
@@ -468,42 +469,50 @@ unique_ptr<ExpressionVisitor::FieldList> ExpressionVisitor::TakeFieldList(uintpt
 	return rval;
 }
 
-ffi::EngineSchemaVisitor SchemaVisitor::CreateSchemaVisitor(SchemaVisitor &state) {
-	ffi::EngineSchemaVisitor visitor;
+ffi::EngineSchemaVisitor SchemaVisitor::CreateSchemaVisitor(SchemaVisitor &state, bool enable_variant) {
+    ffi::EngineSchemaVisitor visitor;
 
-	visitor.data = &state;
-	visitor.make_field_list = (uintptr_t(*)(void *, uintptr_t)) & MakeFieldList;
-	visitor.visit_struct =
-	    (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) &
-	    VisitStruct;
-	visitor.visit_array =
-	    (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) &
-	    VisitArray;
-	visitor.visit_map =
-	    (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) &
-	    VisitMap;
-	visitor.visit_decimal =
-	    (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uint8_t, uint8_t)) &
-	    VisitDecimal;
-	visitor.visit_string = VisitSimpleType<LogicalType::VARCHAR>();
-	visitor.visit_long = VisitSimpleType<LogicalType::BIGINT>();
-	visitor.visit_integer = VisitSimpleType<LogicalType::INTEGER>();
-	visitor.visit_short = VisitSimpleType<LogicalType::SMALLINT>();
-	visitor.visit_byte = VisitSimpleType<LogicalType::TINYINT>();
-	visitor.visit_float = VisitSimpleType<LogicalType::FLOAT>();
-	visitor.visit_double = VisitSimpleType<LogicalType::DOUBLE>();
-	visitor.visit_boolean = VisitSimpleType<LogicalType::BOOLEAN>();
-	visitor.visit_binary = VisitSimpleType<LogicalType::BLOB>();
-	visitor.visit_date = VisitSimpleType<LogicalType::DATE>();
-	visitor.visit_timestamp = VisitSimpleType<LogicalType::TIMESTAMP_TZ>();
-	visitor.visit_timestamp_ntz = VisitSimpleType<LogicalType::TIMESTAMP>();
+    visitor.data = &state;
+    visitor.make_field_list = (uintptr_t(*)(void *, uintptr_t)) & MakeFieldList;
+    visitor.visit_struct =
+        (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) &
+        VisitStruct;
+    visitor.visit_array =
+        (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) &
+        VisitArray;
+    visitor.visit_map =
+        (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uintptr_t)) &
+        VisitMap;
+    visitor.visit_decimal =
+        (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CStringMap *metadata, uint8_t, uint8_t)) &
+        VisitDecimal;
+    visitor.visit_string = VisitSimpleType<LogicalType::VARCHAR>();
+    visitor.visit_long = VisitSimpleType<LogicalType::BIGINT>();
+    visitor.visit_integer = VisitSimpleType<LogicalType::INTEGER>();
+    visitor.visit_short = VisitSimpleType<LogicalType::SMALLINT>();
+    visitor.visit_byte = VisitSimpleType<LogicalType::TINYINT>();
+    visitor.visit_float = VisitSimpleType<LogicalType::FLOAT>();
+    visitor.visit_double = VisitSimpleType<LogicalType::DOUBLE>();
+    visitor.visit_boolean = VisitSimpleType<LogicalType::BOOLEAN>();
+    visitor.visit_binary = VisitSimpleType<LogicalType::BLOB>();
+    visitor.visit_date = VisitSimpleType<LogicalType::DATE>();
+    visitor.visit_timestamp = VisitSimpleType<LogicalType::TIMESTAMP_TZ>();
+    visitor.visit_timestamp_ntz = VisitSimpleType<LogicalType::TIMESTAMP>();
+
+    if (enable_variant) {
+        visitor.visit_variant =  (void (*)(void *data, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+        bool is_nullable, const ffi::CStringMap *metadata)) & VisitVariant<true>;
+    } else {
+        visitor.visit_variant =  (void (*)(void *data, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+        bool is_nullable, const ffi::CStringMap *metadata)) & VisitVariant<false>;
+    }
 
 	return visitor;
 }
 
-unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::SharedSnapshot *snapshot) {
+unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::SharedSnapshot *snapshot, bool enable_variant) {
 	SchemaVisitor state;
-	auto visitor = CreateSchemaVisitor(state);
+	auto visitor = CreateSchemaVisitor(state, enable_variant);
 
 	auto schema = logical_schema(snapshot);
 	uintptr_t result = visit_schema(schema, &visitor);
@@ -517,9 +526,9 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotSchema(ffi::Sha
 }
 
 unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotGlobalReadSchema(ffi::SharedScan *scan,
-                                                                                  bool logical) {
+                                                                                  bool logical, bool enable_variant) {
 	SchemaVisitor visitor_state;
-	auto visitor = CreateSchemaVisitor(visitor_state);
+	auto visitor = CreateSchemaVisitor(visitor_state, enable_variant);
 
 	ffi::Handle<ffi::SharedSchema> schema;
 	if (logical) {
@@ -538,9 +547,9 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitSnapshotGlobalReadSchem
 	return visitor_state.TakeFieldList(result);
 }
 
-unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitWriteContextSchema(ffi::SharedWriteContext *write_context) {
+unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitWriteContextSchema(ffi::SharedWriteContext *write_context, bool enable_variant) {
 	SchemaVisitor visitor_state;
-	auto visitor = CreateSchemaVisitor(visitor_state);
+	auto visitor = CreateSchemaVisitor(visitor_state, enable_variant);
     auto schema = ffi::get_write_schema(write_context);
 	uintptr_t result = visit_schema(schema, &visitor);
 	free_schema(schema);

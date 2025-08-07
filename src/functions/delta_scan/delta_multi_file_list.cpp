@@ -449,6 +449,15 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path, idx_t version_p)
     : MultiFileList({ToDeltaPath(path)}, FileGlobOptions::ALLOW_EMPTY), version (version_p), context(context_p) {
+
+    Value setting_res;
+    auto res = context.TryGetCurrentSetting("variant_legacy_encoding", setting_res);
+    if (res) {
+        D_ASSERT(setting_res.type() == LogicalType::BOOLEAN);
+        enable_variant = setting_res.GetValue<bool>();
+    } else {
+        enable_variant = false;
+    }
 }
 
 string DeltaMultiFileList::GetPath() const {
@@ -494,7 +503,7 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	unique_ptr<SchemaVisitor::FieldList> schema;
 	{
 		auto snapshot_ref = snapshot->GetLockingRef();
-		schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr());
+		schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr(), enable_variant);
 	}
 
 	for (const auto &field : *schema) {
@@ -620,7 +629,7 @@ static void InjectColumnIdentifiers(const vector<string> &names, const vector<Lo
 static vector<MultiFileColumnDefinition> ConstructGlobalColDefs(const vector<string> &names,
                                                                 const vector<LogicalType> &types,
                                                                 const vector<string> &partitions,
-                                                                ffi::SharedScan *scan) {
+                                                                ffi::SharedScan *scan, bool enable_variant) {
 	vector<string> physical_names;
 	vector<LogicalType> physical_types;
 	vector<string> logical_names;
@@ -633,8 +642,8 @@ static vector<MultiFileColumnDefinition> ConstructGlobalColDefs(const vector<str
 		partition_set.insert(partition);
 	}
 
-	auto schema_physical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, false);
-	auto schema_logical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, true);
+	auto schema_physical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, false, enable_variant);
+	auto schema_logical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, true, enable_variant);
 
 	for (idx_t i = 0; i < schema_physical->size(); i++) {
 		physical_names.push_back((*schema_physical)[i].first);
@@ -730,7 +739,7 @@ void DeltaMultiFileList::InitializeScan() const {
 		}
 	}
 
-	lazy_loaded_schema = ConstructGlobalColDefs(names, types, partitions, scan.get());
+	lazy_loaded_schema = ConstructGlobalColDefs(names, types, partitions, scan.get(), enable_variant);
 
 	initialized_scan = true;
 }

@@ -73,6 +73,10 @@ public:
 
 	vector<MultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
 
+    bool VariantEnabled() {
+        return enable_variant;
+    }
+
 protected:
 	//! Get the i-th expanded file
 	OpenFileInfo GetFile(idx_t i) override;
@@ -144,6 +148,9 @@ protected:
 	// The schema containing the proper column identifiers, lazily loaded to avoid prematurely initializing the kernel
 	// scan
 	mutable vector<MultiFileColumnDefinition> lazy_loaded_schema;
+
+    // Whether variant types are interpreted as VARIANT (currently implemented as JSON) types
+    bool enable_variant;
 };
 
 // Callback for the ffi::kernel_scan_data_next callback
