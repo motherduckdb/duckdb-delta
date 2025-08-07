@@ -16,9 +16,25 @@ Transaction &DeltaTransactionManager::StartTransaction(ClientContext &context) {
 	return result;
 }
 
+static ErrorData HandleConflict(DeltaTransaction &transaction, ErrorData &original_error) {
+    try {
+        transaction.CleanUpFiles();
+    } catch (std::exception &ex) {
+        ErrorData new_error(ex);
+        string new_message = StringUtil::Format("Multiple exceptions happened. Firstly, the DeltaTransaction failed to commit with '%s'. Secondly, DuckDB failed to clean up the files produced by this transaction: '%s'", original_error.Message());
+        return ErrorData(original_error.Type(), new_message);
+    }
+    return original_error;
+}
+
 ErrorData DeltaTransactionManager::CommitTransaction(ClientContext &context, Transaction &transaction) {
 	auto &delta_transaction = transaction.Cast<DeltaTransaction>();
-	delta_transaction.Commit();
+    try {
+        delta_transaction.Commit(context);
+    } catch (std::exception &ex) {
+        ErrorData err(ex);
+        return HandleConflict(delta_transaction, err);
+    }
 	lock_guard<mutex> l(transaction_lock);
 	transactions.erase(transaction);
 	return ErrorData();

@@ -1,5 +1,6 @@
 #pragma once
 
+#define DEFINE_DEFAULT_ENGINE_BASE 1
 #include "delta_kernel_ffi.hpp"
 #include "duckdb/common/enum_util.hpp"
 #include "duckdb/planner/filter/conjunction_filter.hpp"
@@ -152,6 +153,7 @@ public:
 
 	static unique_ptr<FieldList> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot);
 	static unique_ptr<FieldList> VisitSnapshotGlobalReadSchema(ffi::SharedScan *state, bool logical);
+	static unique_ptr<FieldList> VisitWriteContextSchema(ffi::SharedWriteContext *write_context);
 
 private:
 	unordered_map<uintptr_t, unique_ptr<FieldList>> inflight_lists;
@@ -233,6 +235,12 @@ struct UniqueKernelPointer {
 		}
 	}
 
+    KernelType *release() {
+	    auto copy = ptr;
+        ptr = nullptr;
+	    return copy;
+	}
+
 	KernelType *get() const {
 		return ptr;
 	}
@@ -254,6 +262,8 @@ typedef TemplatedUniqueKernelPointer<ffi::SharedExternEngine, ffi::free_engine> 
 typedef TemplatedUniqueKernelPointer<ffi::SharedScan, ffi::free_scan> KernelScan;
 typedef TemplatedUniqueKernelPointer<ffi::SharedScanMetadataIterator, ffi::free_scan_metadata_iter>
     KernelScanDataIterator;
+typedef TemplatedUniqueKernelPointer<ffi::ExclusiveTransaction, ffi::free_transaction> KernelExclusiveTransaction;
+typedef TemplatedUniqueKernelPointer<ffi::ExclusiveEngineData, ffi::free_engine_data> KernelEngineData;
 
 template <typename KernelType, void (*DeleteFunction)(KernelType *)>
 struct SharedKernelPointer;

@@ -1,0 +1,123 @@
+# name: test/sql/generated/writing/append/transaction_append.test
+# description: test appending to some generated tables
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+# Copy test data over to tmp test dir because we'll be inserting stuff
+statement ok
+from copy_dir('data/generated/simple_table', '__TEST_DIR__/transaction_append/simple_table');
+
+statement ok
+ATTACH '__TEST_DIR__/transaction_append/simple_table/delta_lake' AS simple_table (TYPE delta);
+
+query II
+select count(*), sum(i) FROM simple_table;
+----
+10	45
+
+query I
+select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
+----
+1
+
+###
+## Transactions that get aborted are not commited to the delta table
+###
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+INSERT INTO simple_table VALUES (5);
+
+query I
+select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
+----
+2
+
+statement ok
+ROLLBACK
+
+# Result still the same
+query II
+select count(*), sum(i) FROM simple_table;
+----
+10	45
+
+# The file is automatically cleaned up by DuckDB on rollback
+query I
+select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
+----
+1
+
+###
+## Transactions are properly isolated
+###
+
+statement ok con1
+BEGIN TRANSACTION
+
+statement ok con1
+INSERT INTO simple_table VALUES (5);
+
+# Result still the same
+query II con2
+select count(*), sum(i) FROM simple_table;
+----
+10	45
+
+statement ok con1
+COMMIT
+
+# con 2 now sees data 
+query II con2
+select count(*), sum(i) FROM simple_table;
+----
+11	50
+
+###
+## Conflicts will fail the transaction with a clear error message
+###
+
+statement ok con1
+BEGIN TRANSACTION
+
+statement ok con1
+INSERT INTO simple_table VALUES (5);
+
+statement ok con2
+BEGIN TRANSACTION
+
+statement ok con2
+INSERT INTO simple_table VALUES (5);
+
+statement ok con1
+COMMIT
+
+# there are now 4 files: of which 1 is uncommitted
+query I
+select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
+----
+4
+
+# The commit fails because it conflicts with the one from con1 
+statement error con2
+COMMIT
+----
+TransactionContext Error: Failed to commit: DeltaKernel GenericError (5): Generic delta kernel error: commit conflict at version 3
+
+# The uncommitted file was cleaned up on rollback
+query I
+select count(*) FROM glob('__TEST_DIR__/transaction_append/simple_table/delta_lake/**/*.parquet')
+----
+3
+
+# Data is not committed
+query II con2
+select count(*), sum(i) FROM simple_table;
+----
+12	55

@@ -24,5 +24,7 @@ private:
 
 	//! Scalar Functions
 	static ScalarFunctionSet GetExpressionFunction(ExtensionLoader &loader);
+
+    static ScalarFunctionSet GetWriteFileFunction(ExtensionLoader &loader);
 };
 } // namespace duckdb
