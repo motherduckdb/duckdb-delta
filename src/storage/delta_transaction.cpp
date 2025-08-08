@@ -145,7 +145,7 @@ unique_ptr<SchemaVisitor::FieldList> DeltaTransaction::GetWriteSchema(ClientCont
     }
 
     auto write_context = ffi::get_write_context(kernel_transaction.get());
-    auto result = SchemaVisitor::VisitWriteContextSchema(write_context);
+    auto result = SchemaVisitor::VisitWriteContextSchema(write_context, write_entry.get()->snapshot->VariantEnabled());
     return result;
 }
 
@@ -219,6 +219,7 @@ void DeltaTransaction::InitializeTransaction(ClientContext &context) {
 
     string engine_info = "DuckDB";
     kernel_transaction = table_entry->snapshot->TryUnpackKernelResult(ffi::with_engine_info(new_kernel_transaction, KernelUtils::ToDeltaString(engine_info), table_entry->snapshot->extern_engine.get()));
+    write_entry = table_entry.get();
 }
 
 void DeltaTransaction::Append(ClientContext &context, const vector<DeltaDataFile> &append_files) {

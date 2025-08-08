@@ -11,6 +11,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/table_macro_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/main/extension_helper.hpp"
 #include "duckdb/storage/storage_extension.hpp"
 #include "duckdb/main/config.hpp"
 

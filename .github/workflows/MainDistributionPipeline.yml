@@ -18,7 +18,7 @@ jobs:
     secrets: inherit # required for writing to vcpkg binary cache
     with:
       # Main config
-      duckdb_version: 9447cdad1a194c40c15111f03d8dc14355de5d2f # latest main as of now
+      duckdb_version: e76b5346e2856599925828ac257d0f4a4dbdf10f # latest main as of now
       ci_tools_version: main
       extension_name: delta
       enable_rust: true
@@ -38,7 +38,7 @@ jobs:
     secrets: inherit
     with:
       extension_name: delta
-      duckdb_version: 9447cdad1a194c40c15111f03d8dc14355de5d2f # latest main as of now
+      duckdb_version: e76b5346e2856599925828ac257d0f4a4dbdf10f # latest main as of now
       ci_tools_version: main
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw;linux_amd64_musl'
       deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}

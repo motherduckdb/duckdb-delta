@@ -151,9 +151,9 @@ class SchemaVisitor {
 public:
 	using FieldList = child_list_t<LogicalType>;
 
-	static unique_ptr<FieldList> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot);
-	static unique_ptr<FieldList> VisitSnapshotGlobalReadSchema(ffi::SharedScan *state, bool logical);
-	static unique_ptr<FieldList> VisitWriteContextSchema(ffi::SharedWriteContext *write_context);
+	static unique_ptr<FieldList> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot, bool enable_variant);
+	static unique_ptr<FieldList> VisitSnapshotGlobalReadSchema(ffi::SharedScan *state, bool logical, bool enable_variant);
+	static unique_ptr<FieldList> VisitWriteContextSchema(ffi::SharedWriteContext *write_context, bool enable_variant);
 
 private:
 	unordered_map<uintptr_t, unique_ptr<FieldList>> inflight_lists;
@@ -161,7 +161,7 @@ private:
 
 	ErrorData error;
 
-	static ffi::EngineSchemaVisitor CreateSchemaVisitor(SchemaVisitor &state);
+	static ffi::EngineSchemaVisitor CreateSchemaVisitor(SchemaVisitor &state, bool enable_variant);
 
 	typedef void(SimpleTypeVisitorFunction)(void *, uintptr_t, ffi::KernelStringSlice, bool is_nullable,
 	                                        const ffi::CStringMap *metadata);
@@ -185,6 +185,21 @@ private:
 	                       bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id);
 	static void VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable,
 	                     const ffi::CStringMap *metadata, uintptr_t child_list_id);
+
+    template <bool ENABLE_VARIANT>
+    static void VisitVariant(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable, const ffi::CStringMap *metadata) {
+        LogicalType type;
+        if (ENABLE_VARIANT) {
+            type = LogicalType::JSON();
+        } else {
+            child_list_t<LogicalType> struct_children;
+            struct_children.push_back({"value", LogicalType::BLOB});
+            struct_children.push_back({"metadata", LogicalType::BLOB});
+            type = LogicalType::STRUCT(struct_children);
+        }
+
+        state->AppendToList(sibling_list_id, name, std::move(type));
+    }
 
 	uintptr_t MakeFieldListImpl(uintptr_t capacity_hint);
 	void AppendToList(uintptr_t id, ffi::KernelStringSlice name, LogicalType &&child);

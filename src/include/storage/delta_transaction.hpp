@@ -64,6 +64,9 @@ private:
     vector<DeltaDataFile> outstanding_appends;
 
     KernelExclusiveTransaction kernel_transaction;
+
+    //! stores a ptr to the table entry that this transaction is writing to
+    optional_ptr<DeltaTableEntry> write_entry;
 };
 
 } // namespace duckdb
