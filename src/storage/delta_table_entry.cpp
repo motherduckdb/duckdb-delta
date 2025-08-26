@@ -9,6 +9,7 @@
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 
 namespace duckdb {
@@ -83,6 +84,23 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 
     return delta_scan_function;
 }
+
+case_insensitive_map_t<vector<NestedNotNullConstraint>> DeltaTableEntry::GetNotNullConstraints() const {
+    case_insensitive_map_t<vector<NestedNotNullConstraint>> result;
+    for (auto &constraint : snapshot->GetNestedNotNullConstraints()) {
+        auto &col = GetColumn(constraint.index);
+        auto &item= result[col.Name()];
+        item.push_back(constraint);
+    }
+    return result;
+}
+
+void DeltaTableEntry::ThrowOnUnsupportedFieldForInserting() const {
+    if (snapshot && snapshot->HasNullConstraintsInArrays()) {
+        throw NotImplementedException("Inserting into a table with null constraints in arrays is not supported");
+    }
+}
+
 
 TableFunction DeltaTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data, const EntryLookupInfo &lookup_info) {
     return GetScanFunctionInternal(context, bind_data, lookup_info);

@@ -1,0 +1,81 @@
+# name: test/sql/main/writing/basic_append.test
+# description: test appending to some generated tables
+
+require parquet
+
+require delta
+
+# Copy test data over to tmp test dir because we'll be inserting stuff
+statement ok
+from copy_dir('data/inlined/null_constraints_lists', '__TEST_DIR__/non_nullable/null_constraints_lists');
+from copy_dir('data/inlined/null_constraints_structs', '__TEST_DIR__/non_nullable/null_constraints_structs');
+
+statement ok
+ATTACH '__TEST_DIR__/non_nullable/null_constraints_structs/delta_lake' AS delta_table (TYPE delta);
+
+query I
+select count(*)  FROM delta_table;
+----
+10
+
+# top level primitive type column is null
+statement error
+INSERT INTO delta_table VALUES (NULL, {'value': 1}, {'value': {'a': 1, 'b': 1}});
+----
+Constraint Error: NOT NULL constraint failed: delta_table.i
+
+# top level struct column is null
+statement error
+INSERT INTO delta_table VALUES (1, NULL, {'value': {'a': 1, 'b': 1}});
+----
+Constraint Error: NOT NULL constraint failed: delta_table.struct
+
+# struct column field is null
+statement error
+INSERT INTO delta_table VALUES (1, {'value': NULL}, {'value': {'a': 1, 'b': 1}});
+----
+Constraint Error: NOT NULL constraint failed: delta_table.struct.value
+
+# nested struct field is null
+statement error
+INSERT INTO delta_table VALUES (1, {'value': 1}, {'value': NULL});
+----
+Constraint Error: NOT NULL constraint failed: delta_table.nested_struct.value
+
+# nested struct inner field is null
+statement error
+INSERT INTO delta_table VALUES (1, {'value': 1}, {'value': {'a': NULL, 'b': 1}});
+----
+Constraint Error: NOT NULL constraint failed: delta_table.nested_struct.value.a
+
+# finally, a successful insert!
+statement ok
+INSERT INTO delta_table VALUES (1, {'value': 1}, {'value': {'a': 1, 'b': 1}});
+
+# Only 1 went through
+query I
+select count(*)  FROM delta_table;
+----
+11
+
+statement ok
+DETACH delta_table;
+
+statement ok
+ATTACH '__TEST_DIR__/non_nullable/null_constraints_lists/delta_lake' AS delta_table (TYPE delta);
+
+query I
+select count(*)  FROM delta_table;
+----
+10
+
+# Any insert is disallowed whenever non-nullable fields are present
+statement error
+INSERT INTO delta_table VALUES (1, [{'value':1}]);
+----
+Not implemented Error: Inserting into a table with null constraints in arrays is not supported
+
+query I
+select count(*)  FROM delta_table;
+----
+10

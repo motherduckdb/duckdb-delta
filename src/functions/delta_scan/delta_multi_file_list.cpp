@@ -12,8 +12,12 @@
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
+#include "duckdb/parser/constraint.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 
 #include <regex>
+
+#include "duckdb/planner/constraints/bound_not_null_constraint.hpp"
 
 namespace duckdb {
 
@@ -489,6 +493,48 @@ string DeltaMultiFileList::ToDeltaPath(const string &raw_path) {
 	return path;
 }
 
+static void ExtractNotNullConstraints(vector<NestedNotNullConstraint> &constraints,
+                               const SchemaVisitor::FieldList &schema, idx_t index = DConstants::INVALID_INDEX, const string &parent_path = "") {
+
+    idx_t col_id = 0;
+    for (auto &field : schema) {
+        // Traverse struct
+        string field_path = parent_path.empty() ? "\"" + field.first + "\"" : parent_path + ".\"" + field.first + "\"";
+        idx_t index_to_set = index == DConstants::INVALID_INDEX ? col_id++ : index;
+
+        if (!field.second.nullable) {
+            constraints.push_back(NestedNotNullConstraint(LogicalIndex(index_to_set), field_path));
+        }
+
+        if (field.second.type.id() == LogicalTypeId::STRUCT) {
+            ExtractNotNullConstraints(constraints, field.second.children, index_to_set, field_path);
+        }
+    }
+}
+
+static bool ExtractHasNullConstraintsInArrays(SchemaVisitor::FieldList &fields, bool in_array = false) {
+    for (auto &field : fields) {
+        if (field.second.type.id() == LogicalTypeId::ARRAY || field.second.type.id() == LogicalTypeId::LIST) {
+            if (!field.second.nullable) {
+                return true;
+            }
+        }
+
+        // Traverse nested types
+        if (field.second.type.id() == LogicalTypeId::STRUCT ||
+            field.second.type.id() == LogicalTypeId::MAP ||
+            field.second.type.id() == LogicalTypeId::LIST ||
+            field.second.type.id() == LogicalTypeId::ARRAY) {
+
+            if (ExtractHasNullConstraintsInArrays(field.second.children, true)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> &names) {
 	unique_lock<mutex> lck(lock);
 
@@ -508,12 +554,17 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 
 	for (const auto &field : *schema) {
 		names.push_back(field.first);
-		return_types.push_back(field.second);
+		return_types.push_back(field.second.type);
 	}
+
 	// Store the bound names for resolving the complex filter pushdown later
 	have_bound = true;
 	this->names = names;
 	this->types = return_types;
+
+    ExtractNotNullConstraints(this->not_null_constraints, *schema);
+
+    has_null_constraints_in_arrays = ExtractHasNullConstraintsInArrays(*schema);
 }
 
 OpenFileInfo DeltaMultiFileList::GetFileInternal(idx_t i) const {
@@ -647,11 +698,11 @@ static vector<MultiFileColumnDefinition> ConstructGlobalColDefs(const vector<str
 
 	for (idx_t i = 0; i < schema_physical->size(); i++) {
 		physical_names.push_back((*schema_physical)[i].first);
-		physical_types.push_back((*schema_physical)[i].second);
+		physical_types.push_back((*schema_physical)[i].second.type);
 	}
 	for (idx_t i = 0; i < schema_logical->size(); i++) {
 		logical_names.push_back((*schema_logical)[i].first);
-		logical_types.push_back((*schema_logical)[i].second);
+		logical_types.push_back((*schema_logical)[i].second.type);
 	}
 
 	idx_t physical_idx = 0;
@@ -1042,6 +1093,18 @@ vector<MultiFileColumnDefinition> &DeltaMultiFileList::GetLazyLoadedGlobalColumn
 	EnsureScanInitialized();
 	return lazy_loaded_schema;
 }
+
+vector<NestedNotNullConstraint> DeltaMultiFileList::GetNestedNotNullConstraints() const {
+    unique_lock<mutex> lck(lock);
+    EnsureScanInitialized();
+    return not_null_constraints;
+}
+
+bool DeltaMultiFileList::HasNullConstraintsInArrays() const {
+    unique_lock<mutex> lck(lock);
+    EnsureScanInitialized();
+    return has_null_constraints_in_arrays;
+};
 
 unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {
 	auto result = make_uniq<DeltaMultiFileReader>();
