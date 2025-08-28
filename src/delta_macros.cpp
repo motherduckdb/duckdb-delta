@@ -44,9 +44,16 @@ JOIN
     tpcds_queries() as tpcds_queries on tpcds_queries."query"=query_string
 )";
 
+// Make proper function that supports remote FS
+#ifdef WIN32
+static constexpr auto FILE_COPY_MACRO = R"(
+    select write_blob(replace("dst_dir" || filename[length("src_dir")+1:], '/', '\'), content) from read_blob( "src_dir" || '/**')
+)";
+#else
 static constexpr auto FILE_COPY_MACRO = R"(
     select write_blob("dst_dir" || filename[length("src_dir")+1:], content) from read_blob( "src_dir" || '/**')
 )";
+#endif
 
 void DeltaMacros::RegisterTableMacro(ExtensionLoader &loader, const string &name, const string &query,
                                      const vector<string> &params, const child_list_t<Value> &named_params) {
