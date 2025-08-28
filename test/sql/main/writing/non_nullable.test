@@ -5,6 +5,8 @@ require parquet
 
 require delta
 
+require notwindows
+
 # Copy test data over to tmp test dir because we'll be inserting stuff
 statement ok
 CALL copy_dir('data/inlined/null_constraints_lists', '__TEST_DIR__/non_nullable/null_constraints_lists');
