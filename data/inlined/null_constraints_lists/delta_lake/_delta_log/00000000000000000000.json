@@ -1,0 +1,51 @@
+{
+  "commitInfo": {
+    "timestamp": 1756204873797,
+    "operation": "CREATE TABLE AS SELECT",
+    "operationParameters": {
+      "partitionBy": "[]",
+      "clusterBy": "[]",
+      "description": null,
+      "isManaged": "false",
+      "properties": "{}"
+    },
+    "isolationLevel": "Serializable",
+    "isBlindAppend": true,
+    "operationMetrics": {
+      "numFiles": "1",
+      "numOutputRows": "10",
+      "numOutputBytes": "1071"
+    },
+    "engineInfo": "Apache-Spark/3.5.6 Delta-Lake/3.3.1",
+    "txnId": "a9cc1e55-d76c-4cac-889c-9aeb23b7643b"
+  }
+}
+{
+  "metaData": {
+    "id": "6f8e101d-8d5b-4a59-84b2-9e61b04c57c2",
+    "format": {
+      "provider": "parquet",
+      "options": {}
+    },
+    "schemaString": "{\"type\":\"struct\",\"fields\":[{\"name\":\"i\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}},{\"name\":\"list_of_struct\",\"type\":{\"type\":\"array\",\"elementType\":{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}}]},\"containsNull\":true},\"nullable\":false,\"metadata\":{}}]}",
+    "partitionColumns": [],
+    "configuration": {},
+    "createdTime": 1756204873653
+  }
+}
+{
+  "protocol": {
+    "minReaderVersion": 1,
+    "minWriterVersion": 2
+  }
+}
+{
+  "add": {
+    "path": "part-00000-6033f0dd-d8f9-4c14-a1cf-63e4d7cd99d6-c000.snappy.parquet",
+    "partitionValues": {},
+    "size": 1071,
+    "modificationTime": 1756204873793,
+    "dataChange": true,
+    "stats": "{\"numRecords\":10,\"minValues\":{\"i\":0},\"maxValues\":{\"i\":9},\"nullCount\":{\"i\":0,\"list_of_struct\":0}}"
+  }
+}

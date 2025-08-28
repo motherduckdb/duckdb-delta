@@ -51,7 +51,7 @@ def generate_test_data_pyspark(base_path, name, current_path, input_path, delete
         spark.sql(f"ALTER TABLE test_table_{name} SET TBLPROPERTIES ('delta.minReaderVersion' = '3', 'delta.minWriterVersion' = '7');")
 
 
-    ## CREATE
+        ## CREATE
         ## CONFIGURE USAGE OF DELETION VECTORS
         if (delete_predicate):
             spark.sql(f"ALTER TABLE test_table_{name} SET TBLPROPERTIES ('delta.enableDeletionVectors' = true);")

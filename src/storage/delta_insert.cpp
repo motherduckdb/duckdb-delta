@@ -38,14 +38,24 @@ DeltaInsert::DeltaInsert(PhysicalPlan &plan, LogicalOperator &op, SchemaCatalogE
 //===--------------------------------------------------------------------===//
 class DeltaInsertGlobalState : public GlobalSinkState {
 public:
-	explicit DeltaInsertGlobalState() = default;
+	explicit DeltaInsertGlobalState(const DeltaTableEntry &table) : table_name(table.name), not_null_constraints(table.GetNotNullConstraints()) {
+	    table.ThrowOnUnsupportedFieldForInserting();
+	};
+
+    string table_name;
+
     vector<DeltaDataFile> written_files;
 
     idx_t insert_count;
+
+    // Fields in the table with not null constraints. These
+    case_insensitive_map_t<vector<NestedNotNullConstraint>> not_null_constraints;
 };
 
 unique_ptr<GlobalSinkState> DeltaInsert::GetGlobalSinkState(ClientContext &context) const {
-	return make_uniq<DeltaInsertGlobalState>();
+    // TODO: what if table isn't set?
+    const auto &delta_table = table->Cast<DeltaTableEntry>();
+	return make_uniq<DeltaInsertGlobalState>(delta_table);
 }
 
 //===--------------------------------------------------------------------===//
@@ -156,6 +166,23 @@ static void AddWrittenFiles(DeltaInsertGlobalState &global_state, DataChunk &chu
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
 			auto column_names = ParseQuotedList(col_name, '.');
 			auto stats = ParseColumnStats(col_stats);
+
+	        if (stats.has_null_count && stats.null_count > 0) {
+	            auto constraint = global_state.not_null_constraints.find(column_names[0]);
+	            if (constraint != global_state.not_null_constraints.end()) {
+	                // We may have a not null constraint for this col, it's not nested so it
+	                if (column_names.size() == 1) {
+	                    throw ConstraintException("NOT NULL constraint failed: %s.%s", global_state.table_name, column_names[0]);
+	                }
+
+	                // Check paths
+	                for (auto &constr : constraint->second) {
+	                    if (col_name == constr.path) {
+	                        throw ConstraintException("NOT NULL constraint failed: %s.%s", global_state.table_name, StringUtil::Join(column_names, "."));
+	                    }
+	                }
+	            }
+	        }
 		}
 
 	    // extract the partition info

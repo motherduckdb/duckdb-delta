@@ -1,0 +1,28 @@
+{
+  "commitInfo": {
+    "timestamp": 1756204874199,
+    "operation": "SET TBLPROPERTIES",
+    "operationParameters": {
+      "properties": "{\"delta.minReaderVersion\":\"3\",\"delta.minWriterVersion\":\"7\"}"
+    },
+    "readVersion": 0,
+    "isolationLevel": "Serializable",
+    "isBlindAppend": true,
+    "operationMetrics": {},
+    "engineInfo": "Apache-Spark/3.5.6 Delta-Lake/3.3.1",
+    "txnId": "13172df8-a3ef-4f2f-8e31-a4035ab02007"
+  }
+}
+{
+  "metaData": {
+    "id": "6f8e101d-8d5b-4a59-84b2-9e61b04c57c2",
+    "format": {
+      "provider": "parquet",
+      "options": {}
+    },
+    "schemaString": "{\"type\":\"struct\",\"fields\":[{\"name\":\"i\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}},{\"name\":\"list_of_struct\",\"type\":{\"type\":\"array\",\"elementType\":{\"type\":\"struct\",\"fields\":[{\"name\":\"value\",\"type\":\"long\",\"nullable\":false,\"metadata\":{}}]},\"containsNull\":true},\"nullable\":false,\"metadata\":{}}]}",
+    "partitionColumns": [],
+    "configuration": {},
+    "createdTime": 1756204873653
+  }
+}

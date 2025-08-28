@@ -44,6 +44,7 @@ JOIN
     tpcds_queries() as tpcds_queries on tpcds_queries."query"=query_string
 )";
 
+// TODO: Make proper function that supports remote FS
 static constexpr auto FILE_COPY_MACRO = R"(
     select write_blob("dst_dir" || filename[length("src_dir")+1:], content) from read_blob( "src_dir" || '/**')
 )";

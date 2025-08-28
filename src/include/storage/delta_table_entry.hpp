@@ -8,11 +8,14 @@
 
 #pragma once
 
+#include <duckdb/parser/constraints/not_null_constraint.hpp>
+
 #include "duckdb/catalog/catalog_entry/table_catalog_entry.hpp"
 #include "duckdb/parser/parsed_data/create_table_info.hpp"
 
 namespace duckdb {
 class DeltaMultiFileList;
+class NestedNotNullConstraint;
 
 class DeltaTableEntry : public TableCatalogEntry {
 public:
@@ -29,6 +32,9 @@ public:
 
 	void BindUpdateConstraints(Binder &binder, LogicalGet &get, LogicalProjection &proj, LogicalUpdate &update,
 	                           ClientContext &context) override;
+
+    case_insensitive_map_t<vector<NestedNotNullConstraint>> GetNotNullConstraints() const;
+    void ThrowOnUnsupportedFieldForInserting() const;
 
 public:
 	shared_ptr<DeltaMultiFileList> snapshot;

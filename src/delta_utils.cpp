@@ -563,7 +563,7 @@ unique_ptr<SchemaVisitor::FieldList> SchemaVisitor::VisitWriteContextSchema(ffi:
 
 void SchemaVisitor::VisitDecimal(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
                                  bool is_nullable, const ffi::CStringMap *metadata, uint8_t precision, uint8_t scale) {
-	state->AppendToList(sibling_list_id, name, LogicalType::DECIMAL(precision, scale));
+	state->AppendToList(sibling_list_id, name, {LogicalType::DECIMAL(precision, scale), is_nullable});
 }
 
 uintptr_t SchemaVisitor::MakeFieldList(SchemaVisitor *state, uintptr_t capacity_hint) {
@@ -573,7 +573,13 @@ uintptr_t SchemaVisitor::MakeFieldList(SchemaVisitor *state, uintptr_t capacity_
 void SchemaVisitor::VisitStruct(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
                                 bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id) {
 	auto children = state->TakeFieldList(child_list_id);
-	state->AppendToList(sibling_list_id, name, LogicalType::STRUCT(std::move(*children)));
+
+    child_list_t<LogicalType> child_types;
+    for (auto &child : *children) {
+        child_types.push_back({child.first, child.second.type});
+    }
+
+	state->AppendToList(sibling_list_id, name, {LogicalType::STRUCT(std::move(child_types)), is_nullable, std::move(*children)});
 }
 
 void SchemaVisitor::VisitArray(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
@@ -581,15 +587,20 @@ void SchemaVisitor::VisitArray(SchemaVisitor *state, uintptr_t sibling_list_id, 
 	auto children = state->TakeFieldList(child_list_id);
 
 	D_ASSERT(children->size() == 1);
-	state->AppendToList(sibling_list_id, name, LogicalType::LIST(children->front().second));
+	state->AppendToList(sibling_list_id, name, {LogicalType::LIST(children->front().second.type), is_nullable});
 }
 
 void SchemaVisitor::VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
                              bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id) {
 	auto children = state->TakeFieldList(child_list_id);
 
+    child_list_t<LogicalType> child_types;
+    for (auto &child : *children) {
+        child_types.push_back({child.first, child.second.type});
+    }
+
 	D_ASSERT(children->size() == 2);
-	state->AppendToList(sibling_list_id, name, LogicalType::MAP(LogicalType::STRUCT(std::move(*children))));
+	state->AppendToList(sibling_list_id, name, {LogicalType::MAP(LogicalType::STRUCT(std::move(child_types))), is_nullable, std::move(*children)});
 }
 
 uintptr_t SchemaVisitor::MakeFieldListImpl(uintptr_t capacity_hint) {
@@ -602,7 +613,7 @@ uintptr_t SchemaVisitor::MakeFieldListImpl(uintptr_t capacity_hint) {
 	return id;
 }
 
-void SchemaVisitor::AppendToList(uintptr_t id, ffi::KernelStringSlice name, LogicalType &&child) {
+void SchemaVisitor::AppendToList(uintptr_t id, ffi::KernelStringSlice name, MappedDeltaType &&child) {
 	auto it = inflight_lists.find(id);
 	if (it == inflight_lists.end()) {
 		error = ErrorData(ExceptionType::INTERNAL, "Unhandled error in SchemaVisitor::AppendToList");
