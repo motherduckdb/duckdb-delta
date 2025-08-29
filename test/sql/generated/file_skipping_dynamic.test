@@ -9,10 +9,7 @@ require delta
 require-env GENERATED_DATA_AVAILABLE
 
 statement ok
-set enable_logging=true;
-
-statement ok
-set logging_level = 'INFO';
+CALL enable_logging(level='info')
 
 ### First we try constant pushdown
 query IIII
@@ -30,7 +27,7 @@ constant	[]	['value2=102', 'value3=1002']	5	1
 
 # Clear logging storage
 statement ok
-pragma truncate_duckdb_logs;
+CALL truncate_duckdb_logs();
 
 # Try other column
 query IIII
@@ -48,7 +45,7 @@ constant	[]	['value3=1002']	5	1
 
 # Clear logging storage
 statement ok
-pragma truncate_duckdb_logs;
+CALL truncate_duckdb_logs();
 
 ### Now we try dynamic pushdown
 query IIII
@@ -66,7 +63,7 @@ dynamic	[]	['value2=102']	5	1
 
 # Clear logging storage
 statement ok
-pragma truncate_duckdb_logs;
+CALL truncate_duckdb_logs();
 
 # Dynamic pushdown, other column
 query IIII
@@ -84,7 +81,7 @@ dynamic	[]	['value1=13']	5	1
 
 # Clear logging storage
 statement ok
-pragma truncate_duckdb_logs;
+CALL truncate_duckdb_logs();
 
 ### Try partition column
 query IIII
@@ -102,7 +99,7 @@ dynamic	[]	['part=2']	5	1
 
 # Clear logging storage
 statement ok
-pragma truncate_duckdb_logs;
+CALL truncate_duckdb_logs();
 
 # Now let's get funky: a dynamic join filter plus a constant filter
 query IIII
@@ -123,7 +120,7 @@ dynamic	['value1=13']	['value1=13', 'value2=103']	1	1
 
 # Clear logging storage
 statement ok
-pragma truncate_duckdb_logs;
+CALL truncate_duckdb_logs();
 
 # Slightly weird case here: pushing down an identical dynamic filter and constant filter will make it show up twice with the second doing nothing
 query IIII
@@ -144,7 +141,7 @@ dynamic	['value1=13']	['value1=13 AND value1=13 AND value1=13']	1	1
 
 # Clear logging storage
 statement ok
-pragma truncate_duckdb_logs;
+CALL truncate_duckdb_logs();
 
 # Now we control the output of the filtered files by changing the delta_scan_explain_files_filtered setting
 statement ok

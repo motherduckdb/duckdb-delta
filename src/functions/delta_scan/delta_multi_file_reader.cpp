@@ -226,7 +226,7 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 }
 
 shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
-                                                               FileGlobOptions options) {
+                                                               const FileGlobInput &glob_input) {
 	if (paths.size() != 1) {
 		throw BinderException("'delta_scan' only supports single path as input");
 	}
