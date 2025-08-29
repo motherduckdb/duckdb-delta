@@ -29,7 +29,7 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
 	//! Return a DeltaMultiFileList
 	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
-	                                         const FileGlobInput &glob_input = FileGlobOptions::DISALLOW_EMPTY) override;
+	                                         const FileGlobInput &glob_input) override;
 
 	//! Override the regular parquet bind using the MultiFileReader Bind. The bind from these are what DuckDB's file
 	//! readers will try read
