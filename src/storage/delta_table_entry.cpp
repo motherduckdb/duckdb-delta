@@ -5,11 +5,11 @@
 
 #include "duckdb/storage/statistics/base_statistics.hpp"
 #include "duckdb/storage/table_storage_info.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/database.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 
 namespace duckdb {
@@ -32,7 +32,15 @@ void DeltaTableEntry::BindUpdateConstraints(Binder &binder, LogicalGet &, Logica
 
 TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, unique_ptr<FunctionData> &bind_data, optional_ptr<const EntryLookupInfo > lookup_info) {
     auto &db = DatabaseInstance::GetDatabase(context);
-    auto &delta_function_set = ExtensionUtil::GetTableFunction(db, "delta_scan");
+    auto &system_catalog = Catalog::GetSystemCatalog(db);
+
+    auto data = CatalogTransaction::GetSystemTransaction(db);
+    auto &schema = system_catalog.GetSchema(data, DEFAULT_SCHEMA);
+    auto catalog_entry = schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, "delta_scan");
+    if (!catalog_entry) {
+    	throw InvalidInputException("Function with name \"%s\" not found in ExtensionLoader::GetTableFunction", name);
+    }
+    auto &delta_function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
 
     auto delta_scan_function = delta_function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
     auto &delta_catalog = catalog.Cast<DeltaCatalog>();
@@ -76,6 +84,23 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 
     return delta_scan_function;
 }
+
+case_insensitive_map_t<vector<NestedNotNullConstraint>> DeltaTableEntry::GetNotNullConstraints() const {
+    case_insensitive_map_t<vector<NestedNotNullConstraint>> result;
+    for (auto &constraint : snapshot->GetNestedNotNullConstraints()) {
+        auto &col = GetColumn(constraint.index);
+        auto &item= result[col.Name()];
+        item.push_back(constraint);
+    }
+    return result;
+}
+
+void DeltaTableEntry::ThrowOnUnsupportedFieldForInserting() const {
+    if (snapshot && snapshot->HasNullConstraintsInArrays()) {
+        throw NotImplementedException("Inserting into a table with null constraints in arrays is not supported");
+    }
+}
+
 
 TableFunction DeltaTableEntry::GetScanFunction(ClientContext &context, unique_ptr<FunctionData> &bind_data, const EntryLookupInfo &lookup_info) {
     return GetScanFunctionInternal(context, bind_data, lookup_info);

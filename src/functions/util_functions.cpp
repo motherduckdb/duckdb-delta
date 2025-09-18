@@ -29,7 +29,7 @@ static void GetWriteDataFunction(DataChunk &input, ExpressionState &state, Vecto
 	output.SetValue(0, Value::BOOLEAN(true));
 };
 
-ScalarFunctionSet DeltaFunctions::GetWriteFileFunction(DatabaseInstance &instance) {
+ScalarFunctionSet DeltaFunctions::GetWriteFileFunction(ExtensionLoader &loader) {
 	ScalarFunctionSet result;
 	result.name = "write_blob";
 

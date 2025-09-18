@@ -13,6 +13,7 @@
 
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/common/multi_file/multi_file_data.hpp"
+#include "duckdb/parser/constraints/not_null_constraint.hpp"
 
 namespace duckdb {
 
@@ -37,6 +38,16 @@ struct DeltaFileMetaData {
 	case_insensitive_map_t<Value> partition_map;
 
 	unique_ptr<vector<unique_ptr<ParsedExpression>>> transform_expression;
+};
+
+// Constraint only for internal delta extension use
+// Todo: refactor to use duckdb constraint classes, updating the DuckDB side NotNullConstraint
+class NestedNotNullConstraint{
+public:
+    explicit NestedNotNullConstraint(LogicalIndex index_p, string path_p) : index(index_p), path(path_p)  {
+    }
+    LogicalIndex index;
+    string path;
 };
 
 //! The DeltaMultiFileList implements the MultiFileList API to allow injecting it into the regular DuckDB parquet scan
@@ -72,6 +83,12 @@ public:
 	vector<string> GetPartitionColumns();
 
 	vector<MultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
+    vector<NestedNotNullConstraint> GetNestedNotNullConstraints() const;
+    bool HasNullConstraintsInArrays() const;
+
+    bool VariantEnabled() {
+        return enable_variant;
+    }
 
 protected:
 	//! Get the i-th expanded file
@@ -133,9 +150,12 @@ protected:
 	mutable vector<OpenFileInfo> resolved_files;
 	mutable TableFilterSet table_filters;
 
-	//! Names
-	vector<string> names;
+    mutable vector<NestedNotNullConstraint> not_null_constraints;
+    mutable bool has_null_constraints_in_arrays = false;
+
 	vector<LogicalType> types;
+    //! Names
+    vector<string> names;
 
 	bool have_bound = false;
 
@@ -144,6 +164,9 @@ protected:
 	// The schema containing the proper column identifiers, lazily loaded to avoid prematurely initializing the kernel
 	// scan
 	mutable vector<MultiFileColumnDefinition> lazy_loaded_schema;
+
+    // Whether variant types are interpreted as VARIANT (currently implemented as JSON) types
+    bool enable_variant;
 };
 
 // Callback for the ffi::kernel_scan_data_next callback

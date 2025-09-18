@@ -2,7 +2,7 @@
 
 #include "duckdb.hpp"
 #include "duckdb/catalog/default/default_functions.hpp"
-#include "duckdb/main/extension_util.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/function/table_macro_function.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/parser/parsed_data/create_macro_info.hpp"
@@ -44,11 +44,12 @@ JOIN
     tpcds_queries() as tpcds_queries on tpcds_queries."query"=query_string
 )";
 
+// TODO: Make proper function that supports remote FS
 static constexpr auto FILE_COPY_MACRO = R"(
     select write_blob("dst_dir" || filename[length("src_dir")+1:], content) from read_blob( "src_dir" || '/**')
 )";
 
-void DeltaMacros::RegisterTableMacro(DatabaseInstance &db, const string &name, const string &query,
+void DeltaMacros::RegisterTableMacro(ExtensionLoader &loader, const string &name, const string &query,
                                      const vector<string> &params, const child_list_t<Value> &named_params) {
 	Parser parser;
 	parser.ParseQuery(query);
@@ -71,7 +72,7 @@ void DeltaMacros::RegisterTableMacro(DatabaseInstance &db, const string &name, c
 	info.internal = true;
 	info.macros.push_back(std::move(func));
 
-	ExtensionUtil::RegisterFunction(db, info);
+	loader.RegisterFunction(info);
 }
 
 static DefaultMacro delta_macros[] = {
@@ -83,17 +84,17 @@ static DefaultMacro delta_macros[] = {
      "files_after BIGINT)"},
 };
 
-void DeltaMacros::RegisterMacros(DatabaseInstance &instance) {
+void DeltaMacros::RegisterMacros(ExtensionLoader &loader) {
 	// Register Regular macros
 	for (auto &macro : delta_macros) {
 		auto info = DefaultFunctionGenerator::CreateInternalMacroInfo(macro);
-		ExtensionUtil::RegisterFunction(instance, *info);
+		loader.RegisterFunction(*info);
 	}
 
 	// Register Table Macros
-	RegisterTableMacro(instance, "delta_filter_pushdown_log", DELTA_FILTER_PUSHDOWN_MACRO, {}, {});
-	RegisterTableMacro(instance, "delta_filter_pushdown_log_tpcds", DELTA_FILTER_PUSHDOWN_MACRO_TPCDS, {}, {});
-	RegisterTableMacro(instance, "copy_dir", FILE_COPY_MACRO, {"src_dir", "dst_dir"}, {});
+	RegisterTableMacro(loader, "delta_filter_pushdown_log", DELTA_FILTER_PUSHDOWN_MACRO, {}, {});
+	RegisterTableMacro(loader, "delta_filter_pushdown_log_tpcds", DELTA_FILTER_PUSHDOWN_MACRO_TPCDS, {}, {});
+	RegisterTableMacro(loader, "copy_dir", FILE_COPY_MACRO, {"src_dir", "dst_dir"}, {});
 }
 
 }; // namespace duckdb

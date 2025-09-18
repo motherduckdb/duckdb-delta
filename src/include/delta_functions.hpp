@@ -11,19 +11,20 @@
 #include "duckdb/parser/parsed_data/create_table_function_info.hpp"
 
 namespace duckdb {
+class ExtensionLoader;
 
 class DeltaFunctions {
 public:
-	static vector<TableFunctionSet> GetTableFunctions(DatabaseInstance &instance);
-	static vector<ScalarFunctionSet> GetScalarFunctions(DatabaseInstance &instance);
+	static vector<TableFunctionSet> GetTableFunctions(ExtensionLoader &loader);
+	static vector<ScalarFunctionSet> GetScalarFunctions(ExtensionLoader &loader);
 
 private:
 	//! Table Functions
-	static TableFunctionSet GetDeltaScanFunction(DatabaseInstance &instance);
+	static TableFunctionSet GetDeltaScanFunction(ExtensionLoader &loader);
 
 	//! Scalar Functions
-	static ScalarFunctionSet GetExpressionFunction(DatabaseInstance &instance);
+	static ScalarFunctionSet GetExpressionFunction(ExtensionLoader &loader);
 
-    static ScalarFunctionSet GetWriteFileFunction(DatabaseInstance &instance);
+    static ScalarFunctionSet GetWriteFileFunction(ExtensionLoader &loader);
 };
 } // namespace duckdb

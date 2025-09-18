@@ -19,21 +19,14 @@ ATTACH './data/generated/evolution_simple/delta_lake' as dt (TYPE delta)
 
 # Scan latest version (= 1)
 query II rowsort
-SELECT * FROM dt.dt
+SELECT * FROM dt
 ----
 1	NULL
 2	2
 
-# TODO: to fix this we require changes upstream, see https://github.com/duckdb/duckdb/pull/18240
-# 		once duckdb is updated with that fix, this should start passing and we can remove all the dt.dt through this test
-statement error
-SELECT * FROM dt AT (VERSION => 0)
-----
-Binder Error: Catalog type does not support time travel
-
 # Scan version 0
 query I rowsort
-SELECT * FROM dt.dt AT (VERSION => 0)
+SELECT * FROM dt AT (VERSION => 0)
 ----
 1
 
@@ -44,27 +37,27 @@ BEGIN TRANSACTION;
 
 # Scan latest version, this is now in transaction local cache
 query II rowsort
-SELECT * FROM dt.dt
+SELECT * FROM dt
 ----
 1	NULL
 2	2
 
 # Scan version 0, this is now also in transaction local cache
 query I rowsort
-SELECT * FROM dt.dt AT (VERSION => 0)
+SELECT * FROM dt AT (VERSION => 0)
 ----
 1
 
 # Scan latest version, this is now in transaction local cache
 query II rowsort
-SELECT * FROM dt.dt
+SELECT * FROM dt
 ----
 1	NULL
 2	2
 
 # Scan version 0, this is now also in transaction local cache
 query I rowsort
-SELECT * FROM dt.dt AT (VERSION => 0)
+SELECT * FROM dt AT (VERSION => 0)
 ----
 1
 
@@ -80,14 +73,14 @@ ATTACH './data/generated/evolution_simple/delta_lake' as dt (TYPE delta, PIN_SNA
 
 # Scan latest version (= 3) 
 query II rowsort
-SELECT * FROM dt.dt
+SELECT * FROM dt
 ----
 1	NULL
 2	2
 
 # Scan version 0, this ignores the pinned snapshot 
 query I rowsort
-SELECT * FROM dt.dt AT (VERSION => 0)
+SELECT * FROM dt AT (VERSION => 0)
 ----
 1
 
@@ -97,18 +90,18 @@ BEGIN TRANSACTION
 
 # Scan version 0, this ignores the pinned snapshot 
 query I rowsort
-SELECT * FROM dt.dt AT (VERSION => 0)
+SELECT * FROM dt AT (VERSION => 0)
 ----
 1
 
 # Scan version 0, this ignores the pinned snapshot 
 query I rowsort
-SELECT * FROM dt.dt AT (VERSION => 0)
+SELECT * FROM dt AT (VERSION => 0)
 ----
 1
 
 query II rowsort
-SELECT * FROM dt.dt
+SELECT * FROM dt
 ----
 1	NULL
 2	2
@@ -124,22 +117,22 @@ statement ok
 ATTACH './data/generated/evolution_simple/delta_lake' as dt (TYPE delta, VERSION 0)
 
 query I rowsort
-SELECT * FROM dt.dt;
+SELECT * FROM dt;
 ----
 1
 
 query II rowsort
-SELECT * FROM dt.dt AT (VERSION => 2)
+SELECT * FROM dt AT (VERSION => 2)
 ----
 1	NULL
 
 query II rowsort
-SELECT * FROM dt.dt AT (VERSION => 3)
+SELECT * FROM dt AT (VERSION => 3)
 ----
 1	NULL
 2	2
 
 query I rowsort
-SELECT * FROM dt.dt;
+SELECT * FROM dt;
 ----
 1

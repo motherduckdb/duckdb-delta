@@ -8,7 +8,6 @@
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_data.hpp"
 #include "duckdb/main/extension_helper.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/query_profiler.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/optimizer/filter_combiner.hpp"
@@ -227,7 +226,7 @@ void DeltaMultiFileReader::FinalizeBind(MultiFileReaderData &reader_data, const 
 }
 
 shared_ptr<MultiFileList> DeltaMultiFileReader::CreateFileList(ClientContext &context, const vector<string> &paths,
-                                                               FileGlobOptions options) {
+                                                               const FileGlobInput &glob_input) {
 	if (paths.size() != 1) {
 		throw BinderException("'delta_scan' only supports single path as input");
 	}

@@ -4,7 +4,6 @@
 
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/main/client_data.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
 #include "functions/delta_scan/delta_scan.hpp"
 #include "duckdb/execution/physical_operator_states.hpp"
@@ -23,14 +22,14 @@
 
 namespace duckdb {
 
-DeltaInsert::DeltaInsert(LogicalOperator &op, TableCatalogEntry &table,
+DeltaInsert::DeltaInsert(PhysicalPlan &plan, LogicalOperator &op, TableCatalogEntry &table,
                      physical_index_vector_t<idx_t> column_index_map_p)
-: PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
+: PhysicalOperator(plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(&table), schema(nullptr),
   column_index_map(std::move(column_index_map_p)) {
 }
 
-DeltaInsert::DeltaInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
-    : PhysicalOperator(PhysicalOperatorType::EXTENSION, op.types, 1), table(nullptr), schema(&schema),
+DeltaInsert::DeltaInsert(PhysicalPlan &plan, LogicalOperator &op, SchemaCatalogEntry &schema, unique_ptr<BoundCreateTableInfo> info)
+    : PhysicalOperator(plan, PhysicalOperatorType::EXTENSION, op.types, 1), table(nullptr), schema(&schema),
       info(std::move(info)) {
 }
 
@@ -39,14 +38,24 @@ DeltaInsert::DeltaInsert(LogicalOperator &op, SchemaCatalogEntry &schema, unique
 //===--------------------------------------------------------------------===//
 class DeltaInsertGlobalState : public GlobalSinkState {
 public:
-	explicit DeltaInsertGlobalState() = default;
+	explicit DeltaInsertGlobalState(const DeltaTableEntry &table) : table_name(table.name), not_null_constraints(table.GetNotNullConstraints()) {
+	    table.ThrowOnUnsupportedFieldForInserting();
+	};
+
+    string table_name;
+
     vector<DeltaDataFile> written_files;
 
     idx_t insert_count;
+
+    // Fields in the table with not null constraints. These
+    case_insensitive_map_t<vector<NestedNotNullConstraint>> not_null_constraints;
 };
 
 unique_ptr<GlobalSinkState> DeltaInsert::GetGlobalSinkState(ClientContext &context) const {
-	return make_uniq<DeltaInsertGlobalState>();
+    // TODO: what if table isn't set?
+    const auto &delta_table = table->Cast<DeltaTableEntry>();
+	return make_uniq<DeltaInsertGlobalState>(delta_table);
 }
 
 //===--------------------------------------------------------------------===//
@@ -157,6 +166,23 @@ static void AddWrittenFiles(DeltaInsertGlobalState &global_state, DataChunk &chu
 			auto &col_stats = MapValue::GetChildren(struct_children[1]);
 			auto column_names = ParseQuotedList(col_name, '.');
 			auto stats = ParseColumnStats(col_stats);
+
+	        if (stats.has_null_count && stats.null_count > 0) {
+	            auto constraint = global_state.not_null_constraints.find(column_names[0]);
+	            if (constraint != global_state.not_null_constraints.end()) {
+	                // We may have a not null constraint for this col, it's not nested so it
+	                if (column_names.size() == 1) {
+	                    throw ConstraintException("NOT NULL constraint failed: %s.%s", global_state.table_name, column_names[0]);
+	                }
+
+	                // Check paths
+	                for (auto &constr : constraint->second) {
+	                    if (col_name == constr.path) {
+	                        throw ConstraintException("NOT NULL constraint failed: %s.%s", global_state.table_name, StringUtil::Join(column_names, "."));
+	                    }
+	                }
+	            }
+	        }
 		}
 
 	    // extract the partition info
@@ -248,7 +274,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 	if (op.return_chunk) {
 		throw BinderException("RETURNING clause not yet supported for insertion into Delta table");
 	}
-	if (op.action_type != OnConflictAction::THROW) {
+	if (op.on_conflict_info.action_type != OnConflictAction::THROW) {
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into Delta table");
 	}
 

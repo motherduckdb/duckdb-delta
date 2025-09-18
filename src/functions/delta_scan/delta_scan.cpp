@@ -5,7 +5,6 @@
 #include "duckdb/catalog/catalog_entry/table_function_catalog_entry.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/extension_helper.hpp"
-#include "duckdb/main/extension_util.hpp"
 #include "duckdb/main/query_profiler.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
@@ -72,13 +71,14 @@ virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionD
 	return result;
 }
 
-TableFunctionSet DeltaFunctions::GetDeltaScanFunction(DatabaseInstance &instance) {
+TableFunctionSet DeltaFunctions::GetDeltaScanFunction(ExtensionLoader &loader) {
 	// Parquet extension needs to be loaded for this to make sense
+    auto &instance = loader.GetDatabaseInstance();
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
 
 	// The delta_scan function is constructed by grabbing the parquet scan from the Catalog, then injecting the
 	// DeltaMultiFileReader into it to create a Delta-based multi file read
-	auto &parquet_scan = ExtensionUtil::GetTableFunction(instance, "parquet_scan");
+    auto &parquet_scan = loader.GetTableFunction("parquet_scan");
 	auto parquet_scan_copy = parquet_scan.functions;
 
 	for (auto &function : parquet_scan_copy.functions) {

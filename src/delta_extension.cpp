@@ -1,5 +1,3 @@
-#define DUCKDB_EXTENSION_MAIN
-
 #include "delta_extension.hpp"
 
 #include "delta_utils.hpp"
@@ -12,17 +10,18 @@
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/function/table_macro_function.hpp"
-#include "duckdb/main/extension_util.hpp"
+#include "duckdb/main/extension/extension_loader.hpp"
+#include "duckdb/main/extension_helper.hpp"
 #include "duckdb/storage/storage_extension.hpp"
 #include "duckdb/main/config.hpp"
 
 namespace duckdb {
 
-static unique_ptr<Catalog> DeltaCatalogAttach(StorageExtensionInfo *storage_info, ClientContext &context,
-                                              AttachedDatabase &db, const string &name, AttachInfo &info,
-                                              AccessMode access_mode) {
+static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo> storage_info,
+                                                     ClientContext &context, AttachedDatabase &db, const string &name,
+                                                     AttachInfo &info, AttachOptions &options) {
 
-	auto res = make_uniq<DeltaCatalog>(db, info.path, access_mode);
+	auto res = make_uniq<DeltaCatalog>(db, info.path, options.access_mode);
 
 	for (const auto &option : info.options) {
 		if (StringUtil::Lower(option.first) == "pin_snapshot") {
@@ -46,8 +45,8 @@ static unique_ptr<Catalog> DeltaCatalogAttach(StorageExtensionInfo *storage_info
 	return std::move(res);
 }
 
-static unique_ptr<TransactionManager> CreateTransactionManager(StorageExtensionInfo *storage_info, AttachedDatabase &db,
-                                                               Catalog &catalog) {
+static unique_ptr<TransactionManager> CreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
+                                                                        AttachedDatabase &db, Catalog &catalog) {
 	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 	return make_uniq<DeltaTransactionManager>(db, delta_catalog);
 }
@@ -60,19 +59,19 @@ public:
 	}
 };
 
-static void LoadInternal(DatabaseInstance &instance) {
+static void LoadInternal(ExtensionLoader &loader) {
 	// Load Table functions
-	for (const auto &function : DeltaFunctions::GetTableFunctions(instance)) {
-		ExtensionUtil::RegisterFunction(instance, function);
+    for (const auto &function : DeltaFunctions::GetTableFunctions(loader)) {
+        loader.RegisterFunction(function);
 	}
 
 	// Load Scalar functions
-	for (const auto &function : DeltaFunctions::GetScalarFunctions(instance)) {
-		ExtensionUtil::RegisterFunction(instance, function);
+    for (const auto &function : DeltaFunctions::GetScalarFunctions(loader)) {
+        loader.RegisterFunction(function);
 	}
 
 	// Register the "single table" delta catalog (to ATTACH a single delta table)
-	auto &config = DBConfig::GetConfig(instance);
+	auto &config = DBConfig::GetConfig(loader.GetDatabaseInstance());
 	config.storage_extensions["delta"] = make_uniq<DeltaStorageExtension>();
 
 	config.AddExtensionOption("delta_scan_explain_files_filtered",
@@ -86,15 +85,15 @@ static void LoadInternal(DatabaseInstance &instance) {
 	    "performance even with DuckDB logging disabled.",
 	    LogicalType::BOOLEAN, Value(false), LoggerCallback::DuckDBSettingCallBack);
 
-	DeltaMacros::RegisterMacros(instance);
+	DeltaMacros::RegisterMacros(loader);
 
-	DeltaLogTypes::RegisterLogTypes(instance);
+	DeltaLogTypes::RegisterLogTypes(loader.GetDatabaseInstance());
 
-	LoggerCallback::Initialize(instance);
+	LoggerCallback::Initialize(loader.GetDatabaseInstance());
 }
 
-void DeltaExtension::Load(DuckDB &db) {
-	LoadInternal(*db.instance);
+void DeltaExtension::Load(ExtensionLoader &loader) {
+	LoadInternal(loader);
 }
 
 std::string DeltaExtension::Name() {
@@ -105,16 +104,8 @@ std::string DeltaExtension::Name() {
 
 extern "C" {
 
-DUCKDB_EXTENSION_API void delta_init(duckdb::DatabaseInstance &db) {
-	duckdb::DuckDB db_wrapper(db);
-	db_wrapper.LoadExtension<duckdb::DeltaExtension>();
+DUCKDB_CPP_EXTENSION_ENTRY(delta, loader) {
+    duckdb::LoadInternal(loader);
 }
 
-DUCKDB_EXTENSION_API const char *delta_version() {
-	return duckdb::DuckDB::LibraryVersion();
 }
-}
-
-#ifndef DUCKDB_EXTENSION_MAIN
-#error DUCKDB_EXTENSION_MAIN not defined
-#endif

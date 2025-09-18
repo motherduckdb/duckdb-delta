@@ -44,7 +44,7 @@ static void GetDeltaTestExpression(DataChunk &input, ExpressionState &state, Vec
 	output.SetValue(0, Value::LIST(result_to_string));
 };
 
-ScalarFunctionSet DeltaFunctions::GetExpressionFunction(DatabaseInstance &instance) {
+ScalarFunctionSet DeltaFunctions::GetExpressionFunction(ExtensionLoader &loader) {
 	ScalarFunctionSet result;
 	result.name = "get_delta_test_expression";
 
