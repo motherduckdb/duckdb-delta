@@ -17,7 +17,7 @@ class DeltaSchemaEntry;
 class DeltaTableEntry;
 class DeltaMultiFileList;
 struct DeltaDataFile;
-struct MultiFileColumnDefinition;
+struct DeltaMultiFileColumnDefinition;
 
 enum class DeltaTransactionState { TRANSACTION_NOT_YET_STARTED, TRANSACTION_STARTED, TRANSACTION_FINISHED };
 
@@ -40,7 +40,7 @@ public:
 	optional_ptr<DeltaTableEntry> GetTableEntry(idx_t version);
 
 	DeltaTableEntry &InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry, idx_t version);
-    unique_ptr<SchemaVisitor::FieldList> GetWriteSchema(ClientContext &context);
+    vector<DeltaMultiFileColumnDefinition> GetWriteSchema(ClientContext &context);
 
     //! Removes all outstanding appends and removes the files if possible
     void CleanUpFiles();

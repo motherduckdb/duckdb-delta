@@ -84,11 +84,12 @@ def generate_test_data_delta_rs(base_path, path, query, part_column=False, add_g
         con.sql(query)
 
         # Write delta table data
-        test_table_df = con.sql("FROM test_table;").df()
+        test_table_arrow = con.sql("FROM test_table;").arrow()
+
         if (part_column):
-            write_deltalake(f"{generated_path}/delta_lake", test_table_df,  partition_by=[part_column])
+            write_deltalake(f"{generated_path}/delta_lake", test_table_arrow,  partition_by=[part_column])
         else:
-            write_deltalake(f"{generated_path}/delta_lake", test_table_df)
+            write_deltalake(f"{generated_path}/delta_lake", test_table_arrow)
 
         if add_golden_table:
             # Write DuckDB's reference data

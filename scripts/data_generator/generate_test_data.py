@@ -36,7 +36,16 @@ queries = [
     'ALTER TABLE simple_table_column_mapped ADD COLUMN new_col BIGINT;',
     'INSERT INTO simple_table_column_mapped VALUES (9, 1, 1337);'
 ]
-generate_test_data_pyspark_by_queries(BASE_PATH,'simple_table_column_mapped', 'simple_table_column_mapped', base_query, queries)
+generate_test_data_pyspark_by_queries(BASE_PATH,'simple_table_column_mapped', 'simple_table_column_mapped', base_query, queries, 'name')
+
+## really simple column mapped
+## Table with simple evolution: adding a column
+base_query = 'SELECT i, i%2 as part FROM range(0,9) tbl(i);'
+queries = [
+    'ALTER TABLE simple_table_column_mapped_by_id ADD COLUMN new_col BIGINT;',
+    'INSERT INTO simple_table_column_mapped_by_id VALUES (9, 1, 1337);'
+]
+generate_test_data_pyspark_by_queries(BASE_PATH,'simple_table_column_mapped_by_id', 'simple_table_column_mapped_by_id', base_query, queries, 'name')
 
 ################################################
 ### TPC-H
@@ -124,6 +133,11 @@ for type in ["bool", "int", "tinyint", "smallint", "bigint", "float", "double", 
     query = f"CREATE table test_table as select i::{type} as value1, (i)::{type} as value2, (i)::{type} as value3, i::{type} as part from range(0,5) tbl(i)"
     generate_test_data_delta_rs(BASE_PATH,f"test_file_skipping/{type}", query, "part")
 
+## Partitioned table with date type
+type = "date"
+query = f"CREATE table test_table as select ('1994-01-0' || i::VARCHAR)::DATE as value1, ('1994-01-0' || i::VARCHAR)::DATE as part from range(1,6) tbl(i)"
+generate_test_data_delta_rs(BASE_PATH,f"test_file_skipping/{type}", query, "part")
+
 ## Partitioned table with all types we can file skip on
 for type in ["int"]:
     query = f"CREATE table test_table as select i::{type}+10 as value1, (i)::{type}+100 as value2, (i)::{type}+1000 as value3, i::{type} as part from range(0,5) tbl(i)"
@@ -170,7 +184,15 @@ queries = [
     'ALTER TABLE evolution_simple ADD COLUMN b BIGINT;',
     'INSERT INTO evolution_simple VALUES (2, 2);'
 ]
-generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_simple', 'evolution_simple', base_query, queries)
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_simple', 'evolution_simple', base_query, queries, 'name')
+
+## Table with simple evolution with id mode: adding a column
+base_query = 'select CAST(1 as INT) as a;'
+queries = [
+    'ALTER TABLE evolution_simple_id_mode ADD COLUMN b BIGINT;',
+    'INSERT INTO evolution_simple_id_mode VALUES (2, 2);'
+]
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_simple_id_mode', 'evolution_simple_id_mode', base_query, queries, 'name')
 
 ## Table that drops and re-adds a column with the same name for max confusion
 base_query = "select 'value1' as a, 'value2' as b;"
@@ -180,7 +202,17 @@ queries = [
     "ALTER TABLE evolution_column_change ADD COLUMN b BIGINT;",
     "INSERT INTO evolution_column_change VALUES ('value4', 5);",
 ]
-generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_column_change', 'evolution_column_change', base_query, queries)
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_column_change', 'evolution_column_change', base_query, queries, 'name')
+
+## Table that drops and re-adds a column with the same name for max confusion
+base_query = "select 'value1' as a, 'value2' as b;"
+queries = [
+    "ALTER TABLE evolution_column_change_id_mode DROP COLUMN b;",
+    "INSERT INTO evolution_column_change_id_mode VALUES ('value3');",
+    "ALTER TABLE evolution_column_change_id_mode ADD COLUMN b BIGINT;",
+    "INSERT INTO evolution_column_change_id_mode VALUES ('value4', 5);",
+]
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_column_change_id_mode', 'evolution_column_change_id_mode', base_query, queries, 'id')
 
 ## CREATE table that has all type widenings from the spec
 base_query = "select CAST(42 AS BYTE) as integer, CAST(42.42 AS FLOAT) as float, CAST(42 AS INT) as int_to_double, CAST('2042-01-01' AS DATE) as date, CAST('42.42' as DECIMAL(4,2)) as decimal, CAST(42 AS INT) as int_to_decimal, CAST(42 AS BIGINT) as long_to_decimal"
@@ -195,7 +227,7 @@ queries = [
     # "ALTER TABLE evolution_type_widening ALTER COLUMN long_to_decimal TYPE DECIMAL(5,2);",
     "INSERT INTO evolution_type_widening VALUES (42, 42.42, 42, '2042-01-01', 42.42, 42, 42);",
 ]
-generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_type_widening', 'evolution_type_widening', base_query, queries)
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_type_widening', 'evolution_type_widening', base_query, queries, 'name')
 
 ## CREATE table that has struct widening
 base_query = "select named_struct('struct_field_a', 'value1', 'struct_field_b', 'value2') as top_level_column;"
@@ -203,7 +235,7 @@ queries = [
     "ALTER TABLE evolution_struct_field_modification ADD COLUMNS (top_level_column.struct_field_c STRING AFTER struct_field_b)",
     "INSERT INTO evolution_struct_field_modification VALUES (named_struct('struct_field_a', 'value3', 'struct_field_b', 'value4', 'struct_field_c', 'value5'));",
 ]
-generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_struct_field_modification', 'evolution_struct_field_modification', base_query, queries)
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_struct_field_modification', 'evolution_struct_field_modification', base_query, queries, 'name')
 
 ## CREATE table that has nested struct widening
 base_query = "select named_struct('top_level_struct', named_struct('struct_field_a', 'value1', 'struct_field_b', 'value2')) as top_level_column;"
@@ -211,4 +243,4 @@ queries = [
     "ALTER TABLE evolution_struct_field_modification_nested ADD COLUMNS (top_level_column.top_level_struct.struct_field_c STRING AFTER struct_field_b)",
     "INSERT INTO evolution_struct_field_modification_nested VALUES (named_struct('top_level_struct', named_struct('struct_field_a', 'value3', 'struct_field_b', 'value4', 'struct_field_c', 'value5')));",
 ]
-generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_struct_field_modification_nested', 'evolution_struct_field_modification_nested', base_query, queries)
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_struct_field_modification_nested', 'evolution_struct_field_modification_nested', base_query, queries, 'name')

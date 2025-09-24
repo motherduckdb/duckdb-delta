@@ -1,0 +1,51 @@
+# name: test/sql/golden_tests/generated_slow.test
+# description: generated generated golden table tests
+# group: [delta_kernel_rs]
+
+require parquet
+
+require delta
+
+require-env GOLDEN_TABLES_PATH
+
+# WARNING: this file is generated automatically, do not edit manually (see scripts/generate_golden_table_tests.py)
+
+######## parquet-decimal-dictionaries ########
+
+query T rowsort res-parquet-decimal-dictionaries
+from delta_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries/delta')
+
+query T rowsort parquet-decimal-dictionaries
+from parquet_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries/expected/**/*.parquet')
+
+######## parquet-decimal-dictionaries ########
+
+query T rowsort res-parquet-decimal-dictionaries
+from delta_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries/delta')
+
+query T rowsort parquet-decimal-dictionaries
+from parquet_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries/expected/**/*.parquet')
+
+######## parquet-decimal-dictionaries-v1 ########
+
+query T rowsort res-parquet-decimal-dictionaries-v1
+from delta_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries-v1/delta')
+
+query T rowsort parquet-decimal-dictionaries-v1
+from parquet_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries-v1/expected/**/*.parquet')
+
+######## parquet-decimal-dictionaries-v2 ########
+
+query T rowsort res-parquet-decimal-dictionaries-v2
+from delta_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries-v2/delta')
+
+query T rowsort parquet-decimal-dictionaries-v2
+from parquet_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-dictionaries-v2/expected/**/*.parquet')
+
+######## parquet-decimal-type ########
+
+query T rowsort res-parquet-decimal-type
+from delta_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-type/delta')
+
+query T rowsort parquet-decimal-type
+from parquet_scan('${GOLDEN_TABLES_PATH}/parquet-decimal-type/expected/**/*.parquet')

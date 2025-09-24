@@ -9,6 +9,7 @@ testext
 test/python/__pycache__/
 .Rhistory
 data/generated
+data/unpacked_golden_tables
 __azurite*__.json
 __blobstorage__
 venv

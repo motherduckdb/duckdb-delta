@@ -9,69 +9,69 @@
 namespace ffi {
 
 enum class KernelError {
-  UnknownError,
-  FFIError,
+  UnknownError = 0,
+  FFIError = 1,
 #if defined(DEFINE_DEFAULT_ENGINE_BASE)
-  ArrowError,
+  ArrowError = 2,
 #endif
-  EngineDataTypeError,
-  ExtractError,
-  GenericError,
-  IOErrorError,
+  EngineDataTypeError = 3,
+  ExtractError = 4,
+  GenericError = 5,
+  IOErrorError = 6,
 #if defined(DEFINE_DEFAULT_ENGINE_BASE)
-  ParquetError,
-#endif
-#if defined(DEFINE_DEFAULT_ENGINE_BASE)
-  ObjectStoreError,
+  ParquetError = 7,
 #endif
 #if defined(DEFINE_DEFAULT_ENGINE_BASE)
-  ObjectStorePathError,
+  ObjectStoreError = 8,
 #endif
 #if defined(DEFINE_DEFAULT_ENGINE_BASE)
-  ReqwestError,
+  ObjectStorePathError = 9,
 #endif
-  FileNotFoundError,
-  MissingColumnError,
-  UnexpectedColumnTypeError,
-  MissingDataError,
-  MissingVersionError,
-  DeletionVectorError,
-  InvalidUrlError,
-  MalformedJsonError,
-  MissingMetadataError,
-  MissingProtocolError,
-  InvalidProtocolError,
-  MissingMetadataAndProtocolError,
-  ParseError,
-  JoinFailureError,
-  Utf8Error,
-  ParseIntError,
-  InvalidColumnMappingModeError,
-  InvalidTableLocationError,
-  InvalidDecimalError,
-  InvalidStructDataError,
-  InternalError,
-  InvalidExpression,
-  InvalidLogPath,
-  FileAlreadyExists,
-  UnsupportedError,
-  ParseIntervalError,
-  ChangeDataFeedUnsupported,
-  ChangeDataFeedIncompatibleSchema,
-  InvalidCheckpoint,
-  LiteralExpressionTransformError,
-  CheckpointWriteError,
-  SchemaError,
+#if defined(DEFINE_DEFAULT_ENGINE_BASE)
+  ReqwestError = 10,
+#endif
+  FileNotFoundError = 11,
+  MissingColumnError = 12,
+  UnexpectedColumnTypeError = 13,
+  MissingDataError = 14,
+  MissingVersionError = 15,
+  DeletionVectorError = 16,
+  InvalidUrlError = 17,
+  MalformedJsonError = 18,
+  MissingMetadataError = 19,
+  MissingProtocolError = 20,
+  InvalidProtocolError = 21,
+  MissingMetadataAndProtocolError = 22,
+  ParseError = 23,
+  JoinFailureError = 24,
+  Utf8Error = 25,
+  ParseIntError = 26,
+  InvalidColumnMappingModeError = 27,
+  InvalidTableLocationError = 28,
+  InvalidDecimalError = 29,
+  InvalidStructDataError = 30,
+  InternalError = 31,
+  InvalidExpression = 32,
+  InvalidLogPath = 33,
+  FileAlreadyExists = 34,
+  UnsupportedError = 35,
+  ParseIntervalError = 36,
+  ChangeDataFeedUnsupported = 37,
+  ChangeDataFeedIncompatibleSchema = 38,
+  InvalidCheckpoint = 39,
+  LiteralExpressionTransformError = 40,
+  CheckpointWriteError = 41,
+  SchemaError = 42,
 };
 
 /// Definitions of level verbosity. Verbose Levels are "greater than" less verbose ones. So
 /// Level::ERROR is the lowest, and Level::TRACE the highest.
 enum class Level {
-	ERROR = 0,
-	WARN = 1,
-	INFO = 2,
+  ERROR = 0,
+  WARN = 1,
+  INFO = 2,
 	DEBUGGING = 3,
-	TRACE = 4,
+  TRACE = 4,
 };
 
 /// Format to use for log lines. These correspond to the formats from [`tracing_subscriber`
@@ -385,6 +385,8 @@ using VisitUnaryFn = void(*)(void *data, uintptr_t sibling_list_id, uintptr_t ch
 
 using VisitBinaryFn = void(*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
 
+using VisitVariadicFn = void(*)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
+
 /// The [`EngineExpressionVisitor`] defines a visitor system to allow engines to build their own
 /// representation of a kernel expression or predicate.
 ///
@@ -491,6 +493,9 @@ struct EngineExpressionVisitor {
   /// Visits a `is_null` expression belonging to the list identified by `sibling_list_id`.
   /// The sub-expression will be in a _one_ item list identified by `child_list_id`
   VisitUnaryFn visit_is_null;
+  /// Visits the `ToJson` unary operator belonging to the list identified by `sibling_list_id`.
+  /// The sub-expression will be in a _one_ item list identified by `child_list_id`
+  VisitUnaryFn visit_to_json;
   /// Visits the `LessThan` binary operator belonging to the list identified by `sibling_list_id`.
   /// The operands will be in a _two_ item list identified by `child_list_id`
   VisitBinaryFn visit_lt;
@@ -518,11 +523,53 @@ struct EngineExpressionVisitor {
   /// Visits the `Divide` binary operator belonging to the list identified by `sibling_list_id`.
   /// The operands will be in a _two_ item list identified by `child_list_id`
   VisitBinaryFn visit_divide;
+  /// Visits the `Coalesce` variadic operator belonging to the list identified by `sibling_list_id`.
+  /// The operands will be in a list identified by `child_list_id`
+  VisitVariadicFn visit_coalesce;
   /// Visits the `column` belonging to the list identified by `sibling_list_id`.
   void (*visit_column)(void *data, uintptr_t sibling_list_id, KernelStringSlice name);
-  /// Visits a `StructExpression` belonging to the list identified by `sibling_list_id`.
-  /// The sub-expressions of the `StructExpression` are in a list identified by `child_list_id`
+  /// Visits a `Struct` expression belonging to the list identified by `sibling_list_id`.
+  /// The sub-expressions (fields) of the struct are in a list identified by `child_list_id`
   void (*visit_struct_expr)(void *data, uintptr_t sibling_list_id, uintptr_t child_list_id);
+  /// Visits a `Transform` expression belonging to the list identified by `sibling_list_id`. The
+  /// `input_path_list_id` is a single-item list containing transform's input path as a column
+  /// reference (0 = no path). The `field_transform_list_id` identifies the list of field
+  /// transforms to apply (0 = identity transform). See also [`Self::visit_field_transform`].
+  void (*visit_transform_expr)(void *data,
+                               uintptr_t sibling_list_id,
+                               uintptr_t input_path_list_id,
+                               uintptr_t field_transform_list_id);
+  /// Visits one field transform of a `Transform` expression that owns the list identified by
+  /// `sibling_list_id`. Each field transform has a different insertion point (no duplicates).
+  ///
+  /// A field transform is modeled as the triple `(field_name, expr_list, is_replace)`, as
+  /// described by the truth table below. The `expr_list_id` identifies the list of expressions
+  /// the field transform should emit. The field name (if present) always references a field of
+  /// the input struct. Both the field name and the expression list are optional:
+  ///
+  /// |field_name? |expr_list? |is_replace? |meaning|
+  /// |-|-|-|-|
+  /// | NO  | NO  | *   | NO-OP (prepend an empty list of expressions to the output)
+  /// | NO  | YES | *   | Prepend a list of expressions to the output
+  /// | YES | NO  | NO  | NO-OP (insert an empty list of expressions after the named input field)
+  /// | YES | NO  | YES | Drop the named input field
+  /// | YES | YES | NO  | Insert a list of expressions after the named input field
+  /// | YES | YES | YES | Replace the named input field with a list of expressions
+  ///
+  /// NOTE: Treating list id 0 as an empty list yields a simplified truth table:
+  ///
+  /// |field_name? |is_replace? |meaning|
+  /// |-|-|-|
+  /// | NO  | *   | Prepend a (possibly empty) list of expressions to the output
+  /// | YES | NO  | Insert a (possibly empty)  list of expressions after the named input field
+  /// | YES | YES | Replace the named input field with a (possibly empty) list of expressions
+  ///
+  /// NOTE: The expressions of each field transform must be emitted in order at the insertion point.
+  void (*visit_field_transform)(void *data,
+                                uintptr_t sibling_list_id,
+                                const KernelStringSlice *field_name,
+                                uintptr_t expr_list_id,
+                                bool is_replace);
   /// Visits the operator (`op`) and children (`child_list_id`) of an opaque expression belonging
   /// to the list identified by `sibling_list_id`.
   void (*visit_opaque_expr)(void *data,
@@ -614,13 +661,26 @@ struct Stats {
   uint64_t num_records;
 };
 
+/// Contains information that can be used to get a selection vector. If `has_vector` is false, that
+/// indicates there is no selection vector to consider. It is always possible to get a vector out of
+/// a `DvInfo`, but if `has_vector` is false it will just be an empty vector (indicating all
+/// selected). Without this there's no way for a connector using ffi to know if a &DvInfo actually
+/// has a vector in it. We have has_vector() on the rust side, but this isn't exposed via ffi. So
+/// this just wraps the &DvInfo in another struct which includes a boolean that says if there is a
+/// dv to consider or not.  This allows engines to ignore dv info if there isn't any without needing
+/// to make another ffi call at all.
+struct CDvInfo {
+  const DvInfo *info;
+  bool has_vector;
+};
+
 /// This callback will be invoked for each valid file that needs to be read for a scan.
 ///
 /// The arguments to the callback are:
 /// * `context`: a `void*` context this can be anything that engine needs to pass through to each call
 /// * `path`: a `KernelStringSlice` which is the path to the file
 /// * `size`: an `i64` which is the size of the file
-/// * `dv_info`: a [`DvInfo`] struct, which allows getting the selection vector for this file
+/// * `dv_info`: a [`CDvInfo`] struct, which allows getting the selection vector for this file
 /// * `transform`: An optional expression that, if not `NULL`, _must_ be applied to physical data to
 ///   convert it to the correct logical format. If this is `NULL`, no transform is needed.
 /// * `partition_values`: [DEPRECATED] a `HashMap<String, String>` which are partition values
@@ -628,7 +688,7 @@ using CScanCallback = void(*)(NullableCvoid engine_context,
                               KernelStringSlice path,
                               int64_t size,
                               const Stats *stats,
-                              const DvInfo *dv_info,
+                              const CDvInfo *dv_info,
                               const Expression *transform,
                               const CStringMap *partition_map);
 
@@ -967,7 +1027,7 @@ ExternResult<ArrowFFIData*> get_raw_arrow_data(Handle<ExclusiveEngineData> data,
 /// - `engine` must be a valid Handle to a SharedExternEngine
 ExternResult<Handle<ExclusiveEngineData>> get_engine_data(FFI_ArrowArray array,
                                                           const FFI_ArrowSchema *schema,
-                                                          Handle<SharedExternEngine> engine);
+                                                          AllocateErrorFn allocate_error);
 #endif
 
 /// Call the engine back with the next `EngineData` batch read by Parquet/Json handler. The
@@ -1163,6 +1223,9 @@ uintptr_t visit_expression_literal_float(KernelExpressionVisitorState *state, fl
 uintptr_t visit_expression_literal_double(KernelExpressionVisitorState *state, double value);
 
 uintptr_t visit_expression_literal_bool(KernelExpressionVisitorState *state, bool value);
+
+/// visit a date literal expression 'value' (i32 representing days since unix epoch)
+uintptr_t visit_expression_literal_date(KernelExpressionVisitorState *state, int32_t value);
 
 /// Enable getting called back for tracing (logging) events in the kernel. `max_level` specifies
 /// that only events `<=` to the specified level should be reported.  More verbose Levels are "greater

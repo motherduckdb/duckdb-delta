@@ -1,0 +1,45 @@
+# name: test/sql/generated/writing/append/write_stats.test
+# description: test that writes are appending stats
+
+require parquet
+
+require delta
+
+require json
+
+require-env GENERATED_DATA_AVAILABLE
+
+# Copy test data over to tmp test dir because we'll be inserting stuff
+statement ok
+from copy_dir('data/generated/simple_table', '__TEST_DIR__/write_stats/simple_table');
+
+statement ok
+ATTACH '__TEST_DIR__/write_stats/simple_table/delta_lake' AS simple_table (TYPE delta);
+
+query II
+select count(*), sum(i) FROM simple_table;
+----
+10	45
+
+statement ok
+INSERT INTO simple_table VALUES (5);
+
+query II
+select count(*), sum(i) FROM simple_table;
+----
+11	50
+
+query I
+select add.stats FROM read_json('__TEST_DIR__/write_stats/simple_table/delta_lake/_delta_log/00000000000000000002.json')
+----
+NULL
+{"numRecords":1,"tightBounds":true}
+
+statement ok
+INSERT INTO simple_table FROM range(0,10) t(i) ;
+
+query I
+select add.stats FROM read_json('__TEST_DIR__/write_stats/simple_table/delta_lake/_delta_log/00000000000000000003.json')
+----
+NULL
+{"numRecords":10,"tightBounds":true}
