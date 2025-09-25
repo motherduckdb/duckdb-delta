@@ -184,7 +184,7 @@ queries = [
     'ALTER TABLE evolution_simple ADD COLUMN b BIGINT;',
     'INSERT INTO evolution_simple VALUES (2, 2);'
 ]
-generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_simple', 'evolution_simple', base_query, queries, 'name')
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_simple', 'evolution_simple', base_query, queries)
 
 ## Table with simple evolution with id mode: adding a column
 base_query = 'select CAST(1 as INT) as a;'
@@ -193,6 +193,14 @@ queries = [
     'INSERT INTO evolution_simple_id_mode VALUES (2, 2);'
 ]
 generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_simple_id_mode', 'evolution_simple_id_mode', base_query, queries, 'name')
+
+## Table with simple evolution with id mode: adding a column
+base_query = 'select CAST(1 as INT) as a;'
+queries = [
+    'ALTER TABLE evolution_simple_name_mode ADD COLUMN b BIGINT;',
+    'INSERT INTO evolution_simple_name_mode VALUES (2, 2);'
+]
+generate_test_data_pyspark_by_queries(BASE_PATH,'evolution_simple_name_mode', 'evolution_simple_name_mode', base_query, queries, 'name')
 
 ## Table that drops and re-adds a column with the same name for max confusion
 base_query = "select 'value1' as a, 'value2' as b;"

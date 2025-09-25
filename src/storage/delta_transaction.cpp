@@ -94,7 +94,6 @@ struct WriteMetaData {
         //     |    |    |    |-- b: struct
         //     |    |    |    |    |-- c: long
 
-
         return {
             LogicalType::VARCHAR,
             LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR),

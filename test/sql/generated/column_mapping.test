@@ -24,6 +24,13 @@ from delta_scan('./data/generated/evolution_simple/delta_lake') order by a
 1	NULL
 2	2
 
+# Now test with column mapped table
+query II
+from delta_scan('./data/generated/evolution_simple_name_mode/delta_lake') order by a
+----
+1	NULL
+2	2
+
 # evolution_column_change:
 # CREATE TABLE evolution_column_change AS SELECT 'value1' AS a, 'value2' AS b;
 # ALTER TABLE evolution_column_change DROP COLUMN b;

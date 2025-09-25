@@ -8,10 +8,10 @@ require delta
 
 require-env GENERATED_DATA_AVAILABLE
 
-# evolution_simple:
-# CREATE TABLE evolution_simple AS SELECT CAST(1 AS INT) AS a;
-# ALTER TABLE evolution_simple ADD COLUMN b BIGINT;,
-# INSERT INTO evolution_simple VALUES (2, 2);
+# evolution_simple_id_mode:
+# CREATE TABLE evolution_simple_id_mode AS SELECT CAST(1 AS INT) AS a;
+# ALTER TABLE evolution_simple_id_mode ADD COLUMN b BIGINT;,
+# INSERT INTO evolution_simple_id_mode VALUES (2, 2);
 query II
 from delta_scan('./data/generated/evolution_simple_id_mode/delta_lake') order by a
 ----
