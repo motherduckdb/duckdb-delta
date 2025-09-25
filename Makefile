@@ -48,3 +48,6 @@ include benchmark/benchmark.Makefile
 generate-data:
 	python3 -m pip install delta-spark duckdb pandas deltalake pyspark typing-extensions pyarrow
 	python3 scripts/data_generator/generate_test_data.py
+
+unpack-golden-tables-release:
+	./scripts/unwrap_golden_tables.sh

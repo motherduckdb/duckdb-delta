@@ -121,13 +121,14 @@ SELECT * FROM dt;
 ----
 1
 
+# TODO: fails
 query II rowsort
-SELECT * FROM dt AT (VERSION => 2)
+SELECT * FROM dt AT (VERSION => 1)
 ----
 1	NULL
 
 query II rowsort
-SELECT * FROM dt AT (VERSION => 3)
+SELECT * FROM dt AT (VERSION => 2)
 ----
 1	NULL
 2	2

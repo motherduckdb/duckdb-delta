@@ -224,9 +224,13 @@ jobs:
         run: |
           make generate-data
           make release
+          make unpack-golden-tables-release
 
       - name: Test
         shell: bash
+        env:
+          GENERATED_DATA_AVAILABLE: 1
+          GOLDEN_TABLES_PATH: data/unpacked_golden_tables
         run: |
           GENERATED_DATA_AVAILABLE=1 make test_release
 

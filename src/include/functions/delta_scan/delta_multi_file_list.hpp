@@ -82,7 +82,7 @@ public:
 	idx_t GetVersion();
 	vector<string> GetPartitionColumns();
 
-	vector<MultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
+	vector<DeltaMultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
     vector<NestedNotNullConstraint> GetNestedNotNullConstraints() const;
     bool HasNullConstraintsInArrays() const;
 
@@ -153,9 +153,8 @@ protected:
     mutable vector<NestedNotNullConstraint> not_null_constraints;
     mutable bool has_null_constraints_in_arrays = false;
 
-	vector<LogicalType> types;
-    //! Names
-    vector<string> names;
+    //! Global schema: NOTE: this might be missing some sht
+    vector<DeltaMultiFileColumnDefinition> global_columns;
 
 	bool have_bound = false;
 
@@ -163,7 +162,7 @@ protected:
 
 	// The schema containing the proper column identifiers, lazily loaded to avoid prematurely initializing the kernel
 	// scan
-	mutable vector<MultiFileColumnDefinition> lazy_loaded_schema;
+	mutable vector<DeltaMultiFileColumnDefinition> lazy_loaded_schema;
 
     // Whether variant types are interpreted as VARIANT (currently implemented as JSON) types
     bool enable_variant;
@@ -175,10 +174,10 @@ struct ScanDataCallBack {
 	}
 	static void VisitData(ffi::NullableCvoid engine_context, ffi::Handle<ffi::SharedScanMetadata> scan_metadata);
 	static void VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
-	                          const ffi::Stats *stats, const ffi::DvInfo *dv_info, const ffi::Expression *transform,
+	                          const ffi::Stats *stats, const ffi::CDvInfo *dv_info, const ffi::Expression *transform,
 	                          const struct ffi::CStringMap *partition_values);
 	static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path,
-	                                  int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+	                                  int64_t size, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
 	                                  const ffi::Expression *transform);
 
 	const DeltaMultiFileList &snapshot;

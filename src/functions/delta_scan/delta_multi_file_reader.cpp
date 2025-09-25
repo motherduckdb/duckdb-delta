@@ -148,7 +148,7 @@ void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList 
 	}
 
 	// FIXME: this is slightly hacky here
-	bind_data.schema = MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, return_types);
+	bind_data.schema = DeltaMultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, return_types);
 
 	// Set defaults
 	for (auto &col : bind_data.schema) {
@@ -167,22 +167,22 @@ ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData 
 	auto &delta_global_state = global_state->Cast<DeltaMultiFileReaderGlobalState>();
 	auto &snapshot = delta_global_state.file_list->Cast<DeltaMultiFileList>();
 
-	vector<MultiFileColumnDefinition> *global_columns_to_use;
 	auto &scan_columns = snapshot.GetLazyLoadedGlobalColumns();
-	vector<MultiFileColumnDefinition> column_copy;
+
+    // We need to override the global columns, because only now we have the correct column mapping information
+	vector<MultiFileColumnDefinition> overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
 	if (scan_columns.size() != global_columns.size()) {
-		column_copy = scan_columns;
+		overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
 		for (idx_t i = scan_columns.size(); i < global_columns.size(); i++) {
-			column_copy.push_back(global_columns[i]);
+			overridden_global_columns.push_back(global_columns[i]);
 		}
-		global_columns_to_use = &column_copy;
 	} else {
-		global_columns_to_use = &scan_columns;
+	    overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
 	}
 
-	FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, *global_columns_to_use, global_column_ids,
-	             context, global_state);
-	return CreateMapping(context, reader_data, *global_columns_to_use, global_column_ids, table_filters,
+    FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, overridden_global_columns, global_column_ids,
+                 context, global_state);
+	return CreateMapping(context, reader_data, overridden_global_columns, global_column_ids, table_filters,
 	                     gstate.file_list, bind_data.reader_bind, bind_data.virtual_columns);
 }
 

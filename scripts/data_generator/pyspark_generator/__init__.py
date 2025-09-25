@@ -9,7 +9,7 @@ import shutil
 import math
 import glob
 
-def generate_test_data_pyspark(base_path, name, current_path, input_path, delete_predicate = False, partition_column = None):
+def generate_test_data_pyspark(base_path, name, current_path, input_path, delete_predicate = False, partition_column = None, mapping_mode = None):
     """
     generate_test_data_pyspark generates some test data using pyspark and duckdb
 
@@ -48,8 +48,12 @@ def generate_test_data_pyspark(base_path, name, current_path, input_path, delete
         else:
             spark.sql(f"CREATE TABLE test_table_{name} USING delta LOCATION '{delta_table_path}' AS SELECT * FROM parquet.`{input_path}`")
 
-        spark.sql(f"ALTER TABLE test_table_{name} SET TBLPROPERTIES ('delta.minReaderVersion' = '3', 'delta.minWriterVersion' = '7');")
-
+        if mapping_mode == 'name' or mapping_mode == 'id':
+            spark.sql(f"ALTER TABLE test_table_{name} SET TBLPROPERTIES ('delta.minReaderVersion' = '3', 'delta.minWriterVersion' = '7', 'delta.columnMapping.mode' = '{mapping_mode}');")
+        elif mapping_mode is None:
+            spark.sql(f"ALTER TABLE test_table_{name} SET TBLPROPERTIES ('delta.minReaderVersion' = '3', 'delta.minWriterVersion' = '7');")
+        else:
+            raise f"Unknown mapping mode: {mapping_mode}"
 
         ## CREATE
         ## CONFIGURE USAGE OF DELETION VECTORS
@@ -70,7 +74,7 @@ def generate_test_data_pyspark(base_path, name, current_path, input_path, delete
             shutil.rmtree(full_path)
         raise
 
-def generate_test_data_pyspark_by_queries(base_path, name, current_path, base_query, queries):
+def generate_test_data_pyspark_by_queries(base_path, name, current_path, base_query, queries, mapping_mode = None):
     """
     schema_evolve_pyspark_deltatable generates some test data using pyspark and duckdb
 
@@ -102,9 +106,14 @@ def generate_test_data_pyspark_by_queries(base_path, name, current_path, base_qu
         ## DATA GENERATION
         # df = spark.read.parquet(input_path)
         # df.write.format("delta").mode("overwrite").save(delta_table_path)
-        spark.sql(f"CREATE TABLE {name} USING delta LOCATION '{delta_table_path}' AS {base_query}")
 
-        spark.sql(f"ALTER TABLE {name} SET TBLPROPERTIES ('delta.minReaderVersion' = '2', 'delta.minWriterVersion' = '5', 'delta.columnMapping.mode' = 'name', 'delta.enableTypeWidening' = 'true');")
+        if mapping_mode == 'name' or mapping_mode == 'id':
+            spark.sql(
+                f"CREATE TABLE {name} USING delta TBLPROPERTIES ('delta.minReaderVersion' = '2', 'delta.minWriterVersion' = '5', 'delta.columnMapping.mode' = '{mapping_mode}', 'delta.enableTypeWidening' = 'true') LOCATION '{delta_table_path}' AS {base_query};")
+        elif mapping_mode is None:
+            spark.sql(f"CREATE TABLE {name} USING delta TBLPROPERTIES ('delta.minReaderVersion' = '2', 'delta.minWriterVersion' = '5', 'delta.enableTypeWidening' = 'true') LOCATION '{delta_table_path}' AS {base_query};")
+        else:
+            raise f"Unknown mapping mode: {mapping_mode}"
 
         for query in queries:
             spark.sql(query)

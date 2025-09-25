@@ -1,0 +1,48 @@
+# name: test/sql/generated/column_mapping_id_mode.test
+# description: Test column mapping & schema evolution in id mode
+# group: [generated]
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+# evolution_simple_id_mode:
+# CREATE TABLE evolution_simple_id_mode AS SELECT CAST(1 AS INT) AS a;
+# ALTER TABLE evolution_simple_id_mode ADD COLUMN b BIGINT;,
+# INSERT INTO evolution_simple_id_mode VALUES (2, 2);
+query II
+from delta_scan('./data/generated/evolution_simple_id_mode/delta_lake') order by a
+----
+1	NULL
+2	2
+
+# evolution_column_change:
+# CREATE TABLE evolution_column_change AS SELECT 'value1' AS a, 'value2' AS b;
+# ALTER TABLE evolution_column_change DROP COLUMN b;
+# INSERT INTO evolution_column_change VALUES ('value3');
+# ALTER TABLE evolution_column_change ADD COLUMN b BIGINT;
+# INSERT INTO evolution_column_change VALUES ('value4', 5);
+
+query II
+from delta_scan('./data/generated/evolution_column_change_id_mode/delta_lake') order by a
+----
+value1	NULL
+value3	NULL
+value4	5
+
+query II
+SELECT a,b from delta_scan('./data/generated/evolution_column_change_id_mode/delta_lake') order by a
+----
+value1	NULL
+value3	NULL
+value4	5
+
+# Ensure we play ball with projections and generated columns, etc
+query IIII
+SELECT file_row_number, filename.substring(-8,8), b, a from delta_scan('./data/generated/evolution_column_change_id_mode/delta_lake') order by a
+----
+0	.parquet	NULL	value1
+0	.parquet	NULL	value3
+0	.parquet	5	value4

@@ -344,18 +344,73 @@ static void KernelPartitionStringVisitor(ffi::NullableCvoid engine_context, ffi:
 	data->partitions.push_back(KernelUtils::FromDeltaString(slice));
 }
 
-static Value GetPartitionValueFromExpression(const vector<unique_ptr<ParsedExpression>> &parsed_expression,
-                                             idx_t index) {
-	auto &column_expressions = KernelUtils::UnpackTopLevelStruct(parsed_expression);
-	auto &child = column_expressions[index];
-	if (!child || child->type != ExpressionType::VALUE_CONSTANT) {
-		throw IOException("Failed to parse partition value from kernel-provided transformation");
-	}
-	return child->Cast<ConstantExpression>().value;
+static unordered_map<idx_t, Value> FindPartitionValues(ParsedExpression &transformation, const vector<DeltaMultiFileColumnDefinition> &cols) {
+    if (transformation.Cast<FunctionExpression>().function_name != "delta_kernel_transform_expression") {
+        throw IOException("Unexpected function of root expression returned by delta kernel: %s", transformation.Cast<FunctionExpression>().function_name);
+    }
+
+    unordered_map<idx_t, Value> res;
+
+    // Iterate the children of the transform
+    for (auto & child: transformation.Cast<FunctionExpression>().children) {
+        auto &transform_op = child->Cast<FunctionExpression>();
+        if (transform_op.function_name != "delta_transform_op") {
+            throw IOException("Unexpected function for delta_transform_op returned by delta kernel: %s", child->Cast<FunctionExpression>().function_name);
+        }
+
+        bool is_replace = false;
+        string field_name;
+        vector<Value> values;
+
+        for (auto &transform_op_child : transform_op.children) {
+            if (transform_op_child->GetExpressionType() == ExpressionType::COMPARE_EQUAL) {
+                auto name = transform_op_child->Cast<ComparisonExpression>().left->Cast<ColumnRefExpression>().GetName();
+                auto value = transform_op_child->Cast<ComparisonExpression>().right->Cast<ConstantExpression>().value;
+
+                if (name == "is_replace") {
+                    is_replace = value.GetValue<bool>();
+                } else if (name == "field_name") {
+                    if (!value.IsNull()) {
+                        field_name = value.ToString();
+                    }
+                } else {
+                    throw InternalException("Unexpected name for delta_transform_op returned by delta kernel: %s", name);
+                }
+            } else if (transform_op_child->GetExpressionType() == ExpressionType::VALUE_CONSTANT) {
+                values.push_back(transform_op_child->Cast<ConstantExpression>().value);
+            } else {
+                throw NotImplementedException("Unexpected expression for delta_transform_op returned by delta kernel: %s", transform_op_child->ToString());
+            }
+        }
+
+        /// NOTE: Treating list id 0 as an empty list yields a simplified truth table:
+        ///
+        /// |field_name? |is_replace? |meaning|
+        /// |-|-|-|
+        /// | NO  | *   | Prepend a (possibly empty) list of expressions to the output
+        /// | YES | NO  | Insert a (possibly empty)  list of expressions after the named input field
+        /// | YES | YES | Replace the named input field with a (possibly empty) list of expressions
+        // TODO: broken for multiple transform expressions?
+        idx_t index_to_insert = 0;
+        if (!field_name.empty()) {
+            for (idx_t i = 0; i < cols.size(); ++i) {
+                if (field_name == cols[i].name) {
+                    index_to_insert = is_replace ? i : i+1;
+                    break;
+                }
+            }
+        }
+
+        for (idx_t i = 0; i < values.size(); ++i) {
+            res[index_to_insert + i] = values[i];
+        }
+    }
+
+    return res;
 }
 
 void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path,
-                                             int64_t size, const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                                             int64_t size, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
                                              const ffi::Expression *transform) {
 	auto context = (ScanDataCallBack *)engine_context;
 	auto &snapshot = context->snapshot;
@@ -379,30 +434,21 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		snapshot.metadata.back()->cardinality = stats->num_records;
 	}
 
-	// Fetch the deletion vector
-	auto selection_vector_res =
-	    ffi::selection_vector_from_dv(dv_info, snapshot.extern_engine.get(), KernelUtils::ToDeltaString(snapshot.root_path));
+    if (dv_info->has_vector) {
+        // Fetch the deletion vector
+        auto selection_vector_res =
+            ffi::selection_vector_from_dv(dv_info->info, snapshot.extern_engine.get(), KernelUtils::ToDeltaString(snapshot.root_path));
 
-	// TODO: remove workaround for https://github.com/duckdb/duckdb-delta/issues/150
-	bool do_workaround = false;
-	if (selection_vector_res.tag == ffi::ExternResult<ffi::KernelBoolSlice>::Tag::Err && selection_vector_res.err._0) {
-		auto error_cast = static_cast<DuckDBEngineError *>(selection_vector_res.err._0);
-		if (error_cast->error_message == "Deletion Vector error: Unknown storage format: ''.") {
-			do_workaround = true;
-		}
-	}
-
-	if (!do_workaround) {
-		ffi::KernelBoolSlice selection_vector;
-		auto res = KernelUtils::TryUnpackResult(selection_vector_res, selection_vector);
-		if (res.HasError()) {
-			context->error = res;
-			return;
-		}
-		if (selection_vector.ptr) {
-			snapshot.metadata.back()->selection_vector = selection_vector;
-		}
-	}
+        ffi::KernelBoolSlice selection_vector;
+        auto res = KernelUtils::TryUnpackResult(selection_vector_res, selection_vector);
+        if (res.HasError()) {
+            context->error = res;
+            return;
+        }
+        if (selection_vector.ptr) {
+            snapshot.metadata.back()->selection_vector = selection_vector;
+        }
+    }
 
 	// Lookup all columns for potential hits in the constant map
 	if (transform) {
@@ -414,14 +460,20 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 			                           "Failed to parse transformation expression from delta kernel: null returned");
 			return;
 		}
+	    if (parsed_transformation_expression->size() != 1 || parsed_transformation_expression->front()->GetExpressionType() != ExpressionType::FUNCTION) {
+	        context->error = ErrorData(ExceptionType::IO,
+                                       "Failed to fetch partitions from delta kernel transform: Transform is unknown expression");
+	        return;
+	    }
+
+	    auto transform_partitions = FindPartitionValues(*(*parsed_transformation_expression)[0], snapshot.global_columns);
 
 		case_insensitive_map_t<Value> constant_map;
 		for (idx_t i = 0; i < snapshot.partitions.size(); ++i) {
 			const auto &partition_id = context->snapshot.partition_ids[i];
 			const auto &partition_name = context->snapshot.partitions[i];
 
-			constant_map[partition_name] =
-			    GetPartitionValueFromExpression(*parsed_transformation_expression, partition_id);
+			constant_map[partition_name] = transform_partitions[partition_id];
 		}
 		snapshot.metadata.back()->partition_map = std::move(constant_map);
 		snapshot.metadata.back()->transform_expression =
@@ -436,7 +488,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 }
 
 void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
-                                     const ffi::Stats *stats, const ffi::DvInfo *dv_info,
+                                     const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
                                      const ffi::Expression *transform, const ffi::CStringMap *partition_values) {
 	try {
 		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, transform);
@@ -494,39 +546,39 @@ string DeltaMultiFileList::ToDeltaPath(const string &raw_path) {
 }
 
 static void ExtractNotNullConstraints(vector<NestedNotNullConstraint> &constraints,
-                               const SchemaVisitor::FieldList &schema, idx_t index = DConstants::INVALID_INDEX, const string &parent_path = "") {
+                               const vector<DeltaMultiFileColumnDefinition> &columns, idx_t index = DConstants::INVALID_INDEX, const string &parent_path = "") {
 
     idx_t col_id = 0;
-    for (auto &field : schema) {
+    for (auto &col : columns) {
         // Traverse struct
-        string field_path = parent_path.empty() ? "\"" + field.first + "\"" : parent_path + ".\"" + field.first + "\"";
+        string field_path = parent_path.empty() ? "\"" + col.name + "\"" : parent_path + ".\"" + col.name + "\"";
         idx_t index_to_set = index == DConstants::INVALID_INDEX ? col_id++ : index;
 
-        if (!field.second.nullable) {
+        if (!col.nullable) {
             constraints.push_back(NestedNotNullConstraint(LogicalIndex(index_to_set), field_path));
         }
 
-        if (field.second.type.id() == LogicalTypeId::STRUCT) {
-            ExtractNotNullConstraints(constraints, field.second.children, index_to_set, field_path);
+        if (col.type.id() == LogicalTypeId::STRUCT) {
+            ExtractNotNullConstraints(constraints, col.children, index_to_set, field_path);
         }
     }
 }
 
-static bool ExtractHasNullConstraintsInArrays(SchemaVisitor::FieldList &fields, bool in_array = false) {
-    for (auto &field : fields) {
-        if (field.second.type.id() == LogicalTypeId::ARRAY || field.second.type.id() == LogicalTypeId::LIST) {
-            if (!field.second.nullable) {
+static bool ExtractHasNullConstraintsInArrays(const vector<DeltaMultiFileColumnDefinition> &columns, bool in_array = false) {
+    for (auto &col : columns) {
+        if (col.type.id() == LogicalTypeId::ARRAY || col.type.id() == LogicalTypeId::LIST) {
+            if (!col.nullable) {
                 return true;
             }
         }
 
         // Traverse nested types
-        if (field.second.type.id() == LogicalTypeId::STRUCT ||
-            field.second.type.id() == LogicalTypeId::MAP ||
-            field.second.type.id() == LogicalTypeId::LIST ||
-            field.second.type.id() == LogicalTypeId::ARRAY) {
+        if (col.type.id() == LogicalTypeId::STRUCT ||
+            col.type.id() == LogicalTypeId::MAP ||
+            col.type.id() == LogicalTypeId::LIST ||
+            col.type.id() == LogicalTypeId::ARRAY) {
 
-            if (ExtractHasNullConstraintsInArrays(field.second.children, true)) {
+            if (ExtractHasNullConstraintsInArrays(col.children, true)) {
                 return true;
             }
         }
@@ -539,32 +591,34 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	unique_lock<mutex> lck(lock);
 
 	if (have_bound) {
-		names = this->names;
-		return_types = this->types;
+	    for (const auto &field : global_columns) {
+	        names.push_back(field.name);
+	        return_types.push_back(field.type);
+	    }
 		return;
 	}
 
 	EnsureSnapshotInitialized();
 
-	unique_ptr<SchemaVisitor::FieldList> schema;
+	vector<DeltaMultiFileColumnDefinition> visited_schema;
 	{
 		auto snapshot_ref = snapshot->GetLockingRef();
-		schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr(), enable_variant);
+		visited_schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr(), enable_variant);
 	}
 
-	for (const auto &field : *schema) {
-		names.push_back(field.first);
-		return_types.push_back(field.second.type);
+	for (const auto &field : visited_schema) {
+		names.push_back(field.name);
+		return_types.push_back(field.type);
 	}
 
 	// Store the bound names for resolving the complex filter pushdown later
 	have_bound = true;
-	this->names = names;
-	this->types = return_types;
 
-    ExtractNotNullConstraints(this->not_null_constraints, *schema);
+    ExtractNotNullConstraints(this->not_null_constraints, visited_schema);
 
-    has_null_constraints_in_arrays = ExtractHasNullConstraintsInArrays(*schema);
+    has_null_constraints_in_arrays = ExtractHasNullConstraintsInArrays(visited_schema);
+
+    this->global_columns = std::move(visited_schema);
 }
 
 OpenFileInfo DeltaMultiFileList::GetFileInternal(idx_t i) const {
@@ -649,104 +703,11 @@ void DeltaMultiFileList::InitializeSnapshot() const {
 	initialized_snapshot = true;
 }
 
-static void InjectColumnIdentifiers(const vector<string> &names, const vector<LogicalType> &types,
-                                    const vector<string> &all_names, const vector<LogicalType> &all_types,
-                                    vector<MultiFileColumnDefinition> &global_column_defs) {
-	for (idx_t i = 0; i < names.size(); i++) {
-		auto &col = global_column_defs[i];
-		col.default_expression = make_uniq<ConstantExpression>(Value(col.type));
-		col.identifier = Value(all_names[i]);
-
-		if (col.type.id() == LogicalTypeId::STRUCT) {
-			vector<string> child_names;
-			vector<LogicalType> child_types;
-			for (idx_t j = 0; j < StructType::GetChildCount(col.type); j++) {
-				child_names.emplace_back(StructType::GetChildName(col.type, j));
-				child_types.emplace_back(StructType::GetChildType(col.type, j));
-			}
-
-			vector<string> child_all_names;
-			vector<LogicalType> child_all_types;
-			for (idx_t j = 0; j < StructType::GetChildCount(all_types[i]); j++) {
-				child_all_names.emplace_back(StructType::GetChildName(all_types[i], j));
-				child_all_types.emplace_back(StructType::GetChildType(all_types[i], j));
-			}
-
-			InjectColumnIdentifiers(child_names, child_types, child_all_names, child_all_types, col.children);
-		}
-	}
-}
-
-static vector<MultiFileColumnDefinition> ConstructGlobalColDefs(const vector<string> &names,
-                                                                const vector<LogicalType> &types,
-                                                                const vector<string> &partitions,
-                                                                ffi::SharedScan *scan, bool enable_variant) {
-	vector<string> physical_names;
-	vector<LogicalType> physical_types;
-	vector<string> logical_names;
-	vector<LogicalType> logical_types;
-	unordered_map<string, string> name_map;
-	unordered_map<string, LogicalType> physical_type_map;
-	unordered_set<string> partition_set;
-
-	for (const auto &partition : partitions) {
-		partition_set.insert(partition);
-	}
-
-	auto schema_physical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, false, enable_variant);
-	auto schema_logical = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan, true, enable_variant);
-
-	for (idx_t i = 0; i < schema_physical->size(); i++) {
-		physical_names.push_back((*schema_physical)[i].first);
-		physical_types.push_back((*schema_physical)[i].second.type);
-	}
-	for (idx_t i = 0; i < schema_logical->size(); i++) {
-		logical_names.push_back((*schema_logical)[i].first);
-		logical_types.push_back((*schema_logical)[i].second.type);
-	}
-
-	idx_t physical_idx = 0;
-	for (idx_t i = 0; i < logical_names.size(); i++) {
-		auto &logical_name = logical_names[i];
-		if (partition_set.find(logical_name) != partition_set.end()) {
-			continue;
-		}
-		if (physical_idx >= physical_names.size()) {
-			throw IOException("Failed to map physical schema to logical");
-		}
-		name_map[logical_names[i]] = physical_names[physical_idx];
-		physical_type_map[logical_names[i]] = physical_types[physical_idx];
-		physical_idx++;
-	}
-
-	vector<string> all_names;
-	vector<LogicalType> all_types;
-	for (idx_t i = 0; i < names.size(); i++) {
-		auto &name = names[i];
-		auto &type = types[i];
-
-		auto lu = name_map.find(name);
-		if (lu != name_map.end()) {
-			all_names.push_back(lu->second);
-			all_types.push_back(physical_type_map[name]);
-		} else {
-			all_names.push_back(name);
-			all_types.push_back(type);
-		}
-	}
-
-	auto global_column_defs = MultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, types);
-
-	InjectColumnIdentifiers(names, types, all_names, all_types, global_column_defs);
-
-	return global_column_defs;
-}
-
 void DeltaMultiFileList::InitializeScan() const {
 	auto snapshot_ref = snapshot->GetLockingRef();
 
 	// Create Scan
-	PredicateVisitor visitor(names, &table_filters);
+	PredicateVisitor visitor(global_columns, &table_filters);
 	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
 
 	if (visitor.error_data.HasError()) {
@@ -777,8 +738,8 @@ void DeltaMultiFileList::InitializeScan() const {
 		partitions = data.partitions;
 
 		for (auto &partition : partitions) {
-			for (idx_t i = 0; i < names.size(); i++) {
-				if (partition == names[i]) {
+			for (idx_t i = 0; i < global_columns.size(); i++) {
+				if (partition == global_columns[i].name) {
 					partition_ids.push_back(i);
 					break;
 				}
@@ -790,7 +751,9 @@ void DeltaMultiFileList::InitializeScan() const {
 		}
 	}
 
-	lazy_loaded_schema = ConstructGlobalColDefs(names, types, partitions, scan.get(), enable_variant);
+	lazy_loaded_schema = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan.get(), true, enable_variant);
+
+    DeltaMultiFileColumnDefinition::Print(lazy_loaded_schema, "lazy_loaded_schema");
 
 	initialized_scan = true;
 }
@@ -821,7 +784,7 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
 
 	// Add new filters
 	for (auto &entry : new_filters.filters) {
-		if (entry.first < names.size()) {
+		if (entry.first < global_columns.size()) {
 			result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
 		}
 	}
@@ -829,8 +792,7 @@ unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContex
     // TODO clean up this mess with a copy constructor?
 
 	filtered_list->table_filters = std::move(result_filter_set);
-	filtered_list->names = names;
-	filtered_list->types = types;
+	filtered_list->global_columns = global_columns;
 	filtered_list->lazy_loaded_schema = lazy_loaded_schema;
 
 	// Copy over the snapshot, this avoids reparsing metadata
@@ -942,8 +904,8 @@ void DeltaMultiFileList::ReportFilterPushdown(ClientContext &context, DeltaMulti
 	for (auto &f : table_filters.filters) {
 		auto &column_index = f.first;
 		auto &filter = f.second;
-		if (column_index < names.size()) {
-			auto &col_name = names[column_index];
+		if (column_index < global_columns.size()) {
+			auto &col_name = global_columns[column_index].name;
 			old_filters_value_list.push_back(filter->ToString(col_name));
 		}
 	}
@@ -954,8 +916,8 @@ void DeltaMultiFileList::ReportFilterPushdown(ClientContext &context, DeltaMulti
 	for (auto &f : new_list.table_filters.filters) {
 		auto &column_index = f.first;
 		auto &filter = f.second;
-		if (column_index < names.size()) {
-			auto &col_name = names[column_index];
+		if (column_index < global_columns.size()) {
+			auto &col_name = global_columns[column_index].name;
 			filters_value_list.push_back(filter->ToString(col_name));
 		}
 	}
@@ -1088,7 +1050,7 @@ vector<string> DeltaMultiFileList::GetPartitionColumns() {
 	return partitions;
 }
 
-vector<MultiFileColumnDefinition> &DeltaMultiFileList::GetLazyLoadedGlobalColumns() const {
+vector<DeltaMultiFileColumnDefinition> &DeltaMultiFileList::GetLazyLoadedGlobalColumns() const {
 	unique_lock<mutex> lck(lock);
 	EnsureScanInitialized();
 	return lazy_loaded_schema;
