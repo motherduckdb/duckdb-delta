@@ -416,9 +416,13 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 	auto &snapshot = context->snapshot;
 
 	auto path_string = snapshot.GetPath();
-	StringUtil::RTrim(path_string, "/");
-	path_string += "/" + KernelUtils::FromDeltaString(path);
-
+	auto sub_path = KernelUtils::FromDeltaString(path);
+	if (StringUtil::StartsWith(sub_path, "/")) {
+		path_string = sub_path;
+	} else {
+		StringUtil::RTrim(path_string, "/");
+		path_string += "/" + sub_path;
+	}
 	path_string = url_decode(path_string);
 
 	// First we append the file to our resolved files
