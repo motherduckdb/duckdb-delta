@@ -10,6 +10,7 @@
 #include "duckdb/common/arrow/arrow_converter.hpp"
 #include "duckdb/common/arrow/arrow_appender.hpp"
 #include "duckdb/catalog/catalog_entry/view_catalog_entry.hpp"
+#include "duckdb/common/arrow/appender/append_data.hpp"
 #include "duckdb/main/client_context_file_opener.hpp"
 #include "functions/delta_scan/delta_scan.hpp"
 #include "storage/delta_insert.hpp"
@@ -56,12 +57,29 @@ struct CommitInfo {
         buffer.SetCardinality(current_size+1);
     }
 
+    void (*release)();
+    static void InstrumentedRelease(ArrowArray *arg1) {
+        auto holder = static_cast<ArrowAppendData *>(arg1->private_data);
+
+        if (holder->options.client_context) {
+            DUCKDB_LOG_TRACE(*holder->options.client_context, "Delta ToArrow debug: released CommitInfo");
+        }
+
+        return ArrowAppender::ReleaseArray(arg1);
+    }
+
     ffi::ArrowFFIData ToArrow(optional_ptr<ClientContext> context) {
+        if (context) {
+            DUCKDB_LOG_TRACE(*context, "Delta ToArrow debug: created CommitInfo");
+        }
+
         ffi::ArrowFFIData ffi_data;
         unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;
         ClientProperties props("UTC", ArrowOffsetSize::REGULAR, false, false, false, ArrowFormatVersion::V1_0, context);
         ArrowConverter::ToArrowArray(buffer, (ArrowArray*)(&ffi_data.array), props, extension_types);
         ArrowConverter::ToArrowSchema((ArrowSchema*)(&ffi_data.schema), GetTypes(), GetNames(), props);
+
+        ffi_data.array.release = reinterpret_cast<void (*)(ffi::FFI_ArrowArray *)>(InstrumentedRelease);
         return ffi_data;
     }
 
@@ -127,12 +145,28 @@ struct WriteMetaData {
         buffer->SetCardinality(current_size+1);
     }
 
+    void (*release)();
+    static void InstrumentedRelease(ArrowArray *arg1) {
+        auto holder = static_cast<ArrowAppendData *>(arg1->private_data);
+
+        if (holder->options.client_context) {
+            DUCKDB_LOG_TRACE(*holder->options.client_context, "Delta ToArrow debug: released WriteMetaData");
+        }
+
+        return ArrowAppender::ReleaseArray(arg1);
+    }
+
     ffi::ArrowFFIData ToArrow(ClientContext &context) {
+        DUCKDB_LOG_TRACE(context, "Delta ToArrow debug: created WriteMetaData");
+
         ffi::ArrowFFIData ffi_data;
         unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;
         ClientProperties props("UTC", ArrowOffsetSize::REGULAR, false, false, false, ArrowFormatVersion::V1_0, context);
         ArrowConverter::ToArrowArray(*buffer, (ArrowArray*)(&ffi_data.array), props, extension_types);
         ArrowConverter::ToArrowSchema((ArrowSchema*)(&ffi_data.schema), GetTypes(), GetNames(), props);
+
+        ffi_data.array.release = reinterpret_cast<void (*)(ffi::FFI_ArrowArray *)>(InstrumentedRelease);
+
         return ffi_data;
     }
 
