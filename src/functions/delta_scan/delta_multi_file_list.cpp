@@ -417,7 +417,7 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 
 	auto path_string = snapshot.GetPath();
 	auto sub_path = KernelUtils::FromDeltaString(path);
-	if (StringUtil::StartsWith(sub_path, "/")) {
+	if (StringUtil::StartsWith(sub_path, "/") && sub_path.find('/', 1) != std::string::npos) {
 		path_string = sub_path;
 	} else {
 		StringUtil::RTrim(path_string, "/");
