@@ -22,6 +22,7 @@ static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo>
                                                      AttachInfo &info, AttachOptions &options) {
 
 	auto res = make_uniq<DeltaCatalog>(db, info.path, options.access_mode);
+    res->internal_table_name = name;
 
 	for (const auto &option : info.options) {
 		if (StringUtil::Lower(option.first) == "pin_snapshot") {
@@ -38,9 +39,15 @@ static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo>
 	        res->use_cache = true;
 	        res->use_specific_version = UBigIntValue::Get(option.second.DefaultCastAs(LogicalType::UBIGINT));
 	    }
+	    if (StringUtil::Lower(option.first) == "internal_table_name") {
+	        res->internal_table_name = StringValue::Get(option.second);
+	    }
+	    if (StringUtil::Lower(option.first) == "child_catalog_mode") {
+	        res->child_catalog_mode = option.second.GetValue<bool>();
+	    }
 	}
 
-	res->SetDefaultTable(DEFAULT_SCHEMA, name);
+	res->SetDefaultTable(DEFAULT_SCHEMA, res->GetInternalTableName());
 
 	return std::move(res);
 }

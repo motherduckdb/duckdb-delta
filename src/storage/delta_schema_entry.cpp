@@ -117,7 +117,7 @@ unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &co
 	for (idx_t i = 0; i < return_types.size(); i++) {
 		table_info.columns.AddColumn(ColumnDefinition(names[i], return_types[i]));
 	}
-	table_info.table = delta_catalog.GetName();
+	table_info.table = !delta_catalog.internal_table_name.empty() ? delta_catalog.internal_table_name : catalog.GetName();
 
     // Copy over constraints to table info TODO: these are incompatible currently
     // table_info.constraints = snapshot->not_null_constraints;}
@@ -157,9 +157,10 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction tran
 
 	auto type = lookup_info.GetCatalogType();
 	auto &name = lookup_info.GetEntryName();
-	if (type == CatalogType::TABLE_ENTRY && name == catalog.GetName()) {
+    auto &delta_catalog = catalog.Cast<DeltaCatalog>();
+
+	if (type == CatalogType::TABLE_ENTRY && (name == catalog.GetName() || name == delta_catalog.internal_table_name)) {
 		auto &delta_transaction = GetDeltaTransaction(transaction);
-		auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
 	    idx_t version = delta_catalog.use_specific_version;
 
