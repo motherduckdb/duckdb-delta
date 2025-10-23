@@ -266,6 +266,8 @@ void DeltaTransaction::InitializeTransaction(ClientContext &context) {
     }
     transaction_state = DeltaTransactionState::TRANSACTION_STARTED;
 
+    D_ASSERT(table_entry);
+
     // Start the kernel transaction
     string path =  table_entry->snapshot->GetPaths()[0].path;
     auto path_slice = KernelUtils::ToDeltaString(path);

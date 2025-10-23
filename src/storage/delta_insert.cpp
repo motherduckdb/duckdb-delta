@@ -46,7 +46,7 @@ public:
 
     vector<DeltaDataFile> written_files;
 
-    idx_t insert_count;
+    idx_t insert_count = 0;
 
     // Fields in the table with not null constraints. These
     case_insensitive_map_t<vector<NestedNotNullConstraint>> not_null_constraints;
@@ -278,7 +278,19 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 		throw BinderException("ON CONFLICT clause not yet supported for insertion into Delta table");
 	}
 
-    string delta_path =  op.table.Cast<DeltaTableEntry>().snapshot->GetPaths()[0].path;
+    // Lookup table here:
+    optional_ptr<DeltaTableEntry> table_entry;
+    if (child_catalog_mode) {
+        // We need to fetch the table ourselves
+        CatalogEntryRetriever retriever(context);
+        EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, default_table);
+        auto default_table_entry = LookupEntry(retriever, default_schema, lookup_info, OnEntryNotFound::THROW_EXCEPTION);
+        table_entry = default_table_entry.entry->Cast<DeltaTableEntry>();
+    } else {
+        table_entry = op.table.Cast<DeltaTableEntry>();
+    }
+
+    string delta_path =  table_entry->snapshot->GetPaths()[0].path;
 
     // Create Copy Info
     auto info = make_uniq<CopyInfo>();
@@ -293,10 +305,10 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
     }
 
 
-    auto partitions = op.table.Cast<DeltaTableEntry>().snapshot->GetPartitionColumns();
+    auto partitions = table_entry->snapshot->GetPartitionColumns();
     vector<idx_t> partition_columns;
     if (!partitions.empty()) {
-        auto column_names = op.table.Cast<DeltaTableEntry>().GetColumns().GetColumnNames();
+        auto column_names = table_entry->GetColumns().GetColumnNames();
         for (int64_t i = 0; i < partitions.size(); i++) {
             for (int64_t j = 0; j < column_names.size(); j++) {
                 if (column_names[j] == partitions[i]) {
@@ -308,7 +320,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
     }
 
     // Bind Copy Function
-    auto &columns = op.table.Cast<DeltaTableEntry>().GetColumns();
+    auto &columns = table_entry->GetColumns();
     CopyFunctionBindInput bind_input(*info);
 
     auto names_to_write = columns.GetColumnNames();
@@ -316,7 +328,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 
     auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
 
-    auto &insert = planner.Make<DeltaInsert>(op, op.table, op.column_index_map);
+    auto &insert = planner.Make<DeltaInsert>(op, *table_entry, op.column_index_map);
 
     auto &physical_copy = planner.Make<PhysicalCopyToFile>(GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS), copy_fun->function, std::move(function_data), op.estimated_cardinality);
     auto &physical_copy_ref = physical_copy.Cast<PhysicalCopyToFile>();
