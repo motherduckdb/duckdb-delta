@@ -13,13 +13,13 @@
 namespace duckdb {
 class ExtensionLoader;
 
-class BaseMetadataFunction : public TableFunction {
+class DeltaBaseMetadataFunction : public TableFunction {
 public:
-    BaseMetadataFunction(string name, table_function_bind_t bind);
+    DeltaBaseMetadataFunction(string name, table_function_bind_t bind);
 
 };
 
-class DeltaFileListFunction : public BaseMetadataFunction {
+class DeltaFileListFunction : public DeltaBaseMetadataFunction {
 public:
     DeltaFileListFunction();
 };

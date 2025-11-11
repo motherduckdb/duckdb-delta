@@ -132,7 +132,7 @@ static unique_ptr<FunctionData> DeltaFileListBind(ClientContext &context, TableF
 
 
 DeltaFileListFunction::DeltaFileListFunction()
-        : BaseMetadataFunction("delta_metadata", DeltaFileListBind) {
+        : DeltaBaseMetadataFunction("delta_metadata", DeltaFileListBind) {
     // arguments.push_back(LogicalType::VARCHAR);
     named_parameters.insert({"transform_expression", LogicalType::BOOLEAN});
     named_parameters.insert({"delete_count", LogicalType::BOOLEAN});

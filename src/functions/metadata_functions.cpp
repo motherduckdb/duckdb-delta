@@ -7,6 +7,8 @@
 
 namespace duckdb {
 
+namespace {
+
 struct MetadataFunctionData : public GlobalTableFunctionState {
     MetadataFunctionData() : offset(0) {
     }
@@ -43,7 +45,9 @@ void MetadataFunctionExecute(ClientContext &context, TableFunctionInput &data_p,
     output.SetCardinality(count);
 }
 
-BaseMetadataFunction::BaseMetadataFunction(string name_p, table_function_bind_t bind)
+} // anonymous namespace
+
+DeltaBaseMetadataFunction::DeltaBaseMetadataFunction(string name_p, table_function_bind_t bind)
     : TableFunction(std::move(name_p), {LogicalType::VARCHAR}, MetadataFunctionExecute, bind, MetadataFunctionInit) {
 }
 
