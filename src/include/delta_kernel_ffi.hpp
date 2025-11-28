@@ -623,25 +623,6 @@ struct EngineIterator {
   const void *(*get_next)(void *data);
 };
 
-// This trickery is from https://github.com/mozilla/cbindgen/issues/402#issuecomment-578680163
-struct im_an_unused_struct_that_tricks_msvc_into_compilation {
-	ExternResult<KernelBoolSlice> field;
-	ExternResult<bool> field2;
-	ExternResult<EngineBuilder *> field3;
-	ExternResult<Handle<SharedExternEngine>> field4;
-	ExternResult<Handle<SharedSnapshot>> field5;
-	ExternResult<uintptr_t> field6;
-	ExternResult<ArrowFFIData *> field7;
-	ExternResult<Handle<SharedScanMetadataIterator>> field8;
-	ExternResult<Handle<SharedScan>> field9;
-	ExternResult<Handle<ExclusiveFileReadResultIterator>> field10;
-	ExternResult<KernelRowIndexArray> field11;
-	ExternResult<Handle<ExclusiveEngineData>> field12;
-    ExternResult<Handle<ExclusiveTransaction>> field13;
-    ExternResult<uint64_t> field14;
-    ExternResult<NullableCvoid> field15;
-};
-
 /// An `Event` can generally be thought of a "log message". It contains all the relevant bits such
 /// that an engine can generate a log message in its format
 struct Event {
@@ -863,6 +844,32 @@ struct EngineSchemaVisitor {
 };
 
 extern "C" {
+
+// This trickery is from https://github.com/mozilla/cbindgen/issues/402#issuecomment-578680163
+struct im_an_unused_struct_that_tricks_msvc_into_compilation {
+    ExternResult<KernelBoolSlice> field;
+    ExternResult<bool> field2;
+    ExternResult<EngineBuilder *> field3;
+    ExternResult<Handle<SharedExternEngine>> field4;
+    ExternResult<Handle<SharedSnapshot>> field5;
+    ExternResult<uintptr_t> field6;
+    ExternResult<ArrowFFIData *> field7;
+    ExternResult<Handle<SharedScanMetadataIterator>> field8;
+    ExternResult<Handle<SharedScan>> field9;
+    ExternResult<Handle<ExclusiveFileReadResultIterator>> field10;
+    ExternResult<KernelRowIndexArray> field11;
+    ExternResult<Handle<ExclusiveEngineData>> field12;
+    ExternResult<Handle<ExclusiveTransaction>> field13;
+    ExternResult<uint64_t> field14;
+    ExternResult<NullableCvoid> field15;
+    ExternResult<Handle<SharedExpressionEvaluator>> field16;
+    ExternResult<Handle<ExclusiveTableChanges>> field17;
+    ExternResult<Handle<SharedTableChangesScan>> field18;
+    ExternResult<Handle<SharedScanTableChangesIterator>> field19;
+    ExternResult<ArrowFFIData> field20;
+    ExternResult<OptionalValue<int64_t>> field21;
+    OptionalValue<Handle<SharedExpression>> field22;
+};
 
 /// # Safety
 ///
