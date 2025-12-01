@@ -99,17 +99,16 @@ struct WriteMetaData {
             LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR),
             LogicalType::BIGINT,
             LogicalType::BIGINT,
-            LogicalType::BOOLEAN,
             GetStatsType()
         };
     };
+
     static vector<string> GetNames() {
         return {
             "path",
             "partitionValues",
             "size",
             "modificationTime",
-            "dataChange",
             "stats"
         };
     };
@@ -149,8 +148,7 @@ struct WriteMetaData {
         buffer->SetValue(1, current_size, partition_values);
         buffer->SetValue(2, current_size, Value::BIGINT(size));
         buffer->SetValue(3, current_size, Value::BIGINT(modification_time));
-        buffer->SetValue(4, current_size, data_change);
-        buffer->SetValue(5, current_size, CreateStatsValue(size, true));
+        buffer->SetValue(4, current_size, CreateStatsValue(size, true));
         buffer->SetCardinality(current_size+1);
     }
 

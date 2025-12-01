@@ -29,7 +29,7 @@ SELECT data_file[-8:], cardinality, partitions, have_deletes, transform_expressi
 .parquet	5	{part=1}	false	['delta_kernel_transform_expression(delta_transform_op(1, (is_replace = false), (field_name = \'i\')))']
 
 query IIIII
-SELECT data_file[-8:], cardinality, partitions, have_deletes, delete_count FROM delta_list_files('./data/generated/simple_partitioned/delta_lake', delete_count=1) order by cardinality;
+SELECT data_file[-8:], cardinality, partitions, have_deletes, delete_count FROM delta_list_files('./data/generated/simple_partitioned/delta_lake', delete_count=1) order by partitions;
 ----
 .parquet	5	{part=0}	false	0
 .parquet	5	{part=1}	false	0
