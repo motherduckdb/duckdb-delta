@@ -20,6 +20,8 @@ set(EXTENSION_SOURCES
     src/functions/delta_scan/delta_scan.cpp
     src/functions/delta_scan/delta_multi_file_list.cpp
     src/functions/delta_scan/delta_multi_file_reader.cpp
+    src/functions/delta_metadata_scan.cpp
+    src/functions/metadata_functions.cpp
     src/functions/expression_functions.cpp
     src/functions/util_functions.cpp
     src/storage/delta_insert.cpp
@@ -146,7 +148,7 @@ ExternalProject_Add(
   # the c++ headers. Currently, when bumping the kernel version, the produced
   # header in ./src/include/delta_kernel_ffi.hpp should be also bumped, applying
   # the fix
-  GIT_TAG v0.16.0
+  GIT_TAG v0.17.1
   # Prints the env variables passed to the cargo build to the terminal, useful
   # in debugging because passing them through CMake is an error-prone mess
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS}

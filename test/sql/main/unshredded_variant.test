@@ -20,20 +20,6 @@ require json
 # array_of_struct_of_variants	STRUCT(v STRUCT("value" BLOB, metadata BLOB))[]	YES	NULL	NULL	NULL
 # struct_of_array_of_variants	STRUCT(v STRUCT("value" BLOB, metadata BLOB)[])	YES	NULL	NULL	NULL
 
-# TODO: fix
-
-statement ok
-pragma threads=1
-
-statement ok
-SELECT struct_of_array_of_variants FROM  delta_scan('data/inlined/unshredded-variant')
-
-mode skip 
-
-statement ok
-copy (struct_of_array_of_variants from delta_scan('data/inlined/unshredded-variant')) TO './unshredded_variant.parquet'
-
-
 # There's a setting to anable decoding the VARIANTs though
 statement ok
 set variant_legacy_encoding=true;

@@ -1,0 +1,54 @@
+# name: test/sql/generated/delta_list_files.test
+# description: Test delta_list_files function
+# group: [generated]
+
+require parquet
+
+require delta
+
+require-env GENERATED_DATA_AVAILABLE
+
+query IIIIII
+DESCRIBE FROM delta_list_files('./data/generated/simple_partitioned_large/delta_lake');
+----
+data_file	VARCHAR	YES	NULL	NULL	NULL
+cardinality	UBIGINT	YES	NULL	NULL	NULL
+partitions	MAP(VARCHAR, VARCHAR)	YES	NULL	NULL	NULL
+have_deletes	BOOLEAN	YES	NULL	NULL	NULL
+
+query IIII
+SELECT data_file[-8:], cardinality, partitions, have_deletes FROM delta_list_files('./data/generated/simple_partitioned/delta_lake') order by partitions;
+----
+.parquet	5	{part=0}	false
+.parquet	5	{part=1}	false
+
+query IIIII
+SELECT data_file[-8:], cardinality, partitions, have_deletes, transform_expression FROM delta_list_files('./data/generated/simple_partitioned/delta_lake', transform_expression=1) order by partitions;
+----
+.parquet	5	{part=0}	false	['delta_kernel_transform_expression(delta_transform_op(0, (is_replace = false), (field_name = \'i\')))']
+.parquet	5	{part=1}	false	['delta_kernel_transform_expression(delta_transform_op(1, (is_replace = false), (field_name = \'i\')))']
+
+query IIIII
+SELECT data_file[-8:], cardinality, partitions, have_deletes, delete_count FROM delta_list_files('./data/generated/simple_partitioned/delta_lake', delete_count=1) order by partitions;
+----
+.parquet	5	{part=0}	false	0
+.parquet	5	{part=1}	false	0
+
+query IIIII
+SELECT data_file[-8:], cardinality, partitions, have_deletes, delete_count FROM delta_list_files('./data/generated/simple_sf1_with_dv/delta_lake', delete_count=1) order by cardinality;
+----
+.parquet	16960	{}	1	16
+.parquet	491520	{}	1	492
+.parquet	491520	{}	1	492
+
+
+query IIII
+SELECT data_file[-8:], cardinality, partitions, have_deletes FROM delta_list_files('./data/generated/evolution_simple/delta_lake', version = 1);
+----
+.parquet	1	{}	false
+
+query IIII
+SELECT data_file[-8:], cardinality, partitions, have_deletes FROM delta_list_files('./data/generated/evolution_simple/delta_lake', version = 2);
+----
+.parquet	1	{}	false
+.parquet	1	{}	false
