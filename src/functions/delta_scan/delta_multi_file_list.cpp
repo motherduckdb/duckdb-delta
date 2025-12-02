@@ -237,7 +237,12 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 			ffi::set_builder_option(builder, KernelUtils::ToDeltaString("aws_endpoint"),
 			                        KernelUtils::ToDeltaString("https://storage.googleapis.com"));
 		}
-
+		if (secret_type == "s3"){
+			if (!url_style.empty() && url_style == "vhost"){
+				ffi::set_builder_option(builder, KernelUtils::ToDeltaString("aws_virtual_hosted_style_request"),
+				                        KernelUtils::ToDeltaString("true"));
+			}
+		}
 		ffi::set_builder_option(builder, KernelUtils::ToDeltaString("aws_region"), KernelUtils::ToDeltaString(region));
 
 	} else if (secret_type == "azure") {
@@ -416,9 +421,13 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 	auto &snapshot = context->snapshot;
 
 	auto path_string = snapshot.GetPath();
-	StringUtil::RTrim(path_string, "/");
-	path_string += "/" + KernelUtils::FromDeltaString(path);
-
+	auto sub_path = KernelUtils::FromDeltaString(path);
+	if (StringUtil::StartsWith(sub_path, "/") && sub_path.find('/', 1) != std::string::npos) {
+		path_string = sub_path;
+	} else {
+		StringUtil::RTrim(path_string, "/");
+		path_string += "/" + sub_path;
+	}
 	path_string = url_decode(path_string);
 
 	// First we append the file to our resolved files
