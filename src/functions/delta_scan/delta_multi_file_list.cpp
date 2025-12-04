@@ -443,21 +443,32 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		snapshot.metadata.back()->cardinality = stats->num_records;
 	}
 
-    if (dv_info->has_vector) {
-        // Fetch the deletion vector
-        auto selection_vector_res =
-            ffi::selection_vector_from_dv(dv_info->info, snapshot.extern_engine.get(), KernelUtils::ToDeltaString(snapshot.root_path));
+	auto extended_info = make_shared_ptr<ExtendedOpenFileInfo>();
+	snapshot.resolved_files.back().extended_info = extended_info;
+	// NOTE: all of the below are needed to avoid needless HEAD calls to the backing store,
+	// including the empty ETAG and last mod'd timestamp.
+	// files managed by Delta are never modified - we can keep them cached
+	// etag / last modified time can be set to dummy values
+	extended_info->options["validate_external_file_cache"] = Value::BOOLEAN(false);
+	extended_info->options["file_size"] = Value::UBIGINT(size);
+	extended_info->options["etag"] = Value("");
+	extended_info->options["last_modified"] = Value::TIMESTAMP(timestamp_t(0));
 
-        ffi::KernelBoolSlice selection_vector;
-        auto res = KernelUtils::TryUnpackResult(selection_vector_res, selection_vector);
-        if (res.HasError()) {
-            context->error = res;
-            return;
-        }
-        if (selection_vector.ptr) {
-            snapshot.metadata.back()->selection_vector = selection_vector;
-        }
-    }
+	if (dv_info->has_vector) {
+		// Fetch the deletion vector
+		auto selection_vector_res = ffi::selection_vector_from_dv(dv_info->info, snapshot.extern_engine.get(),
+		                                                          KernelUtils::ToDeltaString(snapshot.root_path));
+
+		ffi::KernelBoolSlice selection_vector;
+		auto res = KernelUtils::TryUnpackResult(selection_vector_res, selection_vector);
+		if (res.HasError()) {
+			context->error = res;
+			return;
+		}
+		if (selection_vector.ptr) {
+			snapshot.metadata.back()->selection_vector = selection_vector;
+		}
+	}
 
 	// Lookup all columns for potential hits in the constant map
 	if (transform) {
