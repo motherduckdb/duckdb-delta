@@ -143,7 +143,7 @@ set(DELTA_KERNEL_FFI_HEADER_CXX
 # Add rust_example as a CMake target
 ExternalProject_Add(
   ${KERNEL_NAME}
-  GIT_REPOSITORY "https://github.com/motherduckdb/delta-kernel-rs"
+  GIT_REPOSITORY "https://github.com/delta-io/delta-kernel-rs"
   # WARNING: the FFI headers are currently pinned due to the C linkage issue of
   # the c++ headers. Currently, when bumping the kernel version, the produced
   # header in ./src/include/delta_kernel_ffi.hpp should be also bumped, applying
