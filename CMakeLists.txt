@@ -140,6 +140,9 @@ set(DELTA_KERNEL_FFI_HEADER_CXX
     "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/target/ffi-headers/delta_kernel_ffi.hpp"
 )
 
+# Cargo optimization/debug symbol flags
+set(CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
+
 # Add rust_example as a CMake target
 ExternalProject_Add(
   ${KERNEL_NAME}
@@ -158,8 +161,7 @@ ExternalProject_Add(
   # Build debug build
   BUILD_COMMAND
     ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS} ${RUST_ENV_VARS} cargo build
-    --package delta_kernel_ffi --workspace
-    $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:--release> --all-features
+    --package delta_kernel_ffi --workspace --profile=${CARGO_PROFILE} --all-features
     ${RUST_PLATFORM_PARAM}
   # Build DATs
   COMMAND
