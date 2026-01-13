@@ -16,7 +16,6 @@ class ExtensionLoader;
 class BaseMetadataFunction : public TableFunction {
 public:
     BaseMetadataFunction(string name, table_function_bind_t bind);
-
 };
 
 class DeltaFileListFunction : public BaseMetadataFunction {
@@ -31,6 +30,8 @@ struct MetadataBindData : public TableFunctionData {
     vector<vector<Value>> rows;
 };
 
+class TableFunction;
+
 class DeltaFunctions {
 public:
 	static vector<TableFunctionSet> GetTableFunctions(ExtensionLoader &loader);
@@ -44,6 +45,9 @@ private:
 	//! Scalar Functions
 	static ScalarFunctionSet GetExpressionFunction(ExtensionLoader &loader);
 
-    static ScalarFunctionSet GetWriteFileFunction(ExtensionLoader &loader);
+	static ScalarFunctionSet GetWriteFileFunction(ExtensionLoader &loader);
+	static ScalarFunctionSet GetWriteFileFunction(DatabaseInstance &instance);
+
+	static vector<TableFunction> GetTransactionIdempotencyHelpers(DatabaseInstance &instance);
 };
 } // namespace duckdb

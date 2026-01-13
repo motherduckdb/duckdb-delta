@@ -151,7 +151,7 @@ ExternalProject_Add(
   # the c++ headers. Currently, when bumping the kernel version, the produced
   # header in ./src/include/delta_kernel_ffi.hpp should be also bumped, applying
   # the fix
-  GIT_TAG v0.17.1
+  GIT_TAG v0.19.0
   # Prints the env variables passed to the cargo build to the terminal, useful
   # in debugging because passing them through CMake is an error-prone mess
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS}
@@ -186,7 +186,7 @@ set(CMAKE_OSX_DEPLOYMENT_TARGET
     CACHE STRING "Minimum OS X deployment version" FORCE)
 
 # Add the default client
-add_compile_definitions(DEFINE_DEFAULT_ENGINE)
+add_compile_definitions(DEFINE_DEFAULT_ENGINE DEFINE_DEFAULT_ENGINE_BASE)
 
 # Link delta-kernal-rs to static lib
 target_link_libraries(${EXTENSION_NAME} ${DELTA_KERNEL_LIBPATH}
