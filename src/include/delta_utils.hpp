@@ -244,9 +244,9 @@ struct DeltaMultiFileColumnDefinition : public MultiFileColumnDefinition {
 // SchemaVisitor is used to parse the schema of a Delta table from the Kernel
 class SchemaVisitor {
 public:
-	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot, bool enable_variant);
-	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotGlobalReadSchema(ffi::SharedScan *state, bool logical, bool enable_variant);
-	static vector<DeltaMultiFileColumnDefinition> VisitWriteContextSchema(ffi::SharedWriteContext *write_context, bool enable_variant);
+	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot);
+	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotGlobalReadSchema(ffi::SharedScan *state, bool logical);
+	static vector<DeltaMultiFileColumnDefinition> VisitWriteContextSchema(ffi::SharedWriteContext *write_context);
 
 private:
 	unordered_map<uintptr_t, vector<DeltaMultiFileColumnDefinition>> inflight_lists;
@@ -254,7 +254,7 @@ private:
 
 	ErrorData error;
 
-	static ffi::EngineSchemaVisitor CreateSchemaVisitor(SchemaVisitor &state, bool enable_variant);
+	static ffi::EngineSchemaVisitor CreateSchemaVisitor(SchemaVisitor &state);
 
 	typedef void(SimpleTypeVisitorFunction)(void *, uintptr_t, ffi::KernelStringSlice, bool is_nullable,
 	                                        const ffi::CStringMap *metadata);
@@ -295,23 +295,7 @@ private:
 	static void VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable,
 	                     const ffi::CStringMap *metadata, uintptr_t child_list_id);
 
-    template <bool ENABLE_VARIANT>
-    static void VisitVariant(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable, const ffi::CStringMap *metadata) {
-        LogicalType type;
-        if (ENABLE_VARIANT) {
-            type = LogicalType::JSON();
-        } else {
-            child_list_t<LogicalType> struct_children;
-            struct_children.push_back({"value", LogicalType::BLOB});
-            struct_children.push_back({"metadata", LogicalType::BLOB});
-            type = LogicalType::STRUCT(struct_children);
-        }
-
-        DeltaMultiFileColumnDefinition col_def(KernelUtils::FromDeltaString(name), type, is_nullable);
-        ApplyDeltaColumnMapping(metadata, col_def);
-
-        state->AppendToList(sibling_list_id, name, std::move(col_def));
-    }
+    static void VisitVariant(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable, const ffi::CStringMap *metadata);
 
 	uintptr_t MakeFieldListImpl(uintptr_t capacity_hint);
 	void AppendToList(uintptr_t id, ffi::KernelStringSlice name, DeltaMultiFileColumnDefinition &&child);

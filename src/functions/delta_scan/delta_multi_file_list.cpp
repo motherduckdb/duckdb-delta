@@ -515,14 +515,6 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path, idx_t version_p)
     : SimpleMultiFileList({ToDeltaPath(path)}), version (version_p), context(context_p) {
-    Value setting_res;
-    auto res = context.TryGetCurrentSetting("variant_legacy_encoding", setting_res);
-    if (res) {
-        D_ASSERT(setting_res.type() == LogicalType::BOOLEAN);
-        enable_variant = setting_res.GetValue<bool>();
-    } else {
-        enable_variant = false;
-    }
 }
 
 string DeltaMultiFileList::GetPath() const {
@@ -612,7 +604,7 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	vector<DeltaMultiFileColumnDefinition> visited_schema;
 	{
 		auto snapshot_ref = snapshot->GetLockingRef();
-		visited_schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr(), enable_variant);
+		visited_schema = SchemaVisitor::VisitSnapshotSchema(snapshot_ref.GetPtr());
 	}
 
 	for (const auto &field : visited_schema) {
@@ -760,7 +752,7 @@ void DeltaMultiFileList::InitializeScan() const {
 		}
 	}
 
-	lazy_loaded_schema = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan.get(), true, enable_variant);
+	lazy_loaded_schema = SchemaVisitor::VisitSnapshotGlobalReadSchema(scan.get(), true);
 
     DeltaMultiFileColumnDefinition::Print(lazy_loaded_schema, "lazy_loaded_schema");
 
