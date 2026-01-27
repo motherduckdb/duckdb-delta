@@ -109,9 +109,11 @@ struct DeltaColumnStats {
     string min;
     string max;
     idx_t null_count = 0;
+    idx_t num_values = 0;
     idx_t column_size_bytes = 0;
     bool contains_nan = false;
     bool has_null_count = false;
+    bool has_num_values = false;
     bool has_min = false;
     bool has_max = false;
     bool any_valid = true;
@@ -136,13 +138,20 @@ static DeltaColumnStats ParseColumnStats(const vector<Value> col_stats) {
             D_ASSERT(!column_stats.has_null_count);
             column_stats.has_null_count = true;
             column_stats.null_count = StringUtil::ToUnsigned(stats_value);
+        } else if (stats_name == "num_values") {
+            D_ASSERT(!column_stats.has_num_values);
+            column_stats.has_num_values = true;
+            column_stats.num_values = StringUtil::ToUnsigned(stats_value);
         } else if (stats_name == "column_size_bytes") {
             column_stats.column_size_bytes = StringUtil::ToUnsigned(stats_value);
         } else if (stats_name == "has_nan") {
             column_stats.has_contains_nan = true;
             column_stats.contains_nan = stats_value == "true";
+        } else if (stats_name == "variant_type") {
+			//! Should be handled elsewhere
+            continue;
         } else {
-            throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
+            throw NotImplementedException("Unsupported stats type \"%s\" in DeltaInsert::Sink()", stats_name);
         }
     }
     return column_stats;

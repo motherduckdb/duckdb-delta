@@ -33,18 +33,20 @@ static void *allocate_string(const struct ffi::KernelStringSlice slice) {
     return new string(slice.ptr, slice.len);
 }
 
-struct CommitInfo {
+struct DeltaCommitInfo {
+public:
+    DeltaCommitInfo() {
+        buffer.Initialize(Allocator::DefaultAllocator(), GetTypes());
+		buffer.SetCardinality(0);
+    }
+public:
     static vector<LogicalType> GetTypes() {
         return {LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR)};
     };
     static vector<string> GetNames() {
         return {"engineCommitInfo"};
     };
-
-    CommitInfo() {
-        buffer.Initialize(Allocator::DefaultAllocator(), GetTypes());
-    }
-
+public:
     void Append(Value commit_info_map) {
         idx_t current_size = buffer.size();
         idx_t current_capacity = buffer.GetCapacity();
@@ -82,7 +84,7 @@ struct CommitInfo {
         ffi_data.array.release = reinterpret_cast<void (*)(ffi::FFI_ArrowArray *)>(InstrumentedRelease);
         return ffi_data;
     }
-
+private:
     DataChunk buffer;
 };
 
@@ -272,7 +274,7 @@ void DeltaTransaction::InitializeTransaction(ClientContext &context) {
     auto new_kernel_transaction = table_entry->snapshot->TryUnpackKernelResult(ffi::transaction(path_slice, table_entry->snapshot->extern_engine.get()));
 
     // Create commit info
-    CommitInfo commit_info;
+    DeltaCommitInfo commit_info;
     commit_info.Append(Value::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR, {Value("engineInfo")}, {Value("DuckDB")}));
     auto commit_info_arrow = commit_info.ToArrow(context);
 
