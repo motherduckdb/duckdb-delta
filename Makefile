@@ -54,3 +54,10 @@ generate-data:
 
 unpack-golden-tables-release:
 	./scripts/unwrap_golden_tables.sh
+
+# shortcuts for FFI targets
+kernel_debug:
+	cd build/debug && cmake --build . --config Debug --target extension/delta/CMakeFiles/delta_kernel
+
+kernel_release:
+	cd build/release && cmake --build . --config Release --target extension/delta/CMakeFiles/delta_kernel
