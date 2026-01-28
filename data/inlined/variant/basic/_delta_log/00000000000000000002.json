@@ -1,0 +1,2 @@
+{"commitInfo":{"timestamp":1769592712599,"operation":"UNKNOWN","operationParameters":{},"kernelVersion":"v0.17.1","engineInfo":"DuckDB","txnId":"940eb4d4-d509-40fa-b66d-34e2a2219101"}}
+{"add":{"path":"/duckdb-55f9caed-30f0-46ae-9500-5df43a2e556b.parquet","partitionValues":{},"size":3,"modificationTime":1769592712603012,"dataChange":true,"stats":"{\"numRecords\":3,\"tightBounds\":true}"}}
