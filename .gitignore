@@ -14,3 +14,5 @@ __azurite*__.json
 __blobstorage__
 venv
 .vscode
+azurite/
+ccache_dir/
