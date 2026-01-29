@@ -11,6 +11,7 @@
 #include "duckdb/main/database.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 #include "duckdb/common/exception/conversion_exception.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/parser/expression/conjunction_expression.hpp"
 #include "duckdb/parser/expression/comparison_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
@@ -1060,8 +1061,8 @@ LogLevel LoggerCallback::GetDuckDBLogLevel(ffi::Level level) {
 		return LogLevel::LOG_DEBUG;
 	case ffi::Level::INFO:
 		return LogLevel::LOG_INFO;
-	case ffi::Level::WARN:
-		return LogLevel::LOG_WARN;
+	case ffi::Level::WARNING:
+		return LogLevel::LOG_WARNING;
 	case ffi::Level::ERROR:
 		return LogLevel::LOG_ERROR;
 	default:

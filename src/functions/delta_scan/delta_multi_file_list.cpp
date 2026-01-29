@@ -9,11 +9,13 @@
 #include "duckdb/main/query_profiler.hpp"
 #include "duckdb/main/secret/secret_manager.hpp"
 #include "duckdb/optimizer/filter_combiner.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/parser/constraint.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
+#include "duckdb/planner/expression/bound_columnref_expression.hpp"
 
 #include <regex>
 
@@ -524,7 +526,7 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 }
 
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path, idx_t version_p)
-    : MultiFileList({ToDeltaPath(path)}, FileGlobOptions::ALLOW_EMPTY), version (version_p), context(context_p) {
+    : delta_path(ToDeltaPath(path)), version (version_p), context(context_p) {
 
     Value setting_res;
     auto res = context.TryGetCurrentSetting("variant_legacy_encoding", setting_res);
@@ -536,8 +538,8 @@ DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &p
     }
 }
 
-string DeltaMultiFileList::GetPath() const {
-	return GetPaths()[0].path;
+const string &DeltaMultiFileList::GetPath() const {
+	return delta_path;
 }
 
 string DeltaMultiFileList::ToDuckDBPath(const string &raw_path) {
@@ -687,16 +689,16 @@ idx_t DeltaMultiFileList::GetTotalFileCountInternal() const {
 	return resolved_files.size();
 }
 
-OpenFileInfo DeltaMultiFileList::GetFile(idx_t i) {
+OpenFileInfo DeltaMultiFileList::GetFile(idx_t i) const {
 	// TODO: profile this: we should be able to use atomics here to optimize
 	unique_lock<mutex> lck(lock);
 	return GetFileInternal(i);
 }
 
 void DeltaMultiFileList::InitializeSnapshot() const {
-	auto path_slice = KernelUtils::ToDeltaString(paths[0].path);
+	auto path_slice = KernelUtils::ToDeltaString(delta_path);
 
-	auto interface_builder = CreateBuilder(context, paths[0].path);
+	auto interface_builder = CreateBuilder(context, delta_path);
 	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
 
 	if (!snapshot) {
@@ -731,7 +733,7 @@ void DeltaMultiFileList::InitializeScan() const {
 	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
 
 	if (visitor.error_data.HasError()) {
-		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", paths[0].path,
+		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", delta_path,
 		                  visitor.error_data.Message());
 	}
 
@@ -793,7 +795,7 @@ void DeltaMultiFileList::EnsureScanInitialized() const {
 
 unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context,
                                                                     TableFilterSet &new_filters) const {
-	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0].path, version);
+	auto filtered_list = make_uniq<DeltaMultiFileList>(context, delta_path, version);
 
 	TableFilterSet result_filter_set;
 
@@ -836,7 +838,7 @@ static DeltaFilterPushdownMode GetDeltaFilterPushdownMode(ClientContext &context
 unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContext &context,
                                                                     const MultiFileOptions &options,
                                                                     MultiFilePushdownInfo &info,
-                                                                    vector<unique_ptr<Expression>> &filters) {
+                                                                    vector<unique_ptr<Expression>> &filters) const {
 	auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
 	if (pushdown_mode == DeltaFilterPushdownMode::NONE || pushdown_mode == DeltaFilterPushdownMode::DYNAMIC_ONLY) {
 		return nullptr;
@@ -1000,7 +1002,7 @@ DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFil
 	return nullptr;
 }
 
-vector<OpenFileInfo> DeltaMultiFileList::GetAllFiles() {
+vector<OpenFileInfo> DeltaMultiFileList::GetAllFiles() const {
 	unique_lock<mutex> lck(lock);
 	idx_t i = resolved_files.size();
 	// TODO: this can probably be improved
@@ -1010,7 +1012,7 @@ vector<OpenFileInfo> DeltaMultiFileList::GetAllFiles() {
 	return resolved_files;
 }
 
-FileExpandResult DeltaMultiFileList::GetExpandResult() {
+FileExpandResult DeltaMultiFileList::GetExpandResult() const {
 	// We avoid exposing the ExpandResult to DuckDB here because we want to materialize the Snapshot as late as
 	// possible: materializing too early (GetExpandResult is called *before* filter pushdown by the Parquet scanner),
 	// will lead into needing to create 2 scans of the snapshot TODO: we need to investigate if this is actually a
@@ -1018,12 +1020,12 @@ FileExpandResult DeltaMultiFileList::GetExpandResult() {
 	return FileExpandResult::MULTIPLE_FILES;
 }
 
-idx_t DeltaMultiFileList::GetTotalFileCount() {
+idx_t DeltaMultiFileList::GetTotalFileCount() const {
 	unique_lock<mutex> lck(lock);
 	return GetTotalFileCountInternal();
 }
 
-unique_ptr<NodeStatistics> DeltaMultiFileList::GetCardinality(ClientContext &context) {
+unique_ptr<NodeStatistics> DeltaMultiFileList::GetCardinality(ClientContext &context) const {
 	// This also ensures all files are expanded
 	auto total_file_count = DeltaMultiFileList::GetTotalFileCount();
 

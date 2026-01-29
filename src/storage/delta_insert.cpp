@@ -1,7 +1,5 @@
 #include "storage/delta_insert.hpp"
 
-#include <duckdb/common/sort/partition_state.hpp>
-
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/main/client_data.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
@@ -19,6 +17,7 @@
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
+#include "duckdb/catalog/catalog_entry_retriever.hpp"
 
 namespace duckdb {
 
@@ -219,7 +218,7 @@ SinkResultType DeltaInsert::Sink(ExecutionContext &context, DataChunk &chunk, Op
 //===--------------------------------------------------------------------===//
 // GetData
 //===--------------------------------------------------------------------===//
-SourceResultType DeltaInsert::GetData(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const {
+SourceResultType DeltaInsert::GetDataInternal(ExecutionContext &context, DataChunk &chunk, OperatorSourceInput &input) const {
     auto &global_state = sink_state->Cast<DeltaInsertGlobalState>();
     auto value = Value::BIGINT(global_state.insert_count);
     chunk.SetCardinality(1);
@@ -290,7 +289,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
         table_entry = op.table.Cast<DeltaTableEntry>();
     }
 
-    string delta_path =  table_entry->snapshot->GetPaths()[0].path;
+    auto &delta_path =  table_entry->snapshot->GetPath();
 
     // Create Copy Info
     auto info = make_uniq<CopyInfo>();

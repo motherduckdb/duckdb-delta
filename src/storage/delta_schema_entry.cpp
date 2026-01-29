@@ -14,7 +14,7 @@
 #include "duckdb/common/unordered_set.hpp"
 #include "duckdb/parser/parsed_expression_iterator.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
-
+#include "duckdb/parser/expression/columnref_expression.hpp"
 namespace duckdb {
 
 DeltaSchemaEntry::DeltaSchemaEntry(Catalog &catalog, CreateSchemaInfo &info) : SchemaCatalogEntry(catalog, info) {
