@@ -66,13 +66,6 @@ jobs:
           npm install -g azurite
           sudo apt-get install -y azure-cli 
 
-      # XXX: I suspect thi is unnecessary, let's see...
-      #- name: Setup Rust for manylinux (dtolnay/rust-toolchain doesn't work due to curl being old here)
-      #  run: |
-      #    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-      #    echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      # Build extension
       - run: make release
 
       - name: Launch & populate Azure test service
@@ -180,17 +173,20 @@ jobs:
       - run: make generate-data
 
       - name: Regression Test TPC-H
+        if: always()
         run: |
           python3 ./duckdb/scripts/regression/test_runner.py --old=duckdb-delta/build/release/benchmark/benchmark_runner --new=build/release/benchmark/benchmark_runner --benchmarks=.github/regression/tpch_sf1_local.csv --verbose --threads=2 --root-dir=.
 
       - name: Regression Test TPC-DS
+        if: always()
         run: |
           python ./duckdb/scripts/regression/test_runner.py --old=duckdb-delta/build/release/benchmark/benchmark_runner --new=build/release/benchmark/benchmark_runner --benchmarks=.github/regression/tpcds_sf1_local.csv --verbose --threads=2 --root-dir=.
 
       # FIXME: re-enable
-#      - name: Regression Test Micro
-#        run: |
-#          python ./duckdb/scripts/regression/test_runner.py --old=duckdb-delta/build/release/benchmark/benchmark_runner --new=build/release/benchmark/benchmark_runner --benchmarks=.github/regression/micro.csv --verbose --threads=2 --root-dir=.
+      #- name: Regression Test Micro
+      #  if: always()
+      #  run: |
+      #    python ./duckdb/scripts/regression/test_runner.py --old=duckdb-delta/build/release/benchmark/benchmark_runner --new=build/release/benchmark/benchmark_runner --benchmarks=.github/regression/micro.csv --verbose --threads=2 --root-dir=.
 
       - name: Test benchmark makefile
         run: |

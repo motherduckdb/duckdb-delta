@@ -6,20 +6,6 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      ext_name: 
-        type: string
-        default: delta
-        required: true
-      duckdb_ref: 
-        type: string
-        default: v1.5-variegata
-        required: true
-      ci_tools_ref:
-        type: string
-        default: main
-        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
@@ -32,9 +18,9 @@ jobs:
     secrets: inherit # required for writing to vcpkg binary cache
     with:
       # Main config
-      duckdb_version: ${{ inputs.duckdb_ref }}
-      ci_tools_version: ${{ inputs.ci_tools_ref }}
-      extension_name: ${{ inputs.ext_name }}
+      extension_name: &ext_name delta
+      duckdb_version: &duckdb_ref v1.5-variegata
+      ci_tools_version: &ci_tools_ref main
       enable_rust: true
       rust_logs: true
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw;linux_amd64_musl'
@@ -43,7 +29,6 @@ jobs:
       extra_toolchains: ${{ github.event_name != 'pull_request' && ';downgraded_aws_cli;python3;' || 'python3' }}
       save_cache: ${{ github.event_name != 'pull_request' }}
       vcpkg_binary_sources: ${{ github.event_name != 'pull_request' && vars.VCPKG_BINARY_SOURCES || '' }}
-
       reduced_ci_mode: ${{ github.event_name == 'pull_request' && 'enabled' || 'disabled'}}
 
 
@@ -53,9 +38,9 @@ jobs:
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_deploy.yml@main
     secrets: inherit
     with:
-      extension_name: ${{ inputs.ext_name }}
-      duckdb_version: ${{ inputs.duckdb_ref }}
-      ci_tools_version: ${{ inputs.ci_tools_ref }}
+      extension_name: *ext_name
+      duckdb_version: *duckdb_ref
+      ci_tools_version: *ci_tools_ref
       exclude_archs: 'wasm_mvp;wasm_eh;wasm_threads;windows_amd64_rtools;windows_amd64_mingw;linux_amd64_musl'
       # deploy_latest: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
       deploy_versioned: ${{ startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main' }}
@@ -65,8 +50,8 @@ jobs:
     name: Code Quality Check
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_code_quality.yml@main
     with:
-      duckdb_version: ${{ inputs.duckdb_ref }}
-      ci_tools_version: ${{ inputs.ci_tools_ref }}
-      extension_name: ${{ inputs.ext_name }}
+      extension_name: *ext_name
+      duckdb_version: *duckdb_ref
+      ci_tools_version: *ci_tools_ref
       format_checks: format 
       extra_toolchains: 'python3'
