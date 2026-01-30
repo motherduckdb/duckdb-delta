@@ -24,6 +24,7 @@ set(EXTENSION_SOURCES
     src/functions/metadata_functions.cpp
     src/functions/expression_functions.cpp
     src/functions/util_functions.cpp
+    src/functions/delta_transaction_utils/idempotency_helpers.cpp
     src/storage/delta_insert.cpp
     src/storage/delta_catalog.cpp
     src/storage/delta_schema_entry.cpp

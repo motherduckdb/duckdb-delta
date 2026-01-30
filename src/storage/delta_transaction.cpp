@@ -259,16 +259,27 @@ void DeltaTransaction::Commit(ClientContext &context) {
 	            auto app_id_kernel_string = KernelUtils::ToDeltaString(app_id);
 	            auto get_app_id_version_result = ffi::get_app_id_version(kernel_snapshot.GetPtr(), app_id_kernel_string, snapshot.extern_engine.get());
 
-	            int64_t version;
-	            auto unpacked_version_result = KernelUtils::TryUnpackResult(get_app_id_version_result, version);
+				ffi::OptionalValue<int64_t> version_actual_opt;
+				auto unpacked_version_result =
+				    KernelUtils::TryUnpackResult(get_app_id_version_result, version_actual_opt);
 	            bool has_error = false;
 	            string error_version;
-	            if (unpacked_version_result.HasError() && !expected_version.IsNull()) {
-	                has_error = true;
-	                error_version = "NULL";
-	            } else if (!unpacked_version_result.HasError() && expected_version.GetValue<idx_t>() != version) {
-	                has_error = true;
-	                error_version = to_string(version);
+				if (unpacked_version_result.HasError()) {
+					has_error = !expected_version.IsNull();
+					if (has_error) {
+						error_version = "ERROR";
+					}
+				}
+
+				if (!has_error) {
+					const auto actual_version = version_actual_opt.tag == ffi::OptionalValue<int64_t>::Tag::None
+					                                ? Value()
+					                                : Value(version_actual_opt.some._0);
+					has_error = ((actual_version.IsNull() != expected_version.IsNull()) ||
+					             (!actual_version.IsNull() && actual_version != expected_version));
+					if (has_error) {
+						error_version = actual_version.ToString();
+					}
 	            }
 
 	            if (has_error) {

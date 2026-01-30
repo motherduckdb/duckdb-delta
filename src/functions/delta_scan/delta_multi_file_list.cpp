@@ -416,8 +416,8 @@ static unordered_map<idx_t, Value> FindPartitionValues(ParsedExpression &transfo
 }
 
 void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path,
-                                             int64_t size, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
-                                             const ffi::Expression *transform) {
+                                             int64_t size, int64_t mod_time, const ffi::Stats *stats,
+                                             const ffi::CDvInfo *dv_info, const ffi::Expression *transform) {
 	auto context = (ScanDataCallBack *)engine_context;
 	auto &snapshot = context->snapshot;
 
@@ -498,10 +498,10 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 }
 
 void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
-                                     const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
+                                     int64_t mod_time, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
                                      const ffi::Expression *transform, const ffi::CStringMap *partition_values) {
 	try {
-		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, transform);
+		return VisitCallbackInternal(engine_context, path, size, mod_time, stats, dv_info, transform);
 	} catch (std::runtime_error &e) {
 		auto context = (ScanDataCallBack *)engine_context;
 		context->error = ErrorData(e);
@@ -717,7 +717,7 @@ void DeltaMultiFileList::InitializeScan() const {
 
 	// Create Scan
 	PredicateVisitor visitor(global_columns, &table_filters);
-	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
+	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor, nullptr));
 
 	if (visitor.error_data.HasError()) {
 		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", paths[0].path,

@@ -120,7 +120,8 @@ public: // TODO: clean up
         return return_value;
     }
 
-    mutable KernelExternEngine extern_engine;
+	mutable KernelExternEngine extern_engine;
+	mutable shared_ptr<SharedKernelSnapshot> snapshot;
 
 protected:
 	// Note: Nearly this entire class is mutable because it represents a lazily expanded list of files that is logically
@@ -129,8 +130,6 @@ protected:
 	mutable idx_t version;
 
 	//! Delta Kernel Structures
-	mutable shared_ptr<SharedKernelSnapshot> snapshot;
-
 	mutable KernelScan scan;
 	mutable KernelScanDataIterator scan_data_iterator;
 
@@ -175,11 +174,11 @@ struct ScanDataCallBack {
 	}
 	static void VisitData(ffi::NullableCvoid engine_context, ffi::Handle<ffi::SharedScanMetadata> scan_metadata);
 	static void VisitCallback(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path, int64_t size,
-	                          const ffi::Stats *stats, const ffi::CDvInfo *dv_info, const ffi::Expression *transform,
-	                          const struct ffi::CStringMap *partition_values);
+	                          int64_t mod_time, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
+	                          const ffi::Expression *transform, const struct ffi::CStringMap *partition_values);
 	static void VisitCallbackInternal(ffi::NullableCvoid engine_context, struct ffi::KernelStringSlice path,
-	                                  int64_t size, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
-	                                  const ffi::Expression *transform);
+	                                  int64_t size, int64_t mod_time, const ffi::Stats *stats,
+	                                  const ffi::CDvInfo *dv_info, const ffi::Expression *transform);
 
 	const DeltaMultiFileList &snapshot;
 	ErrorData error;
