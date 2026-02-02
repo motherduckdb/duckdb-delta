@@ -7,8 +7,10 @@ defaults:
   run:
     shell: bash
 env:
+  BUILD_EXTENSION_TEST_DEPS: full
+  GEN: Ninja
   VCPKG_COMMIT_ID: 84bab45d415d22042bd0b9081aea57f362da3f35
-
+  VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
 
 jobs:
   azure-tests-linux:
@@ -16,10 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VCPKG_TARGET_TRIPLET: x64-linux
-      VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
-      GEN: Ninja
       DUCKDB_PLATFORM: linux_amd64
-      BUILD_EXTENSION_TEST_DEPS: full
       ENV_AZURE: ${{ github.workspace }}/build/release/_deps/azure_extension_fc-src/scripts/env_azure
 
     steps:
@@ -46,8 +45,7 @@ jobs:
           fetch-depth: 0
           submodules: 'true'
 
-      - name: Setup Ccache
-        uses: hendrikmuhs/ccache-action@v1.2.11 # Note: pinned due to GLIBC incompatibility in later releases
+      - uses: hendrikmuhs/ccache-action@main
         with:
           key: ${{ github.job }}-${{ matrix.duckdb_arch }}
 
@@ -66,8 +64,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build extension
-        env:
-          GEN: ninja
         run: |
           make release
 

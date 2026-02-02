@@ -1,5 +1,6 @@
 # name: test/sql/generated/writing/append/write_stats.test
 # description: test that writes are appending stats
+# group: [append]
 
 require parquet
 
