@@ -140,9 +140,15 @@ struct WriteMetaData {
         for (const auto &file : outstanding_appends) {
             auto table_path = snapshot.GetPath();
             auto file_without_double_slash = StringUtil::Replace(file.file_name, "\\", "/");
-            // auto file_split = StringUtil::Split(file, "/");
-            // auto file_name = file_split[file_split.size()-1];
-            auto file_name = file.file_name.substr(table_path.size());
+
+            // consume any leading '/' chars to be certain path is relative -- as seen in #268 they corrupt (for spark)
+            // https://github.com/duckdb/duckdb-delta/issues/268
+            auto file_name_offset = table_path.size();
+            for (; file.file_name[file_name_offset] == '/'; ++file_name_offset) {
+            }
+            auto file_name = file.file_name.substr(file_name_offset);
+            D_ASSERT(!StringUtil::StartsWith(file_name, "/"));
+
             InsertionOrderPreservingMap<string> partitions = {};
 
             // TODO: probably horribly wrong
