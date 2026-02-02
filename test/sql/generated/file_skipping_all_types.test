@@ -1,6 +1,6 @@
 # name: test/sql/generated/file_skipping_all_types.test
 # description: Test filter pushdown succeeds on all file types we can push down
-# group: [delta_generated]
+# group: [generated]
 
 require parquet
 
