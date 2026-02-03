@@ -43,12 +43,12 @@ struct DeltaFileMetaData {
 
 // Constraint only for internal delta extension use
 // Todo: refactor to use duckdb constraint classes, updating the DuckDB side NotNullConstraint
-class NestedNotNullConstraint{
+class NestedNotNullConstraint {
 public:
-    explicit NestedNotNullConstraint(LogicalIndex index_p, string path_p) : index(index_p), path(path_p)  {
-    }
-    LogicalIndex index;
-    string path;
+	explicit NestedNotNullConstraint(LogicalIndex index_p, string path_p) : index(index_p), path(path_p) {
+	}
+	LogicalIndex index;
+	string path;
 };
 
 //! The DeltaMultiFileList implements the MultiFileList API to allow injecting it into the regular DuckDB parquet scan
@@ -84,12 +84,12 @@ public:
 	vector<string> GetPartitionColumns();
 
 	vector<DeltaMultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
-    vector<NestedNotNullConstraint> GetNestedNotNullConstraints() const;
-    bool HasNullConstraintsInArrays() const;
+	vector<NestedNotNullConstraint> GetNestedNotNullConstraints() const;
+	bool HasNullConstraintsInArrays() const;
 
-    bool VariantEnabled() {
-        return enable_variant;
-    }
+	bool VariantEnabled() {
+		return enable_variant;
+	}
 
 protected:
 	//! Get the i-th expanded file
@@ -107,18 +107,16 @@ protected:
 	void ReportFilterPushdown(ClientContext &context, DeltaMultiFileList &new_list, const vector<column_t> &column_ids,
 	                          const char *log_type, optional_ptr<MultiFilePushdownInfo> mfr_info) const;
 
-
-
 public: // TODO: clean up
-    template <class T>
-    T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
-        T return_value;
-        auto res = KernelUtils::TryUnpackResult<T>(result, return_value);
-        if (res.HasError()) {
-            res.Throw();
-        }
-        return return_value;
-    }
+	template <class T>
+	T TryUnpackKernelResult(ffi::ExternResult<T> result) const {
+		T return_value;
+		auto res = KernelUtils::TryUnpackResult<T>(result, return_value);
+		if (res.HasError()) {
+			res.Throw();
+		}
+		return return_value;
+	}
 
 	mutable KernelExternEngine extern_engine;
 	mutable shared_ptr<SharedKernelSnapshot> snapshot;
@@ -136,8 +134,8 @@ protected:
 	mutable vector<string> partitions;
 	mutable vector<idx_t> partition_ids;
 
-    //! Root path of the table, necessary for certain kernel calls
-    mutable string root_path;
+	//! Root path of the table, necessary for certain kernel calls
+	mutable string root_path;
 
 	//! Current file list resolution state
 	mutable bool initialized_snapshot = false;
@@ -150,11 +148,11 @@ protected:
 	mutable vector<OpenFileInfo> resolved_files;
 	mutable TableFilterSet table_filters;
 
-    mutable vector<NestedNotNullConstraint> not_null_constraints;
-    mutable bool has_null_constraints_in_arrays = false;
+	mutable vector<NestedNotNullConstraint> not_null_constraints;
+	mutable bool has_null_constraints_in_arrays = false;
 
-    //! Global schema: NOTE: this might be missing some sht
-    vector<DeltaMultiFileColumnDefinition> global_columns;
+	//! Global schema: NOTE: this might be missing some sht
+	vector<DeltaMultiFileColumnDefinition> global_columns;
 
 	bool have_bound = false;
 
@@ -164,8 +162,8 @@ protected:
 	// scan
 	mutable vector<DeltaMultiFileColumnDefinition> lazy_loaded_schema;
 
-    // Whether variant types are interpreted as VARIANT (currently implemented as JSON) types
-    bool enable_variant;
+	// Whether variant types are interpreted as VARIANT (currently implemented as JSON) types
+	bool enable_variant;
 };
 
 // Callback for the ffi::kernel_scan_data_next callback

@@ -1,6 +1,6 @@
-# name: test/sql/dat/basic_partitioned.test
-# description: DAT test suite: primitive types 
-# group: [delta]
+# name: test/sql/dat/all.test
+# description: DAT test suite: primitive types
+# group: [dat]
 
 require parquet
 

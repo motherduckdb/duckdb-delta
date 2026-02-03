@@ -1,6 +1,6 @@
 # name: test/sql/main/unshredded_variant.test
 # description: Test unshredded variant
-# group: [generated]
+# group: [main]
 
 require parquet
 

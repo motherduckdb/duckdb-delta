@@ -23,47 +23,47 @@ class DatabaseInstance;
 
 // Allocator for errors that the kernel might throw
 struct DuckDBEngineError : ffi::EngineError {
-    // Allocate a DuckDBEngineError, function ptr passed to kernel for error allocation
-    static ffi::EngineError *AllocateError(ffi::KernelError etype, ffi::KernelStringSlice msg);
-    // Convert a kernel error enum to a string
-    static string KernelErrorEnumToString(ffi::KernelError err);
+	// Allocate a DuckDBEngineError, function ptr passed to kernel for error allocation
+	static ffi::EngineError *AllocateError(ffi::KernelError etype, ffi::KernelStringSlice msg);
+	// Convert a kernel error enum to a string
+	static string KernelErrorEnumToString(ffi::KernelError err);
 
-    // Return the error as a string (WARNING: consumes the object by calling `delete this`)
-    string IntoString();
+	// Return the error as a string (WARNING: consumes the object by calling `delete this`)
+	string IntoString();
 
-    // The error message from Kernel
-    string error_message;
+	// The error message from Kernel
+	string error_message;
 };
 
 struct KernelUtils {
-    static ffi::KernelStringSlice ToDeltaString(const string &str);
-    static string FromDeltaString(const struct ffi::KernelStringSlice slice);
-    static vector<bool> FromDeltaBoolSlice(const struct ffi::KernelBoolSlice slice);
-    static string FetchFromStringMap(const ffi::CStringMap *map, const string &key);
+	static ffi::KernelStringSlice ToDeltaString(const string &str);
+	static string FromDeltaString(const struct ffi::KernelStringSlice slice);
+	static vector<bool> FromDeltaBoolSlice(const struct ffi::KernelBoolSlice slice);
+	static string FetchFromStringMap(const ffi::CStringMap *map, const string &key);
 
-    static void *StringAllocationNew(const struct ffi::KernelStringSlice slice) {
-        return new string(slice.ptr, slice.len);
-    }
+	static void *StringAllocationNew(const struct ffi::KernelStringSlice slice) {
+		return new string(slice.ptr, slice.len);
+	}
 
-    // Unpacks (and frees) a kernel result, either storing the result in out_value, or setting error_data
-    template <class T>
-    static ErrorData TryUnpackResult(ffi::ExternResult<T> result, T &out_value) {
-        if (result.tag == ffi::ExternResult<T>::Tag::Err) {
-            if (result.err._0) {
-                auto error_cast = static_cast<DuckDBEngineError *>(result.err._0);
-                return ErrorData(ExceptionType::IO, error_cast->IntoString());
-            }
-            return ErrorData(ExceptionType::IO, StringUtil::Format("Unknown Delta kernel error"));
-        }
-        if (result.tag == ffi::ExternResult<T>::Tag::Ok) {
-            out_value = result.ok._0;
-            return {};
-        }
-        return ErrorData(ExceptionType::IO, "Invalid Delta kernel ExternResult");
-    }
+	// Unpacks (and frees) a kernel result, either storing the result in out_value, or setting error_data
+	template <class T>
+	static ErrorData TryUnpackResult(ffi::ExternResult<T> result, T &out_value) {
+		if (result.tag == ffi::ExternResult<T>::Tag::Err) {
+			if (result.err._0) {
+				auto error_cast = static_cast<DuckDBEngineError *>(result.err._0);
+				return ErrorData(ExceptionType::IO, error_cast->IntoString());
+			}
+			return ErrorData(ExceptionType::IO, StringUtil::Format("Unknown Delta kernel error"));
+		}
+		if (result.tag == ffi::ExternResult<T>::Tag::Ok) {
+			out_value = result.ok._0;
+			return {};
+		}
+		return ErrorData(ExceptionType::IO, "Invalid Delta kernel ExternResult");
+	}
 
-    static vector<unique_ptr<ParsedExpression>> &
-    UnpackTransformExpression(const vector<unique_ptr<ParsedExpression>> &parsed_expression);
+	static vector<unique_ptr<ParsedExpression>> &
+	UnpackTransformExpression(const vector<unique_ptr<ParsedExpression>> &parsed_expression);
 };
 
 class ExpressionVisitor : public ffi::EngineExpressionVisitor {
@@ -117,20 +117,18 @@ private:
 	                                uint8_t precision, uint8_t scale);
 	static void VisitColumnExpression(void *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name);
 	static void VisitStructExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id);
-    static void VisitTransformExpression(void *data,uintptr_t sibling_list_id, uintptr_t input_path_list_id, uintptr_t child_list_id);
-    static void VisitFieldTransform(void *data, uintptr_t sibling_list_id, const ffi::KernelStringSlice *field_name, uintptr_t expr_list_id, bool is_replace);
+	static void VisitTransformExpression(void *data, uintptr_t sibling_list_id, uintptr_t input_path_list_id,
+	                                     uintptr_t child_list_id);
+	static void VisitFieldTransform(void *data, uintptr_t sibling_list_id, const ffi::KernelStringSlice *field_name,
+	                                uintptr_t expr_list_id, bool is_replace);
 	static void VisitNotExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id);
 	static void VisitIsNullExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id);
 	static void VisitLiteralMap(void *data, uintptr_t sibling_list_id, uintptr_t key_list_id, uintptr_t value_list_id);
-    static void VisitOpaqueExpression(void *data,
-                            uintptr_t sibling_list_id,
-                            ffi::Handle<ffi::SharedOpaqueExpressionOp> op,
-                            uintptr_t child_list_id);
-    static void VisitOpaquePredicate(void *data,
-                              uintptr_t sibling_list_id,
-                              ffi::Handle<ffi::SharedOpaquePredicateOp> op,
-                              uintptr_t child_list_id);
-    static void VisitUnknown(void *data, uintptr_t sibling_list_id, ffi::KernelStringSlice name);
+	static void VisitOpaqueExpression(void *data, uintptr_t sibling_list_id,
+	                                  ffi::Handle<ffi::SharedOpaqueExpressionOp> op, uintptr_t child_list_id);
+	static void VisitOpaquePredicate(void *data, uintptr_t sibling_list_id,
+	                                 ffi::Handle<ffi::SharedOpaquePredicateOp> op, uintptr_t child_list_id);
+	static void VisitUnknown(void *data, uintptr_t sibling_list_id, ffi::KernelStringSlice name);
 
 	template <ExpressionType EXPRESSION_TYPE, typename EXPRESSION_TYPENAME>
 	static ffi::VisitJunctionFn VisitUnaryExpression() {
@@ -197,56 +195,61 @@ private:
 
 // TODO once nullability upstreamed in duckdb remove this class
 struct DeltaMultiFileColumnDefinition : public MultiFileColumnDefinition {
-    DeltaMultiFileColumnDefinition(const string &name, const LogicalType &type, bool nullable_p) : MultiFileColumnDefinition(name, type), children (), nullable(nullable_p) {
-    }
+	DeltaMultiFileColumnDefinition(const string &name, const LogicalType &type, bool nullable_p)
+	    : MultiFileColumnDefinition(name, type), children(), nullable(nullable_p) {
+	}
 
-    static vector<MultiFileColumnDefinition> ConvertToBase(vector<DeltaMultiFileColumnDefinition> col_def) {
-        vector<MultiFileColumnDefinition> res;
-        for (auto &col : col_def) {
-            res.push_back(col.ToBaseColdef());
-        }
-        return res;
-    }
+	static vector<MultiFileColumnDefinition> ConvertToBase(vector<DeltaMultiFileColumnDefinition> col_def) {
+		vector<MultiFileColumnDefinition> res;
+		for (auto &col : col_def) {
+			res.push_back(col.ToBaseColdef());
+		}
+		return res;
+	}
 
-    MultiFileColumnDefinition ToBaseColdef() {
-        auto res = MultiFileColumnDefinition(name, type);
+	MultiFileColumnDefinition ToBaseColdef() {
+		auto res = MultiFileColumnDefinition(name, type);
 
-        for (auto &child : children) {
-            res.children.push_back(child.ToBaseColdef());
-        }
+		for (auto &child : children) {
+			res.children.push_back(child.ToBaseColdef());
+		}
 
-        res.default_expression = default_expression->Copy();
-        res.identifier = identifier;
+		res.default_expression = default_expression->Copy();
+		res.identifier = identifier;
 
-        return res;
-    }
+		return res;
+	}
 
-    static void Print(vector<DeltaMultiFileColumnDefinition> schema, const string& name) {
-        return;
-        idx_t nest_level = 0;
-        printf("\nSchema '%s':\n", name.c_str());
-        for (auto &col : schema) {
-            col.Print(nest_level);
-        }
-    }
-    void Print(idx_t nest_level) {
-        string prefix = StringUtil::Repeat("  ", nest_level) + "- ";
-        printf("%s%s %s (identifier: %s)\n", prefix.c_str(), name.c_str(), type.ToString().c_str(), identifier.ToString().c_str());
-        for (auto &child : children) {
-            child.Print(nest_level + 1);
-        }
-    }
+	static void Print(vector<DeltaMultiFileColumnDefinition> schema, const string &name) {
+		return;
+		idx_t nest_level = 0;
+		printf("\nSchema '%s':\n", name.c_str());
+		for (auto &col : schema) {
+			col.Print(nest_level);
+		}
+	}
+	void Print(idx_t nest_level) {
+		string prefix = StringUtil::Repeat("  ", nest_level) + "- ";
+		printf("%s%s %s (identifier: %s)\n", prefix.c_str(), name.c_str(), type.ToString().c_str(),
+		       identifier.ToString().c_str());
+		for (auto &child : children) {
+			child.Print(nest_level + 1);
+		}
+	}
 
-    vector<DeltaMultiFileColumnDefinition> children;
-    bool nullable = true;
+	vector<DeltaMultiFileColumnDefinition> children;
+	bool nullable = true;
 };
 
 // SchemaVisitor is used to parse the schema of a Delta table from the Kernel
 class SchemaVisitor {
 public:
-	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot, bool enable_variant);
-	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotGlobalReadSchema(ffi::SharedScan *state, bool logical, bool enable_variant);
-	static vector<DeltaMultiFileColumnDefinition> VisitWriteContextSchema(ffi::SharedWriteContext *write_context, bool enable_variant);
+	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotSchema(ffi::SharedSnapshot *snapshot,
+	                                                                  bool enable_variant);
+	static vector<DeltaMultiFileColumnDefinition> VisitSnapshotGlobalReadSchema(ffi::SharedScan *state, bool logical,
+	                                                                            bool enable_variant);
+	static vector<DeltaMultiFileColumnDefinition> VisitWriteContextSchema(ffi::SharedWriteContext *write_context,
+	                                                                      bool enable_variant);
 
 private:
 	unordered_map<uintptr_t, vector<DeltaMultiFileColumnDefinition>> inflight_lists;
@@ -259,17 +262,17 @@ private:
 	typedef void(SimpleTypeVisitorFunction)(void *, uintptr_t, ffi::KernelStringSlice, bool is_nullable,
 	                                        const ffi::CStringMap *metadata);
 
-    static void ApplyDeltaColumnMapping(const ffi::CStringMap *metadata, DeltaMultiFileColumnDefinition &col_def) {
-        auto id = KernelUtils::FetchFromStringMap(metadata, "parquet.field.id");
-        if (!id.empty()) {
-            col_def.identifier = Value(id).DefaultCastAs(LogicalType::BIGINT);
-        }
-        auto name = KernelUtils::FetchFromStringMap(metadata, "delta.columnMapping.physicalName");
-        if (!name.empty()) {
-            col_def.identifier = Value(name);
-        }
-        col_def.default_expression = make_uniq<ConstantExpression>(Value(col_def.type));
-    }
+	static void ApplyDeltaColumnMapping(const ffi::CStringMap *metadata, DeltaMultiFileColumnDefinition &col_def) {
+		auto id = KernelUtils::FetchFromStringMap(metadata, "parquet.field.id");
+		if (!id.empty()) {
+			col_def.identifier = Value(id).DefaultCastAs(LogicalType::BIGINT);
+		}
+		auto name = KernelUtils::FetchFromStringMap(metadata, "delta.columnMapping.physicalName");
+		if (!name.empty()) {
+			col_def.identifier = Value(name);
+		}
+		col_def.default_expression = make_uniq<ConstantExpression>(Value(col_def.type));
+	}
 
 	template <LogicalTypeId TypeId>
 	static SimpleTypeVisitorFunction *VisitSimpleType() {
@@ -278,12 +281,11 @@ private:
 	template <LogicalTypeId TypeId>
 	static void VisitSimpleTypeImpl(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
 	                                bool is_nullable, const ffi::CStringMap *metadata) {
-
-	    DeltaMultiFileColumnDefinition col_def(KernelUtils::FromDeltaString(name), TypeId, is_nullable);
-	    ApplyDeltaColumnMapping(metadata, col_def);
+		DeltaMultiFileColumnDefinition col_def(KernelUtils::FromDeltaString(name), TypeId, is_nullable);
+		ApplyDeltaColumnMapping(metadata, col_def);
 
 		state->AppendToList(sibling_list_id, name, std::move(col_def));
-    }
+	}
 
 	static void VisitDecimal(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
 	                         bool is_nullable, const ffi::CStringMap *metadata, uint8_t precision, uint8_t scale);
@@ -295,23 +297,24 @@ private:
 	static void VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable,
 	                     const ffi::CStringMap *metadata, uintptr_t child_list_id);
 
-    template <bool ENABLE_VARIANT>
-    static void VisitVariant(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable, const ffi::CStringMap *metadata) {
-        LogicalType type;
-        if (ENABLE_VARIANT) {
-            type = LogicalType::JSON();
-        } else {
-            child_list_t<LogicalType> struct_children;
-            struct_children.push_back({"value", LogicalType::BLOB});
-            struct_children.push_back({"metadata", LogicalType::BLOB});
-            type = LogicalType::STRUCT(struct_children);
-        }
+	template <bool ENABLE_VARIANT>
+	static void VisitVariant(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+	                         bool is_nullable, const ffi::CStringMap *metadata) {
+		LogicalType type;
+		if (ENABLE_VARIANT) {
+			type = LogicalType::JSON();
+		} else {
+			child_list_t<LogicalType> struct_children;
+			struct_children.push_back({"value", LogicalType::BLOB});
+			struct_children.push_back({"metadata", LogicalType::BLOB});
+			type = LogicalType::STRUCT(struct_children);
+		}
 
-        DeltaMultiFileColumnDefinition col_def(KernelUtils::FromDeltaString(name), type, is_nullable);
-        ApplyDeltaColumnMapping(metadata, col_def);
+		DeltaMultiFileColumnDefinition col_def(KernelUtils::FromDeltaString(name), type, is_nullable);
+		ApplyDeltaColumnMapping(metadata, col_def);
 
-        state->AppendToList(sibling_list_id, name, std::move(col_def));
-    }
+		state->AppendToList(sibling_list_id, name, std::move(col_def));
+	}
 
 	uintptr_t MakeFieldListImpl(uintptr_t capacity_hint);
 	void AppendToList(uintptr_t id, ffi::KernelStringSlice name, DeltaMultiFileColumnDefinition &&child);
@@ -348,10 +351,10 @@ struct UniqueKernelPointer {
 		}
 	}
 
-    KernelType *release() {
-	    auto copy = ptr;
-        ptr = nullptr;
-	    return copy;
+	KernelType *release() {
+		auto copy = ptr;
+		ptr = nullptr;
+		return copy;
 	}
 
 	KernelType *get() const {

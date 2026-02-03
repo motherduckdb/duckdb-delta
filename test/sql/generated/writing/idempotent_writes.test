@@ -1,5 +1,6 @@
 # name: test/sql/generated/writing/idempotent_writes.test
 # description: PoC for idempotent write API in DuckDB
+# group: [writing]
 
 require parquet
 
