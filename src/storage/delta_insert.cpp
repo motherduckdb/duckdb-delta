@@ -143,6 +143,9 @@ static DeltaColumnStats ParseColumnStats(const vector<Value> col_stats) {
 		} else if (stats_name == "has_nan") {
 			column_stats.has_contains_nan = true;
 			column_stats.contains_nan = stats_value == "true";
+		} else if (stats_name == "num_values" || stats_name == "variant_type") {
+			// FIXME: add proper handling
+			// NOOP, don't fail here for now
 		} else {
 			throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
 		}
