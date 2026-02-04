@@ -156,7 +156,7 @@ protected:
 
 	bool have_bound = false;
 
-	ClientContext &context;
+	weak_ptr<ClientContext> client_ctx;
 
 	// The schema containing the proper column identifiers, lazily loaded to avoid prematurely initializing the kernel
 	// scan

@@ -59,19 +59,12 @@ struct CommitInfo {
 
 	void (*release)();
 	static void InstrumentedRelease(ArrowArray *arg1) {
-		auto holder = static_cast<ArrowAppendData *>(arg1->private_data);
-
-		if (holder->options.client_context) {
-			DUCKDB_LOG_TRACE(*holder->options.client_context, "Delta ToArrow debug: released CommitInfo");
-		}
-
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: released CommitInfo");
 		return ArrowAppender::ReleaseArray(arg1);
 	}
 
 	ffi::ArrowFFIData ToArrow(optional_ptr<ClientContext> context) {
-		if (context) {
-			DUCKDB_LOG_TRACE(*context, "Delta ToArrow debug: created CommitInfo");
-		}
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: created CommitInfo");
 
 		ffi::ArrowFFIData ffi_data;
 		unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;
@@ -165,17 +158,12 @@ struct WriteMetaData {
 
 	void (*release)();
 	static void InstrumentedRelease(ArrowArray *arg1) {
-		auto holder = static_cast<ArrowAppendData *>(arg1->private_data);
-
-		if (holder->options.client_context) {
-			DUCKDB_LOG_TRACE(*holder->options.client_context, "Delta ToArrow debug: released WriteMetaData");
-		}
-
-		return ArrowAppender::ReleaseArray(arg1);
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: released WriteMetaData");
+		return ArrowAppender::ReleaseArray /**/ (arg1);
 	}
 
 	ffi::ArrowFFIData ToArrow(ClientContext &context) {
-		DUCKDB_LOG_TRACE(context, "Delta ToArrow debug: created WriteMetaData");
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: created WriteMetaData");
 
 		ffi::ArrowFFIData ffi_data;
 		unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;

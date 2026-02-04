@@ -523,15 +523,18 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 }
 
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path, idx_t version_p)
-    : SimpleMultiFileList({ToDeltaPath(path)}), version(version_p), context(context_p) {
+    : SimpleMultiFileList({ToDeltaPath(path)}), version(version_p) {
 	Value setting_res;
-	auto res = context.TryGetCurrentSetting("variant_legacy_encoding", setting_res);
+	auto res = context_p.TryGetCurrentSetting("variant_legacy_encoding", setting_res);
 	if (res) {
 		D_ASSERT(setting_res.type() == LogicalType::BOOLEAN);
 		enable_variant = setting_res.GetValue<bool>();
 	} else {
 		enable_variant = false;
 	}
+
+	unique_lock<mutex> lck(lock);
+	client_ctx = weak_ptr<ClientContext>(context_p.shared_from_this());
 }
 
 string DeltaMultiFileList::GetPath() const {
@@ -689,10 +692,14 @@ OpenFileInfo DeltaMultiFileList::GetFile(idx_t i) const {
 	return GetFileInternal(i);
 }
 
+// req: this.lock must already be owned
 void DeltaMultiFileList::InitializeSnapshot() const {
+	// D_ASSERT(lock.is_locked())  -- no such check available; could use recursive mutex
+	D_ASSERT(!client_ctx.expired());
+	auto client_ctx_shared = client_ctx.lock();
 	auto path_slice = KernelUtils::ToDeltaString(paths[0].path);
 
-	auto interface_builder = CreateBuilder(context, paths[0].path);
+	auto interface_builder = CreateBuilder(*client_ctx_shared, paths[0].path);
 	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
 
 	if (!snapshot) {
