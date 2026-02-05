@@ -17,12 +17,11 @@
 
 namespace duckdb {
 
-static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo> storage_info,
-                                                     ClientContext &context, AttachedDatabase &db, const string &name,
-                                                     AttachInfo &info, AttachOptions &options) {
-
+static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo> storage_info, ClientContext &context,
+                                              AttachedDatabase &db, const string &name, AttachInfo &info,
+                                              AttachOptions &options) {
 	auto res = make_uniq<DeltaCatalog>(db, info.path, options.access_mode);
-    res->internal_table_name = name;
+	res->internal_table_name = name;
 
 	for (const auto &option : info.options) {
 		if (StringUtil::Lower(option.first) == "pin_snapshot") {
@@ -35,16 +34,16 @@ static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo>
 			auto str = option.second.GetValue<string>();
 			res->filter_pushdown_mode = DeltaEnumUtils::FromString(str);
 		}
-	    if (StringUtil::Lower(option.first) == "version") {
-	        res->use_cache = true;
-	        res->use_specific_version = UBigIntValue::Get(option.second.DefaultCastAs(LogicalType::UBIGINT));
-	    }
-	    if (StringUtil::Lower(option.first) == "internal_table_name") {
-	        res->internal_table_name = StringValue::Get(option.second);
-	    }
-	    if (StringUtil::Lower(option.first) == "child_catalog_mode") {
-	        res->child_catalog_mode = option.second.GetValue<bool>();
-	    }
+		if (StringUtil::Lower(option.first) == "version") {
+			res->use_cache = true;
+			res->use_specific_version = UBigIntValue::Get(option.second.DefaultCastAs(LogicalType::UBIGINT));
+		}
+		if (StringUtil::Lower(option.first) == "internal_table_name") {
+			res->internal_table_name = StringValue::Get(option.second);
+		}
+		if (StringUtil::Lower(option.first) == "child_catalog_mode") {
+			res->child_catalog_mode = option.second.GetValue<bool>();
+		}
 	}
 
 	res->SetDefaultTable(DEFAULT_SCHEMA, res->GetInternalTableName());
@@ -53,7 +52,7 @@ static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo>
 }
 
 static unique_ptr<TransactionManager> CreateTransactionManager(optional_ptr<StorageExtensionInfo> storage_info,
-                                                                        AttachedDatabase &db, Catalog &catalog) {
+                                                               AttachedDatabase &db, Catalog &catalog) {
 	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 	return make_uniq<DeltaTransactionManager>(db, delta_catalog);
 }
@@ -68,13 +67,13 @@ public:
 
 static void LoadInternal(ExtensionLoader &loader) {
 	// Load Table functions
-    for (const auto &function : DeltaFunctions::GetTableFunctions(loader)) {
-        loader.RegisterFunction(function);
+	for (const auto &function : DeltaFunctions::GetTableFunctions(loader)) {
+		loader.RegisterFunction(function);
 	}
 
 	// Load Scalar functions
-    for (const auto &function : DeltaFunctions::GetScalarFunctions(loader)) {
-        loader.RegisterFunction(function);
+	for (const auto &function : DeltaFunctions::GetScalarFunctions(loader)) {
+		loader.RegisterFunction(function);
 	}
 
 	// Register the "single table" delta catalog (to ATTACH a single delta table)
@@ -112,7 +111,6 @@ std::string DeltaExtension::Name() {
 extern "C" {
 
 DUCKDB_CPP_EXTENSION_ENTRY(delta, loader) {
-    duckdb::LoadInternal(loader);
+	duckdb::LoadInternal(loader);
 }
-
 }

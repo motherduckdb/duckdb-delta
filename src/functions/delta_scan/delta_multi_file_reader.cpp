@@ -52,7 +52,6 @@ void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileO
                               const vector<MultiFileColumnDefinition> &global_columns,
                               const vector<ColumnIndex> &global_column_ids, ClientContext &context,
                               optional_ptr<MultiFileReaderGlobalState> global_state) {
-
 	// create a map of name -> column index
 	auto &local_columns = reader_data.reader->GetColumns();
 	auto &filename = reader_data.reader->GetFileName();
@@ -116,7 +115,6 @@ bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
 void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &files,
                                        vector<LogicalType> &return_types, vector<string> &names,
                                        MultiFileReaderBindData &bind_data) {
-
 	// Disable all other multifilereader options
 	options.auto_detect_hive_partitioning = false;
 	options.hive_partitioning = false;
@@ -169,19 +167,20 @@ ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData 
 
 	auto &scan_columns = snapshot.GetLazyLoadedGlobalColumns();
 
-    // We need to override the global columns, because only now we have the correct column mapping information
-	vector<MultiFileColumnDefinition> overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
+	// We need to override the global columns, because only now we have the correct column mapping information
+	vector<MultiFileColumnDefinition> overridden_global_columns =
+	    DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
 	if (scan_columns.size() != global_columns.size()) {
 		overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
 		for (idx_t i = scan_columns.size(); i < global_columns.size(); i++) {
 			overridden_global_columns.push_back(global_columns[i]);
 		}
 	} else {
-	    overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
+		overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
 	}
 
-    FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, overridden_global_columns, global_column_ids,
-                 context, global_state);
+	FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, overridden_global_columns,
+	             global_column_ids, context, global_state);
 	return CreateMapping(context, reader_data, overridden_global_columns, global_column_ids, table_filters,
 	                     gstate.file_list, bind_data.reader_bind, bind_data.virtual_columns);
 }

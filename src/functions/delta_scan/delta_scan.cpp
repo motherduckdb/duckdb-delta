@@ -72,7 +72,7 @@ virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionD
 }
 
 static void DeltaScanSerialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data,
-                                 const TableFunction &function) {
+                               const TableFunction &function) {
 	throw NotImplementedException("DeltaScan serialization not implemented");
 }
 
@@ -82,12 +82,12 @@ static unique_ptr<FunctionData> DeltaScanDeserialize(Deserializer &deserializer,
 
 TableFunctionSet DeltaFunctions::GetDeltaScanFunction(ExtensionLoader &loader) {
 	// Parquet extension needs to be loaded for this to make sense
-    auto &instance = loader.GetDatabaseInstance();
+	auto &instance = loader.GetDatabaseInstance();
 	ExtensionHelper::AutoLoadExtension(instance, "parquet");
 
 	// The delta_scan function is constructed by grabbing the parquet scan from the Catalog, then injecting the
 	// DeltaMultiFileReader into it to create a Delta-based multi file read
-    auto &parquet_scan = loader.GetTableFunction("parquet_scan");
+	auto &parquet_scan = loader.GetTableFunction("parquet_scan");
 	auto parquet_scan_copy = parquet_scan.functions;
 
 	for (auto &function : parquet_scan_copy.functions) {
