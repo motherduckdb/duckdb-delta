@@ -422,8 +422,8 @@ static unordered_map<idx_t, Value> FindPartitionValues(ParsedExpression &transfo
 }
 
 void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path,
-                                             int64_t size, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
-                                             const ffi::Expression *transform) {
+                                             int64_t size, int64_t mod_time, const ffi::Stats *stats,
+                                             const ffi::CDvInfo *dv_info, const ffi::Expression *transform) {
 	auto context = (ScanDataCallBack *)engine_context;
 	auto &snapshot = context->snapshot;
 
@@ -507,10 +507,10 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 }
 
 void ScanDataCallBack::VisitCallback(ffi::NullableCvoid engine_context, ffi::KernelStringSlice path, int64_t size,
-                                     const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
+                                     int64_t mod_time, const ffi::Stats *stats, const ffi::CDvInfo *dv_info,
                                      const ffi::Expression *transform, const ffi::CStringMap *partition_values) {
 	try {
-		return VisitCallbackInternal(engine_context, path, size, stats, dv_info, transform);
+		return VisitCallbackInternal(engine_context, path, size, mod_time, stats, dv_info, transform);
 	} catch (std::runtime_error &e) {
 		auto context = (ScanDataCallBack *)engine_context;
 		context->error = ErrorData(e);
@@ -523,15 +523,18 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 }
 
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path, idx_t version_p)
-    : SimpleMultiFileList({ToDeltaPath(path)}), version(version_p), context(context_p) {
+    : SimpleMultiFileList({ToDeltaPath(path)}), version(version_p) {
 	Value setting_res;
-	auto res = context.TryGetCurrentSetting("variant_legacy_encoding", setting_res);
+	auto res = context_p.TryGetCurrentSetting("variant_legacy_encoding", setting_res);
 	if (res) {
 		D_ASSERT(setting_res.type() == LogicalType::BOOLEAN);
 		enable_variant = setting_res.GetValue<bool>();
 	} else {
 		enable_variant = false;
 	}
+
+	unique_lock<mutex> lck(lock);
+	client_ctx = weak_ptr<ClientContext>(context_p.shared_from_this());
 }
 
 string DeltaMultiFileList::GetPath() const {
@@ -689,10 +692,14 @@ OpenFileInfo DeltaMultiFileList::GetFile(idx_t i) const {
 	return GetFileInternal(i);
 }
 
+// req: this.lock must already be owned
 void DeltaMultiFileList::InitializeSnapshot() const {
+	// D_ASSERT(lock.is_locked())  -- no such check available; could use recursive mutex
+	D_ASSERT(!client_ctx.expired());
+	auto client_ctx_shared = client_ctx.lock();
 	auto path_slice = KernelUtils::ToDeltaString(paths[0].path);
 
-	auto interface_builder = CreateBuilder(context, paths[0].path);
+	auto interface_builder = CreateBuilder(*client_ctx_shared, paths[0].path);
 	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
 
 	if (!snapshot) {
@@ -724,7 +731,7 @@ void DeltaMultiFileList::InitializeScan() const {
 
 	// Create Scan
 	PredicateVisitor visitor(global_columns, &table_filters);
-	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor));
+	scan = TryUnpackKernelResult(ffi::scan(snapshot_ref.GetPtr(), extern_engine.get(), &visitor, nullptr));
 
 	if (visitor.error_data.HasError()) {
 		throw IOException("Failed to initialize Scan for Delta table at '%s'. Original error: '%s'", paths[0].path,

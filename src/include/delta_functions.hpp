@@ -30,6 +30,8 @@ struct MetadataBindData : public TableFunctionData {
 	vector<vector<Value>> rows;
 };
 
+class TableFunction;
+
 class DeltaFunctions {
 public:
 	static vector<TableFunctionSet> GetTableFunctions(ExtensionLoader &loader);
@@ -44,5 +46,8 @@ private:
 	static ScalarFunctionSet GetExpressionFunction(ExtensionLoader &loader);
 
 	static ScalarFunctionSet GetWriteFileFunction(ExtensionLoader &loader);
+	static ScalarFunctionSet GetWriteFileFunction(DatabaseInstance &instance);
+
+	static vector<TableFunction> GetTransactionIdempotencyHelpers(DatabaseInstance &instance);
 };
 } // namespace duckdb

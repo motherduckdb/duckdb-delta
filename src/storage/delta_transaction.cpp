@@ -59,19 +59,12 @@ struct CommitInfo {
 
 	void (*release)();
 	static void InstrumentedRelease(ArrowArray *arg1) {
-		auto holder = static_cast<ArrowAppendData *>(arg1->private_data);
-
-		if (holder->options.client_context) {
-			DUCKDB_LOG_TRACE(*holder->options.client_context, "Delta ToArrow debug: released CommitInfo");
-		}
-
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: released CommitInfo");
 		return ArrowAppender::ReleaseArray(arg1);
 	}
 
 	ffi::ArrowFFIData ToArrow(optional_ptr<ClientContext> context) {
-		if (context) {
-			DUCKDB_LOG_TRACE(*context, "Delta ToArrow debug: created CommitInfo");
-		}
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: created CommitInfo");
 
 		ffi::ArrowFFIData ffi_data;
 		unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;
@@ -165,17 +158,12 @@ struct WriteMetaData {
 
 	void (*release)();
 	static void InstrumentedRelease(ArrowArray *arg1) {
-		auto holder = static_cast<ArrowAppendData *>(arg1->private_data);
-
-		if (holder->options.client_context) {
-			DUCKDB_LOG_TRACE(*holder->options.client_context, "Delta ToArrow debug: released WriteMetaData");
-		}
-
-		return ArrowAppender::ReleaseArray(arg1);
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: released WriteMetaData");
+		return ArrowAppender::ReleaseArray /**/ (arg1);
 	}
 
 	ffi::ArrowFFIData ToArrow(ClientContext &context) {
-		DUCKDB_LOG_TRACE(context, "Delta ToArrow debug: created WriteMetaData");
+		LoggerCallback::TryLog("delta", LogLevel::LOG_TRACE, "Delta ToArrow debug: created WriteMetaData");
 
 		ffi::ArrowFFIData ffi_data;
 		unordered_map<idx_t, const shared_ptr<ArrowTypeExtensionData>> extension_types;
@@ -240,6 +228,54 @@ void DeltaTransaction::Commit(ClientContext &context) {
 			// Add the write data to the commit
 			ffi::add_files(kernel_transaction.get(), write_metadata_engine_data.release());
 
+			// Finally we add the registered transaction versions
+			for (const auto &app_version : app_versions) {
+				auto app_id = app_version.first;
+				auto app_version_info = app_version.second;
+				auto new_version = app_version_info.new_version;
+				auto expected_version = app_version_info.expected_version;
+
+				// Verify that the previous version is correct still
+				auto &snapshot = *table_entry->snapshot;
+				auto kernel_snapshot = snapshot.snapshot->GetLockingRef();
+				auto app_id_kernel_string = KernelUtils::ToDeltaString(app_id);
+				auto get_app_id_version_result = ffi::get_app_id_version(kernel_snapshot.GetPtr(), app_id_kernel_string,
+				                                                         snapshot.extern_engine.get());
+
+				ffi::OptionalValue<int64_t> version_actual_opt;
+				auto unpacked_version_result =
+				    KernelUtils::TryUnpackResult(get_app_id_version_result, version_actual_opt);
+				bool has_error = false;
+				string error_version;
+				if (unpacked_version_result.HasError()) {
+					has_error = !expected_version.IsNull();
+					if (has_error) {
+						error_version = "ERROR";
+					}
+				}
+
+				if (!has_error) {
+					const auto actual_version = version_actual_opt.tag == ffi::OptionalValue<int64_t>::Tag::None
+					                                ? Value()
+					                                : Value(version_actual_opt.some._0);
+					has_error = ((actual_version.IsNull() != expected_version.IsNull()) ||
+					             (!actual_version.IsNull() && actual_version != expected_version));
+					if (has_error) {
+						error_version = actual_version.ToString();
+					}
+				}
+
+				if (has_error) {
+					throw TransactionException("DeltaTransaction version for app_id '%s' did not match the expected "
+					                           "previous version of '%s' (found: '%s')",
+					                           app_id, expected_version.ToString(), error_version);
+				}
+
+				kernel_transaction = table_entry->snapshot->TryUnpackKernelResult(
+				    ffi::with_transaction_id(kernel_transaction.release(), KernelUtils::ToDeltaString(app_id),
+				                             new_version, table_entry->snapshot->extern_engine.get()));
+			}
+
 			table_entry->snapshot->TryUnpackKernelResult(
 			    ffi::commit(kernel_transaction.release(), table_entry->snapshot->extern_engine.get()));
 		}
@@ -290,6 +326,10 @@ void DeltaTransaction::Append(ClientContext &context, const vector<DeltaDataFile
 
 	// Append the newly inserted data
 	outstanding_appends.insert(outstanding_appends.end(), append_files.begin(), append_files.end());
+}
+
+void DeltaTransaction::SetTransactionVersion(const string &app_id_p, idx_t new_version_p, Value expected_version_p) {
+	app_versions.insert({app_id_p, {new_version_p, std::move(expected_version_p)}});
 }
 
 DeltaTransaction &DeltaTransaction::Get(ClientContext &context, Catalog &catalog) {

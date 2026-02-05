@@ -474,6 +474,7 @@ public:
 	//! Singleton GetInstance
 	static LoggerCallback &GetInstance();
 	static void Initialize(DatabaseInstance &db);
+	static bool TryLog(const char *type_, LogLevel level, const string &msg);
 	static void CallbackEvent(ffi::Event log_line);
 
 	static LogLevel GetDuckDBLogLevel(ffi::Level);

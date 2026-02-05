@@ -10,6 +10,10 @@ vector<TableFunctionSet> DeltaFunctions::GetTableFunctions(ExtensionLoader &load
 	functions.push_back(GetDeltaScanFunction(loader));
 	functions.push_back(GetDeltaFileListFunction(loader));
 
+	for (const auto &fun : GetTransactionIdempotencyHelpers(loader.GetDatabaseInstance())) {
+		functions.push_back(TableFunctionSet(fun));
+	}
+
 	return functions;
 }
 

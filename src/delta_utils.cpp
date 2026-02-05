@@ -1050,16 +1050,20 @@ void LoggerCallback::Initialize(DatabaseInstance &db_p) {
 	}
 }
 
-void LoggerCallback::CallbackEvent(ffi::Event event) {
+bool LoggerCallback::TryLog(const char *name, LogLevel level, const string &msg) {
 	auto &instance = GetInstance();
 	auto db_locked = instance.db.lock();
-	if (db_locked) {
-		// Note: this slightly offbeat invocation of logging API is because we are passing through the log level instead
-		// of using the same
-		//       log level for every message of this log type. We may
-		DUCKDB_LOG_INTERNAL(*db_locked, DeltaKernelLogType::NAME, GetDuckDBLogLevel(event.level),
-		                    DeltaKernelLogType::ConstructLogMessage(event));
+	if (!db_locked) {
+		return false;
 	}
+	// Note: this slightly offbeat invocation of logging API is because we are passing through the
+	// log level instead of using the same log level for every message of this log type.
+	DUCKDB_LOG_INTERNAL(*db_locked, name, level, msg);
+	return true;
+}
+
+void LoggerCallback::CallbackEvent(ffi::Event event) {
+	TryLog(DeltaKernelLogType::NAME, GetDuckDBLogLevel(event.level), DeltaKernelLogType::ConstructLogMessage(event));
 }
 
 LogLevel LoggerCallback::GetDuckDBLogLevel(ffi::Level level) {
