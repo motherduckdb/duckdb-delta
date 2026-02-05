@@ -294,7 +294,8 @@ private:
 	static void VisitMap(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable,
 	                     const ffi::CStringMap *metadata, uintptr_t child_list_id);
 
-    static void VisitVariant(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name, bool is_nullable, const ffi::CStringMap *metadata);
+	static void VisitVariant(SchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+	                         bool is_nullable, const ffi::CStringMap *metadata);
 
 	uintptr_t MakeFieldListImpl(uintptr_t capacity_hint);
 	void AppendToList(uintptr_t id, ffi::KernelStringSlice name, DeltaMultiFileColumnDefinition &&child);

@@ -35,21 +35,23 @@ static void *allocate_string(const struct ffi::KernelStringSlice slice) {
 
 struct DeltaCommitInfo {
 public:
-    DeltaCommitInfo() {
-        buffer.Initialize(Allocator::DefaultAllocator(), GetTypes());
+	DeltaCommitInfo() {
+		buffer.Initialize(Allocator::DefaultAllocator(), GetTypes());
 		buffer.SetCardinality(0);
-    }
+	}
+
 public:
-    static vector<LogicalType> GetTypes() {
-        return {LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR)};
-    };
-    static vector<string> GetNames() {
-        return {"engineCommitInfo"};
-    };
+	static vector<LogicalType> GetTypes() {
+		return {LogicalType::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR)};
+	};
+	static vector<string> GetNames() {
+		return {"engineCommitInfo"};
+	};
+
 public:
-    void Append(Value commit_info_map) {
-        idx_t current_size = buffer.size();
-        idx_t current_capacity = buffer.GetCapacity();
+	void Append(Value commit_info_map) {
+		idx_t current_size = buffer.size();
+		idx_t current_capacity = buffer.GetCapacity();
 
 		if (current_size == current_capacity) {
 			buffer.SetCapacity(2 * current_capacity);
@@ -74,11 +76,12 @@ public:
 		ArrowConverter::ToArrowArray(buffer, (ArrowArray *)(&ffi_data.array), props, extension_types);
 		ArrowConverter::ToArrowSchema((ArrowSchema *)(&ffi_data.schema), GetTypes(), GetNames(), props);
 
-        ffi_data.array.release = reinterpret_cast<void (*)(ffi::FFI_ArrowArray *)>(InstrumentedRelease);
-        return ffi_data;
-    }
+		ffi_data.array.release = reinterpret_cast<void (*)(ffi::FFI_ArrowArray *)>(InstrumentedRelease);
+		return ffi_data;
+	}
+
 private:
-    DataChunk buffer;
+	DataChunk buffer;
 };
 
 struct WriteMetaData {
@@ -307,7 +310,8 @@ void DeltaTransaction::InitializeTransaction(ClientContext &context) {
 
 	// Create commit info
 	DeltaCommitInfo commit_info;
-	commit_info.Append(Value::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR, {Value("engineInfo")}, {Value("DuckDB")}));
+	commit_info.Append(
+	    Value::MAP(LogicalType::VARCHAR, LogicalType::VARCHAR, {Value("engineInfo")}, {Value("DuckDB")}));
 	auto commit_info_arrow = commit_info.ToArrow(context);
 
 	// Convert arrow to Engine Data
