@@ -9,10 +9,16 @@
 #pragma push_macro("DEBUG")
 #undef DEBUG
 
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif //__clang__
+
 #include "ffi-headers/delta_kernel_ffi.hpp"
+
+#if defined(__clang__)
 #pragma clang diagnostic pop
+#endif //__clang__
 
 #pragma pop_macro("DEBUG")
 
