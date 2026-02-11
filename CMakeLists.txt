@@ -141,6 +141,10 @@ set(DELTA_KERNEL_FFI_HEADER_CXX
     "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/target/ffi-headers/delta_kernel_ffi.hpp"
 )
 
+include_directories(
+    "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/target"
+)
+
 # Cargo optimization/debug symbol flags
 set(CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
 
@@ -152,7 +156,7 @@ ExternalProject_Add(
   # the c++ headers. Currently, when bumping the kernel version, the produced
   # header in ./src/include/delta_kernel_ffi.hpp should be also bumped, applying
   # the fix
-  GIT_TAG v0.19.0
+  GIT_TAG 6cf4d9478a869d8b06935be6b5de0c60970d7b6a # main HEAD 2026-02-11
   # Prints the env variables passed to the cargo build to the terminal, useful
   # in debugging because passing them through CMake is an error-prone mess
   CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS}
