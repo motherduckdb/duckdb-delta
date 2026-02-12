@@ -141,8 +141,8 @@ set(DELTA_KERNEL_FFI_HEADER_CXX
     "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/target/ffi-headers/delta_kernel_ffi.hpp"
 )
 
-include_directories(
-    "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/target"
+set(DELTA_KERNEL_FFI_HEADER_PATCHED
+    "${CMAKE_BINARY_DIR}/codegen/include/generated_delta_kernel_ffi.hpp"
 )
 
 # Cargo optimization/debug symbol flags
@@ -152,10 +152,8 @@ set(CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
 ExternalProject_Add(
   ${KERNEL_NAME}
   GIT_REPOSITORY "https://github.com/delta-io/delta-kernel-rs"
-  # WARNING: the FFI headers are currently pinned due to the C linkage issue of
-  # the c++ headers. Currently, when bumping the kernel version, the produced
-  # header in ./src/include/delta_kernel_ffi.hpp should be also bumped, applying
-  # the fix
+  # When bumping the kernel version, check that scripts/ffi/inline_msvc_compat.inc
+  # covers any new ExternResult<T> specializations (MSVC will fail C2526 if not)
   GIT_TAG 6cf4d9478a869d8b06935be6b5de0c60970d7b6a # main HEAD 2026-02-11
   # Prints the env variables passed to the cargo build to the terminal, useful
   # in debugging because passing them through CMake is an error-prone mess
@@ -172,6 +170,23 @@ ExternalProject_Add(
   COMMAND
     ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS} ${RUST_ENV_VARS} cargo build
     --manifest-path=${CMAKE_BINARY_DIR}/rust/src/delta_kernel/acceptance/Cargo.toml
+  # Copy generated C++ FFI header to src/include/generated/ and patch it:
+  #  1. Inject DEBUG macro undef + clang diagnostic suppression after #pragma once
+  #  2. Inject MSVC ExternResult<T> instantiations before extern "C" functions
+  #  3. Append clang diagnostic pop + DEBUG macro restore at end of file
+  # See cbindgen#402 for MSVC context.
+  COMMAND
+    ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/codegen/include
+  COMMAND
+    ${CMAKE_COMMAND} -E copy ${DELTA_KERNEL_FFI_HEADER_CXX} ${DELTA_KERNEL_FFI_HEADER_PATCHED}
+  COMMAND
+    sed -i.bak
+    -e /^.pragma.once$/r${CMAKE_CURRENT_SOURCE_DIR}/scripts/ffi/prefix.inc
+    -e /^extern/r${CMAKE_CURRENT_SOURCE_DIR}/scripts/ffi/inline_msvc_compat.inc
+    -e /^}.*namespace.ffi/r${CMAKE_CURRENT_SOURCE_DIR}/scripts/ffi/suffix.inc
+    ${DELTA_KERNEL_FFI_HEADER_PATCHED}
+  COMMAND
+    ${CMAKE_COMMAND} -E rm -f ${DELTA_KERNEL_FFI_HEADER_PATCHED}.bak
   # Define the byproducts, required for building with Ninja
   BUILD_BYPRODUCTS "${DELTA_KERNEL_LIBPATH}"
   BUILD_BYPRODUCTS "${DELTA_KERNEL_FFI_HEADER_C}"
@@ -182,8 +197,10 @@ ExternalProject_Add(
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-# TODO: when C linkage issue is resolved, we should switch back to using the
-# generated headers include_directories(${DELTA_KERNEL_FFI_HEADER_PATH})
+# The generated FFI header is copied to codegen/include/ and patched at build
+# time (see scripts/ffi/{prefix,inline_msvc_compat,suffix}.inc).
+# TODO: when cbindgen C-linkage issue is resolved upstream, remove the sed patches.
+include_directories("${CMAKE_BINARY_DIR}/codegen/include")
 
 # Hides annoying linker warnings
 set(CMAKE_OSX_DEPLOYMENT_TARGET
