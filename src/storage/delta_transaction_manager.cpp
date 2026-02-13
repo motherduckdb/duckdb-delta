@@ -51,11 +51,6 @@ void DeltaTransactionManager::RollbackTransaction(Transaction &transaction) {
 }
 
 void DeltaTransactionManager::Checkpoint(ClientContext &context, bool force) {
-	// TODO: reconsider — checkpoint is an optimization, not a mutation; could allow on read-only
-	if (delta_catalog.access_mode == AccessMode::READ_ONLY) {
-		throw InvalidInputException("Cannot checkpoint a read-only Delta table");
-	}
-
 	// Fetch the currently active delta transaction
 	auto &delta_transaction = DeltaTransaction::Get(context, delta_catalog);
 
