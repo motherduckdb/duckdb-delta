@@ -796,9 +796,12 @@ string DuckDBEngineError::KernelErrorEnumToString(ffi::KernelError err) {
 	                                           "ParseIntervalError",
 	                                           "ChangeDataFeedUnsupported",
 	                                           "ChangeDataFeedIncompatibleSchema",
-	                                           "InvalidCheckpoint"};
+	                                           "InvalidCheckpoint",
+	                                           "LiteralExpressionTransformError",
+	                                           "CheckpointWriteError",
+	                                           "SchemaError"};
 
-	static_assert(sizeof(KERNEL_ERROR_ENUM_STRINGS) / sizeof(char *) - 1 == (int)ffi::KernelError::InvalidCheckpoint,
+	static_assert(sizeof(KERNEL_ERROR_ENUM_STRINGS) / sizeof(char *) - 1 == (int)ffi::KernelError::SchemaError,
 	              "KernelErrorEnumStrings mismatched with kernel");
 
 	if ((int)err < sizeof(KERNEL_ERROR_ENUM_STRINGS) / sizeof(char *)) {
