@@ -1,0 +1,101 @@
+# name: test/sql/main/writing/checkpoint.test
+# description: test checkpointing delta tables
+# group: [writing]
+
+require parquet
+
+require delta
+
+# ----------------------------------------------------------------------------
+
+# Copy test data to a writable tmp dir
+statement ok
+CALL copy_dir('data/inlined/simple_table', '__TEST_DIR__/checkpoint/simple_table');
+
+statement ok
+ATTACH '__TEST_DIR__/checkpoint/simple_table/delta_lake' AS checkpoint_tbl (TYPE delta);
+
+# Basic checkpoint
+statement ok
+CHECKPOINT checkpoint_tbl
+
+# Idempotent — second checkpoint succeeds
+statement ok
+CHECKPOINT checkpoint_tbl
+
+# Force checkpoint
+statement ok
+FORCE CHECKPOINT checkpoint_tbl
+
+# Verify data still readable after checkpoint
+query II
+SELECT count(*), sum(i) FROM checkpoint_tbl;
+----
+10	45
+
+# Checkpoint after insert
+statement ok
+INSERT INTO checkpoint_tbl VALUES (100);
+
+statement ok
+CHECKPOINT checkpoint_tbl
+
+query II
+SELECT count(*), sum(i) FROM checkpoint_tbl;
+----
+11	145
+
+# Explicit transaction then checkpoint
+statement ok
+BEGIN
+
+query II
+SELECT count(*), sum(i) FROM checkpoint_tbl;
+----
+11	145
+
+statement ok
+COMMIT
+
+statement ok
+CHECKPOINT checkpoint_tbl
+
+statement ok
+DETACH checkpoint_tbl
+
+# ----------------------------------------------------------------------------
+
+# Pinned version — checkpoint should work with version=0
+statement ok
+CALL copy_dir('data/inlined/simple_table', '__TEST_DIR__/checkpoint/simple_table_pinned');
+
+statement ok
+ATTACH '__TEST_DIR__/checkpoint/simple_table_pinned/delta_lake' AS checkpoint_pinned (TYPE delta, version 0);
+
+statement ok
+CHECKPOINT checkpoint_pinned
+
+query II
+SELECT count(*), sum(i) FROM checkpoint_pinned;
+----
+10	45
+
+statement ok
+DETACH checkpoint_pinned
+
+# ----------------------------------------------------------------------------
+
+# Read-only guard — checkpoint should error
+statement ok
+CALL copy_dir('data/inlined/simple_table', '__TEST_DIR__/checkpoint/simple_table_ro');
+
+statement ok
+ATTACH '__TEST_DIR__/checkpoint/simple_table_ro/delta_lake' AS checkpoint_ro (TYPE delta, READ_ONLY);
+
+statement error
+CHECKPOINT checkpoint_ro
+----
+Cannot checkpoint a read-only Delta table
+
+statement ok
+DETACH checkpoint_ro
