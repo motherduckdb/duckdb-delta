@@ -131,7 +131,7 @@ static unique_ptr<FunctionData> DeltaFileListBind(ClientContext &context, TableF
 	return std::move(result);
 }
 
-DeltaFileListFunction::DeltaFileListFunction() : BaseMetadataFunction("delta_metadata", DeltaFileListBind) {
+DeltaFileListFunction::DeltaFileListFunction() : DeltaBaseMetadataFunction("delta_metadata", DeltaFileListBind) {
 	// arguments.push_back(LogicalType::VARCHAR);
 	named_parameters.insert({"transform_expression", LogicalType::BOOLEAN});
 	named_parameters.insert({"delete_count", LogicalType::BOOLEAN});
