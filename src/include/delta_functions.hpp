@@ -23,6 +23,11 @@ public:
 	DeltaFileListFunction();
 };
 
+class DeltaDomainMetadataFunction : public DeltaBaseMetadataFunction {
+public:
+	DeltaDomainMetadataFunction();
+};
+
 struct MetadataBindData : public TableFunctionData {
 	MetadataBindData() {
 	}
@@ -41,6 +46,7 @@ private:
 	//! Table Functions
 	static TableFunctionSet GetDeltaScanFunction(ExtensionLoader &loader);
 	static TableFunctionSet GetDeltaFileListFunction(ExtensionLoader &loader);
+	static TableFunctionSet GetDeltaDomainMetadataFunction(ExtensionLoader &loader);
 
 	//! Scalar Functions
 	static ScalarFunctionSet GetExpressionFunction(ExtensionLoader &loader);
