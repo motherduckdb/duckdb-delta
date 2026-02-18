@@ -1,5 +1,6 @@
 #include "storage/delta_schema_entry.hpp"
 
+#include "delta_utils.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 #include "storage/delta_catalog.hpp"
 
@@ -124,6 +125,17 @@ unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &co
 
 	// Copy over constraints to table info TODO: these are incompatible currently
 	// table_info.constraints = snapshot->not_null_constraints;}
+
+	// Populate tags from domain metadata
+	{
+		auto snapshot_ref = snapshot->snapshot->GetLockingRef();
+		ffi::visit_domain_metadata(
+		    snapshot_ref.GetPtr(), snapshot->extern_engine.get(), &table_info.tags,
+		    [](ffi::NullableCvoid engine_context, ffi::KernelStringSlice domain, ffi::KernelStringSlice configuration) {
+			    auto &tags = *static_cast<InsertionOrderPreservingMap<string> *>(const_cast<void *>(engine_context));
+			    tags.insert({KernelUtils::FromDeltaString(domain), KernelUtils::FromDeltaString(configuration)});
+		    });
+	}
 
 	auto table_entry = make_uniq<DeltaTableEntry>(delta_catalog, *this, table_info);
 	table_entry->snapshot = std::move(snapshot);
