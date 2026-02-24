@@ -6,6 +6,8 @@ require parquet
 
 require delta
 
+require notwindows
+
 # ----------------------------------------------------------------------------
 
 # Copy test data to a writable tmp dir
@@ -15,17 +17,43 @@ CALL copy_dir('data/inlined/simple_table', '__TEST_DIR__/checkpoint/simple_table
 statement ok
 ATTACH '__TEST_DIR__/checkpoint/simple_table/delta_lake' AS checkpoint_tbl (TYPE delta);
 
+# Pre-checkpoint - Assert: 0 _last_checkpoint file, and 0 *.checkpoint*.parquet file
+query I
+SELECT count(*) FROM glob('__TEST_DIR__/checkpoint/simple_table/delta_lake/_delta_log/*checkpoint*');
+----
+0
+
 # Basic checkpoint
 statement ok
 CHECKPOINT checkpoint_tbl
 
-# Idempotent — second checkpoint succeeds
+# Post-checkpoint: Expect: 1 _last_checkpoint file, and 1 *.checkpoint*.parquet file
+# hardcode the name here since it should be safe with this canned data.
+query I sorted
+SELECT parse_filename(file) FROM glob('__TEST_DIR__/checkpoint/simple_table/delta_lake/_delta_log/*checkpoint*');
+----
+00000000000000000000.checkpoint.parquet
+_last_checkpoint
+
+# Idempotent — second checkpoint succeeds (NOOP)
 statement ok
 CHECKPOINT checkpoint_tbl
 
-# Force checkpoint
+# Expect: 1 _last_checkpoint file, and 1 *.checkpoint*.parquet file
+query I sorted
+SELECT count(*) FROM glob('__TEST_DIR__/checkpoint/simple_table/delta_lake/_delta_log/*checkpoint*');
+----
+2
+
+# Force checkpoint (also NOOP, FFI does not support force)
 statement ok
 FORCE CHECKPOINT checkpoint_tbl
+
+# Expect: 1 _last_checkpoint file, and 1 *.checkpoint*.parquet file
+query I sorted
+SELECT count(*) FROM glob('__TEST_DIR__/checkpoint/simple_table/delta_lake/_delta_log/*checkpoint*');
+----
+2
 
 # Verify data still readable after checkpoint
 query II
@@ -40,6 +68,12 @@ INSERT INTO checkpoint_tbl VALUES (100);
 statement ok
 CHECKPOINT checkpoint_tbl
 
+# Expect: 1 _last_checkpoint file, and 2 *.checkpoint*.parquet files
+query I sorted
+SELECT count(*) FROM glob('__TEST_DIR__/checkpoint/simple_table/delta_lake/_delta_log/*checkpoint*');
+----
+3
+
 query II
 SELECT count(*), sum(i) FROM checkpoint_tbl;
 ----
@@ -49,16 +83,20 @@ SELECT count(*), sum(i) FROM checkpoint_tbl;
 statement ok
 BEGIN
 
-query II
-SELECT count(*), sum(i) FROM checkpoint_tbl;
-----
-11	145
+statement ok
+INSERT INTO checkpoint_tbl VALUES (200);
 
 statement ok
 COMMIT
 
 statement ok
 CHECKPOINT checkpoint_tbl
+
+# Expect: 1 _last_checkpoint file, and 3 *.checkpoint*.parquet files
+query I sorted
+SELECT count(*) FROM glob('__TEST_DIR__/checkpoint/simple_table/delta_lake/_delta_log/*checkpoint*');
+----
+4
 
 statement ok
 DETACH checkpoint_tbl
@@ -74,6 +112,14 @@ ATTACH '__TEST_DIR__/checkpoint/simple_table_pinned/delta_lake' AS checkpoint_pi
 
 statement ok
 CHECKPOINT checkpoint_pinned
+
+# Post-checkpoint: Expect: 1 _last_checkpoint file, and 1 *.checkpoint*.parquet file
+# hardcode the name here since it should be safe with this canned data.
+query I sorted
+SELECT parse_filename(file) FROM glob('__TEST_DIR__/checkpoint/simple_table_pinned/delta_lake/_delta_log/*checkpoint*');
+----
+00000000000000000000.checkpoint.parquet
+_last_checkpoint
 
 query II
 SELECT count(*), sum(i) FROM checkpoint_pinned;
@@ -91,6 +137,8 @@ CALL copy_dir('data/inlined/simple_table', '__TEST_DIR__/checkpoint/simple_table
 
 statement ok
 ATTACH '__TEST_DIR__/checkpoint/simple_table_ro/delta_lake' AS checkpoint_ro (TYPE delta, READ_ONLY);
+
+# do not assert anything on RO checkpoint outcomes
 
 statement ok
 CHECKPOINT checkpoint_ro
