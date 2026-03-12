@@ -987,7 +987,7 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
 			value_lo = (uint64_t)v;
 		}
 		auto maybe_right = ffi::visit_expression_literal_decimal(state, value_hi, value_lo, precision, scale,
-		                                                          DuckDBEngineError::AllocateError);
+		                                                         DuckDBEngineError::AllocateError);
 		auto right_res = KernelUtils::TryUnpackResult(maybe_right, right);
 		if (right_res.HasError()) {
 			error_data = right_res;
@@ -996,8 +996,8 @@ uintptr_t PredicateVisitor::VisitConstantFilter(const string &col_name, const Co
 		break;
 	}
 	// TODO: implement these types
-	case LogicalTypeId::TIMESTAMP:     // kernel ignores max stats for timestamps (see delta-kernel-rs#1002)
-	case LogicalTypeId::TIMESTAMP_TZ:  // kernel ignores max stats for timestamps (see delta-kernel-rs#1002)
+	case LogicalTypeId::TIMESTAMP:    // kernel ignores max stats for timestamps (see delta-kernel-rs#1002)
+	case LogicalTypeId::TIMESTAMP_TZ: // kernel ignores max stats for timestamps (see delta-kernel-rs#1002)
 	case LogicalTypeId::STRUCT:
 	case LogicalTypeId::MAP:
 	case LogicalTypeId::LIST:
