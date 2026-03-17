@@ -102,6 +102,7 @@ struct DeltaDataFile {
 	idx_t file_size_bytes;
 	idx_t footer_size;
 	vector<DeltaPartition> partition_values;
+	timestamp_t last_modified_time;
 
 	// Stats per column, where column name is vector of path
 	vector<pair<vector<string>, DeltaColumnStats>> column_stats;

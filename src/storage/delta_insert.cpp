@@ -13,6 +13,7 @@
 #include "storage/delta_transaction.hpp"
 #include "duckdb/planner/operator/logical_insert.hpp"
 #include "duckdb/planner/operator/logical_create_table.hpp"
+#include "duckdb/catalog/catalog_entry_retriever.hpp"
 #include "storage/delta_table_entry.hpp"
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/execution/operator/projection/physical_projection.hpp"
@@ -20,6 +21,7 @@
 #include "duckdb/planner/expression/bound_cast_expression.hpp"
 #include "duckdb/planner/expression/bound_reference_expression.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
+#include "path.hpp"
 
 namespace duckdb {
 
@@ -308,7 +310,8 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 	// Lookup table here:
 	optional_ptr<DeltaTableEntry> table_entry;
 	if (child_catalog_mode) {
-		// We need to fetch the table ourselves
+		// In child catalog mode, the LogicalInsert will not actually contain the table entry, so we need to look it up
+		// here
 		CatalogEntryRetriever retriever(context);
 		EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, default_table);
 		auto default_table_entry =
@@ -318,7 +321,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 		table_entry = op.table.Cast<DeltaTableEntry>();
 	}
 
-	string delta_path = table_entry->snapshot->GetPath();
+	string delta_path = Path::Normalize(table_entry->snapshot->GetPath());
 
 	// Create Copy Info
 	auto info = make_uniq<CopyInfo>();
@@ -357,6 +360,13 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 
 	auto &insert = planner.Make<DeltaInsert>(op, *table_entry, op.column_index_map);
 
+	// Note: this is quite hacky, in the current setup we are expecting the op.table entry to be the entry in the parent
+	//       catalog. We pass through the pointer to this table entry because we need this on commit.
+	if (parent_commit) {
+		auto &delta_transaction = Transaction::Get(context, table_entry->catalog).Cast<DeltaTransaction>();
+		delta_transaction.SetParentTableEntry(op.table);
+	}
+
 	auto &physical_copy = planner.Make<PhysicalCopyToFile>(
 	    GetCopyFunctionReturnLogicalTypes(CopyFunctionReturnType::WRITTEN_FILE_STATISTICS), copy_fun->function,
 	    std::move(function_data), op.estimated_cardinality);
@@ -372,7 +382,8 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 		physical_copy_ref.partition_columns = partition_columns;
 		physical_copy_ref.write_empty_file = true;
 	} else {
-		physical_copy_ref.file_path = delta_path + "/duckdb-" + current_write_uuid + ".parquet";
+		physical_copy_ref.file_path =
+		    Path::FromString(delta_path).Join("duckdb-" + current_write_uuid + ".parquet").ToString();
 		physical_copy_ref.partition_output = false;
 		physical_copy_ref.write_empty_file = false;
 	}

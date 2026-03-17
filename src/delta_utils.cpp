@@ -757,6 +757,13 @@ ffi::EngineError *DuckDBEngineError::AllocateError(ffi::KernelError etype, ffi::
 	return error;
 }
 
+ffi::EngineError *DuckDBEngineError::AllocateError(ffi::KernelError etype, const string &msg) {
+	auto error = new DuckDBEngineError;
+	error->etype = etype;
+	error->error_message = string(msg.data(), msg.length());
+	return error;
+}
+
 string DuckDBEngineError::KernelErrorEnumToString(ffi::KernelError err) {
 	const char *KERNEL_ERROR_ENUM_STRINGS[] = {"UnknownError",
 	                                           "FFIError",
@@ -821,6 +828,63 @@ string DuckDBEngineError::IntoString() {
 	// kernel using AllocateError)
 	delete this;
 	return StringUtil::Format("DeltaKernel %s (%u): %s", KernelErrorEnumToString(etype_copy), etype_copy, message_copy);
+}
+
+DeltaLogPathArray::DeltaLogPathArray(Value log_path) {
+	string_heap = make_uniq<StringHeap>();
+
+	if (log_path.type().id() != LogicalTypeId::LIST) {
+		throw InternalException("log_path must be a list");
+	}
+
+	auto list_items = ListValue::GetChildren(log_path);
+	log_entries.reserve(list_items.size());
+
+	for (auto &item : list_items) {
+		if (item.type().id() != LogicalTypeId::STRUCT) {
+			throw InternalException("log_path must be a list of structs");
+		}
+
+		auto &field_types = StructType::GetChildTypes(item.type());
+		auto &field_values = StructValue::GetChildren(item);
+
+		string_t location;
+		int64_t last_modified = NumericLimits<int64_t>::Minimum();
+		uint64_t size = DConstants::INVALID_INDEX;
+		bool has_timestamp = false;
+		for (idx_t i = 0; i < field_values.size(); i++) {
+			auto &field_name = field_types[i].first;
+			auto &field_value = field_values[i];
+			if (field_name == "file_name") {
+				location = string_heap->AddString(field_value.GetValue<string>());
+			} else if (field_name == "timestamp") {
+				last_modified = field_value.GetValue<int64_t>();
+				has_timestamp = true;
+			} else if (field_name == "file_size") {
+				size = field_value.GetValue<uint64_t>();
+			}
+		}
+
+		if (location.Empty() || !has_timestamp || size == DConstants::INVALID_INDEX) {
+			throw InternalException("Invalid log_path struct: " + item.ToString());
+		}
+
+		ffi::KernelStringSlice location_slice = {location.GetData(), location.GetSize()};
+		log_entries.emplace_back(ffi::FfiLogPath {location_slice, last_modified, size});
+	}
+
+	// Note: kernel expects reverse order here, as this is max ~50 entries this is cheap
+	std::reverse(log_entries.begin(), log_entries.end());
+}
+
+ffi::LogPathArray DeltaLogPathArray::GetFFIPtr() {
+	return {log_entries.data(), log_entries.size()};
+}
+
+LogicalType KernelUtils::GetLogPathType() {
+	return LogicalType::LIST(LogicalType::STRUCT({{"file_name", LogicalType::VARCHAR},
+	                                              {"timestamp", LogicalType::BIGINT},
+	                                              {"file_size", LogicalType::UBIGINT}}));
 }
 
 ffi::KernelStringSlice KernelUtils::ToDeltaString(const string &str) {

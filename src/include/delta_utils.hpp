@@ -24,6 +24,7 @@ class DatabaseInstance;
 struct DuckDBEngineError : ffi::EngineError {
 	// Allocate a DuckDBEngineError, function ptr passed to kernel for error allocation
 	static ffi::EngineError *AllocateError(ffi::KernelError etype, ffi::KernelStringSlice msg);
+	static ffi::EngineError *AllocateError(ffi::KernelError etype, const string &msg);
 	// Convert a kernel error enum to a string
 	static string KernelErrorEnumToString(ffi::KernelError err);
 
@@ -34,7 +35,20 @@ struct DuckDBEngineError : ffi::EngineError {
 	string error_message;
 };
 
+//! Object to pass catalog information about a table's latest log entries to the kernel
+struct DeltaLogPathArray {
+	DeltaLogPathArray(Value val);
+
+	// Construct the FFI safe (non-owning) object for kernel to read the log path
+	ffi::LogPathArray GetFFIPtr();
+
+	// For passing to ffi
+	unique_ptr<StringHeap> string_heap;
+	vector<ffi::FfiLogPath> log_entries;
+};
+
 struct KernelUtils {
+	static LogicalType GetLogPathType();
 	static ffi::KernelStringSlice ToDeltaString(const string &str);
 	static string FromDeltaString(const struct ffi::KernelStringSlice slice);
 	static vector<bool> FromDeltaBoolSlice(const struct ffi::KernelBoolSlice slice);
