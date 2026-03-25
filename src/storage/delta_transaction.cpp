@@ -152,11 +152,17 @@ static Value CreateValueLogicalTypeFromStatNode(const unordered_map<string, Stat
 	for (const auto &node : tree) {
 		if (node.second.children.size() == 0) {
 			if (field == "min") {
-				children.push_back({node.first, Value(node.second.stats.min).DefaultCastAs(node.second.type)});
+				children.push_back({node.first, node.second.stats.has_min
+				                                    ? Value(node.second.stats.min).DefaultCastAs(node.second.type)
+				                                    : Value(node.second.type)});
 			} else if (field == "max") {
-				children.push_back({node.first, Value(node.second.stats.max).DefaultCastAs(node.second.type)});
+				children.push_back({node.first, node.second.stats.has_max
+				                                    ? Value(node.second.stats.max).DefaultCastAs(node.second.type)
+				                                    : Value(node.second.type)});
 			} else if (field == "null_count") {
-				children.push_back({node.first, Value::BIGINT(node.second.stats.null_count)});
+				children.push_back({node.first, node.second.stats.has_null_count
+				                                    ? Value::BIGINT(node.second.stats.null_count)
+				                                    : Value(LogicalType::BIGINT)});
 			} else {
 				throw InternalException("Invalid field: %s", field.c_str());
 			}
@@ -406,25 +412,6 @@ void DeltaTransaction::Commit(ClientContext &context) {
 
 		if (!outstanding_appends.empty()) {
 			auto write_context = ffi::get_write_context(kernel_transaction.get());
-
-			{
-				// in local files, path can be relative, but kernel emits absolute path; confirm this with in situ
-				// canonicalization and move on; this block is like a big D_ASSERT
-				auto delta_path = Path::FromString(table_entry->snapshot->GetPath());
-				auto write_path_str =
-				    optional_ptr<string>(static_cast<string *>(ffi::get_write_path(write_context, allocate_string)));
-
-				if (write_path_str && delta_path.IsLocal()) {
-					auto write_path = PathToLocal(PathToAbsolute(Path::FromString(*write_path_str)));
-					for (const auto &append : outstanding_appends) {
-						auto append_path = PathToLocal(PathToAbsolute(Path::FromString(append.file_name)));
-						if (PathGetCommonLineage(append_path, write_path) < 0) {
-							throw InternalException("Incorrect write path detected: %s does not start with %s",
-							                        append.file_name, *write_path_str);
-						}
-					}
-				}
-			}
 
 			// Create metadata from the current outstanding appends
 			WriteMetaData write_metadata(*table_entry->snapshot, outstanding_appends);
