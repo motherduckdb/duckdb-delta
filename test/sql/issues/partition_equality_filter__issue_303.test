@@ -4,8 +4,8 @@
 
 # Repro: WHERE part = <literal> returns 0 rows instead of 5 on a table
 # with a single partition value (v1.5.1 regression).
-# Single-value IN has the same bug; multi-value IN works by accident.
-# Full scan is correct — distinguishes this from snapshot_incomplete__issue_303.
+# See https://github.com/duckdb/duckdb-delta/issues/303
+# Single-value IN has the same bug; multi-value IN works.
 
 require parquet
 
