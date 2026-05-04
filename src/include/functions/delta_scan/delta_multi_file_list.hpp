@@ -41,6 +41,41 @@ struct DeltaFileMetaData {
 	unique_ptr<vector<unique_ptr<ParsedExpression>>> transform_expression;
 };
 
+struct DeltaTableFilters {
+	using filter_set_t = unordered_map<idx_t, unique_ptr<TableFilter>>;
+	using iterator = filter_set_t::iterator;
+	using const_iterator = filter_set_t::const_iterator;
+public:
+	bool HasFilters() const {
+		return !table_filters.empty();
+	}
+	void PushFilter(column_t column_idx, unique_ptr<TableFilter> table_filter) {
+		table_filters[column_idx] = std::move(table_filter);
+	}
+	optional_ptr<const TableFilter> TryGetFilterByColumnIndex(column_t column_idx) const {
+		auto entry = table_filters.find(column_idx);
+		if (entry == table_filters.end()) {
+			return nullptr;
+		}
+		return entry->second.get();
+	}
+
+	iterator begin() { // NOLINT: match stl API
+		return table_filters.begin();
+	}
+	iterator end() { // NOLINT: match stl API
+		return table_filters.end();
+	}
+	const_iterator begin() const { // NOLINT: match stl API
+		return table_filters.begin();
+	}
+	const_iterator end() const { // NOLINT: match stl API
+		return table_filters.end();
+	}
+private:
+	filter_set_t table_filters;
+};
+
 // Constraint only for internal delta extension use
 // Todo: refactor to use duckdb constraint classes, updating the DuckDB side NotNullConstraint
 class NestedNotNullConstraint {
@@ -73,7 +108,7 @@ public:
 	                                                const vector<column_t> &column_ids,
 	                                                TableFilterSet &filters) const override;
 
-	unique_ptr<DeltaMultiFileList> PushdownInternal(ClientContext &context, TableFilterSet &new_filters) const;
+	unique_ptr<DeltaMultiFileList> PushdownInternal(ClientContext &context, TableFilterSet &new_filters, vector<column_t> column_indexes) const;
 
 	vector<OpenFileInfo> GetAllFiles() const override;
 	FileExpandResult GetExpandResult() const override;
@@ -142,7 +177,7 @@ protected:
 	mutable vector<unique_ptr<DeltaFileMetaData>> metadata;
 
 	mutable vector<OpenFileInfo> resolved_files;
-	mutable TableFilterSet table_filters;
+	mutable DeltaTableFilters table_filters;
 
 	mutable vector<NestedNotNullConstraint> not_null_constraints;
 	mutable bool has_null_constraints_in_arrays = false;

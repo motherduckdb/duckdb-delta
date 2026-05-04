@@ -3,6 +3,7 @@
 #include <list>
 
 #include "delta_log_types.hpp"
+#include "functions/delta_scan/delta_multi_file_list.hpp"
 #include "duckdb/common/operator/decimal_cast_operators.hpp"
 
 #include "duckdb.hpp"
@@ -276,7 +277,7 @@ void ExpressionVisitor::VisitStructLiteral(void *state, uintptr_t sibling_list_i
 	}
 
 	for (idx_t i = 0; i < children_keys->size(); i++) {
-		(*children_values)[i]->alias = (*children_keys)[i]->ToString();
+		(*children_values)[i]->SetAlias((*children_keys)[i]->ToString());
 	}
 
 	unique_ptr<ParsedExpression> expression = make_uniq<FunctionExpression>("struct_pack", std::move(*children_values));
@@ -838,8 +839,8 @@ KernelUtils::UnpackTransformExpression(const vector<unique_ptr<ParsedExpression>
 	}
 
 	const auto &root_expression = parsed_expression.get(0);
-	if (root_expression->type != ExpressionType::FUNCTION) {
-		throw IOException("Unexpected type of root expression returned by delta kernel: %d", root_expression->type);
+	if (root_expression->GetExpressionType() != ExpressionType::FUNCTION) {
+		throw IOException("Unexpected type of root expression returned by delta kernel: %d", root_expression->GetExpressionType());
 	}
 
 	if (root_expression->Cast<FunctionExpression>().function_name != "delta_kernel_transform_expression") {
@@ -851,13 +852,13 @@ KernelUtils::UnpackTransformExpression(const vector<unique_ptr<ParsedExpression>
 }
 
 PredicateVisitor::PredicateVisitor(const vector<DeltaMultiFileColumnDefinition> &columns,
-                                   optional_ptr<const TableFilterSet> filters) {
+                                   optional_ptr<const DeltaTableFilters> filters) {
 	predicate = this;
 	visitor = (uintptr_t(*)(void *, ffi::KernelExpressionVisitorState *)) & VisitPredicate;
 
 	if (filters) {
-		for (auto &filter : filters->filters) {
-			column_filters[columns[filter.first].name] = filter.second.get();
+		for (auto &entry : *filters) {
+			column_filters[columns[entry.first].name] = entry.second.get();
 		}
 	}
 }

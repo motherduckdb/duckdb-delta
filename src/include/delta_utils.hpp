@@ -11,7 +11,8 @@
 #include "duckdb/parser/expression/conjunction_expression.hpp"
 #include "duckdb/common/error_data.hpp"
 #include "duckdb/parser/expression/comparison_expression.hpp"
-#include <duckdb/planner/filter/null_filter.hpp>
+#include "duckdb/planner/table_filter_set.hpp"
+#include "duckdb/planner/filter/null_filter.hpp"
 #include <iostream>
 
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
@@ -423,15 +424,16 @@ protected:
 };
 
 typedef SharedKernelPointer<ffi::SharedSnapshot, ffi::free_snapshot> SharedKernelSnapshot;
+struct DeltaTableFilters;
 
 class PredicateVisitor : public ffi::EnginePredicate {
 public:
-	PredicateVisitor(const vector<DeltaMultiFileColumnDefinition> &columns, optional_ptr<const TableFilterSet> filters);
+	PredicateVisitor(const vector<DeltaMultiFileColumnDefinition> &columns, optional_ptr<const DeltaTableFilters> filters);
 
 	ErrorData error_data;
 
 private:
-	unordered_map<string, TableFilter *> column_filters;
+	unordered_map<string, optional_ptr<const TableFilter>> column_filters;
 
 	static uintptr_t VisitPredicate(PredicateVisitor *predicate, ffi::KernelExpressionVisitorState *state);
 

@@ -78,9 +78,7 @@ void DeltaMacros::RegisterTableMacro(ExtensionLoader &loader, const string &name
 static DefaultMacro delta_macros[] = {
     {DEFAULT_SCHEMA,
      "parse_delta_filter_logline",
-     {"x", nullptr},
-     {{nullptr, nullptr}},
-     "x::STRUCT(path VARCHAR, type VARCHAR, filters_before VARCHAR[], filters_after VARCHAR[], files_before BIGINT, "
+     "(x) AS x::STRUCT(path VARCHAR, type VARCHAR, filters_before VARCHAR[], filters_after VARCHAR[], files_before BIGINT, "
      "files_after BIGINT)"},
 };
 

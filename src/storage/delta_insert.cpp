@@ -368,7 +368,6 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 	physical_copy_ref.file_extension = "parquet";
 	physical_copy_ref.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	physical_copy_ref.per_thread_output = false;
-	physical_copy_ref.rotate = false;
 	physical_copy_ref.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	physical_copy_ref.write_partition_columns = true;
 	physical_copy_ref.children.push_back(*plan);

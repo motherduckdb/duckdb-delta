@@ -787,20 +787,22 @@ void DeltaMultiFileList::EnsureScanInitialized() const {
 }
 
 unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context,
-                                                                    TableFilterSet &new_filters) const {
+                                                                    TableFilterSet &new_filters,
+                                                                    vector<column_t> column_indexes) const {
 	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0].path, version);
 
-	TableFilterSet result_filter_set;
+	DeltaTableFilters result_filter_set;
 
 	// Add pre-existing filters
-	for (auto &entry : table_filters.filters) {
-		result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+	for (auto &entry : table_filters) {
+		result_filter_set.PushFilter(entry.first, entry.second->Copy());
 	}
 
 	// Add new filters
-	for (auto &entry : new_filters.filters) {
-		if (entry.first < global_columns.size()) {
-			result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+	for (auto &entry : new_filters) {
+		auto &column_id = column_indexes[entry.GetIndex()];
+		if (column_id < global_columns.size()) {
+			result_filter_set.PushFilter(column_id, entry.Filter().Copy());
 		}
 	}
 
@@ -849,11 +851,11 @@ unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContex
 
 	vector<FilterPushdownResult> pushdown_results;
 	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes, pushdown_results);
-	if (filter_set.filters.empty()) {
+	if (!filter_set.HasFilters()) {
 		return nullptr;
 	}
 
-	auto filtered_list = PushdownInternal(context, filter_set);
+	auto filtered_list = PushdownInternal(context, filter_set, info.column_ids);
 
 	ReportFilterPushdown(context, *filtered_list, info.column_ids, "constant", info);
 
@@ -916,24 +918,24 @@ void DeltaMultiFileList::ReportFilterPushdown(ClientContext &context, DeltaMulti
 
 	// Report the new filters
 	vector<Value> old_filters_value_list;
-	for (auto &f : table_filters.filters) {
-		auto &column_index = f.first;
-		auto &filter = f.second;
-		if (column_index < global_columns.size()) {
-			auto &col_name = global_columns[column_index].name;
-			old_filters_value_list.push_back(filter->ToString(col_name));
+	for (auto &entry : table_filters) {
+		auto &filter = *entry.second;
+		auto column_id = entry.first;
+		if (column_id < global_columns.size()) {
+			auto &col_name = global_columns[column_id].name;
+			old_filters_value_list.push_back(filter.ToString(col_name));
 		}
 	}
 	auto old_filters_value = Value::LIST(LogicalType::VARCHAR, old_filters_value_list);
 
 	// Report the new filters
 	vector<Value> filters_value_list;
-	for (auto &f : new_list.table_filters.filters) {
-		auto &column_index = f.first;
-		auto &filter = f.second;
-		if (column_index < global_columns.size()) {
-			auto &col_name = global_columns[column_index].name;
-			filters_value_list.push_back(filter->ToString(col_name));
+	for (auto &entry : new_list.table_filters) {
+		auto column_id = entry.first;
+		auto &filter = *entry.second;
+		if (column_id < global_columns.size()) {
+			auto &col_name = global_columns[column_id].name;
+			filters_value_list.push_back(filter.ToString(col_name));
 		}
 	}
 	auto filters_value = Value::LIST(LogicalType::VARCHAR, filters_value_list);
@@ -970,24 +972,25 @@ DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFil
 		return nullptr;
 	}
 
-	if (filters.filters.empty()) {
+	if (!filters.HasFilters()) {
 		return nullptr;
 	}
 
 	TableFilterSet filters_copy;
-	for (auto &filter : filters.filters) {
-		auto column_id = column_ids[filter.first];
-		auto previously_pushed_down_filter = this->table_filters.filters.find(column_id);
-		if (previously_pushed_down_filter != this->table_filters.filters.end() &&
-		    filter.second->Equals(*previously_pushed_down_filter->second)) {
+	for (auto &entry : filters) {
+		auto proj_id = entry.GetIndex();
+		auto &filter = entry.Filter();
+		auto column_id = column_ids[proj_id];
+		auto previously_pushed_down_filter = table_filters.TryGetFilterByColumnIndex(column_id);
+		if (previously_pushed_down_filter && filter.Equals(*previously_pushed_down_filter)) {
 			// Skip filters that we already have pushed down
 			continue;
 		}
-		filters_copy.PushFilter(ColumnIndex(column_id), filter.second->Copy());
+		filters_copy.PushFilter(proj_id, filter.Copy());
 	}
 
-	if (!filters_copy.filters.empty()) {
-		auto new_snap = PushdownInternal(context, filters_copy);
+	if (filters_copy.HasFilters()) {
+		auto new_snap = PushdownInternal(context, filters_copy, column_ids);
 		ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
 		return std::move(new_snap);
 	}
