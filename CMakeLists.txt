@@ -175,12 +175,18 @@ ExternalProject_Add(
       ${CMAKE_CURRENT_SOURCE_DIR}/scripts/ffi
       ${DELTA_KERNEL_FFI_HEADER_CXX}
       ${CMAKE_BINARY_DIR}/codegen/include
+  # Ensure CI rust log glob always has at least one match.
+  COMMAND ${CMAKE_COMMAND} -E touch
+    "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/delta_kernel-build-placeholder.log"
   # Define the byproducts, required for building with Ninja
   BUILD_BYPRODUCTS "${DELTA_KERNEL_LIBPATH}"
   BUILD_BYPRODUCTS "${DELTA_KERNEL_FFI_HEADER_C}"
   BUILD_BYPRODUCTS "${DELTA_KERNEL_FFI_HEADER_CXX}"
   INSTALL_COMMAND ""
-  LOG_BUILD ON)
+  LOG_BUILD ON
+  LOG_CONFIGURE ON
+  LOG_MERGED_STDOUTERR ON
+  LOG_OUTPUT_ON_FAILURE ON)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
