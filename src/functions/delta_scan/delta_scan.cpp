@@ -90,7 +90,7 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(ExtensionLoader &loader) {
 	auto &parquet_scan = loader.GetTableFunction("parquet_scan");
 	auto parquet_scan_copy = parquet_scan.functions;
 
-	for (auto &function : parquet_scan_copy.functions) {
+	parquet_scan_copy.ApplyToFunctions([](TableFunction &function) {
 		// Register the MultiFileReader as the driver for reads
 		function.get_multi_file_reader = DeltaMultiFileReader::CreateInstance;
 
@@ -116,7 +116,7 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(ExtensionLoader &loader) {
 		function.named_parameters["version"] = LogicalType::UBIGINT;
 
 		function.SetName("delta_scan");
-	}
+	});
 
 	parquet_scan_copy.SetName("delta_scan");
 	return parquet_scan_copy;
