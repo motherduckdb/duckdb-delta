@@ -17,4 +17,19 @@ SELECT count(*), sum(value) FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/table-wi
 ----
 10	45
 
+query II
+SELECT count(*), sum(value) FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/table-with-dv-small') WHERE value > 3
+----
+5	30
+
+query II
+SELECT count(*), sum(number) FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/basic_partitioned') WHERE letter = 'a'
+----
+2	5
+
+query II
+SELECT count(*), sum(number) FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/basic_partitioned') WHERE letter IS NULL
+----
+1	6
+
 endloop

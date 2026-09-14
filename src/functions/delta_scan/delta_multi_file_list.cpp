@@ -989,6 +989,8 @@ void DeltaMultiFileList::InitializeScan() const {
 	auto partition_count = ffi::get_partition_column_count(snapshot_ref.GetPtr());
 	if (partition_count > 0) {
 		auto string_slice_iterator = ffi::get_partition_columns(snapshot_ref.GetPtr());
+		TemplatedUniqueKernelPointer<ffi::StringSliceIterator, ffi::free_string_slice_data> iterator_guard(
+		    string_slice_iterator);
 
 		KernelPartitionVisitorData data;
 		while (string_slice_next(string_slice_iterator, &data, KernelPartitionStringVisitor)) {
