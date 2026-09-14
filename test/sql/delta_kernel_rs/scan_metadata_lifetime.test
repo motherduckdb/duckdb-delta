@@ -1,0 +1,20 @@
+# name: test/sql/delta_kernel_rs/scan_metadata_lifetime.test
+# description: Repeated scans must release the metadata handed to the scan callback (issue #279)
+# group: [delta_kernel_rs]
+
+require parquet
+
+require delta
+
+require-env DELTA_KERNEL_TESTS_PATH
+
+# Each query constructs a fresh scan. LeakSanitizer checks the owning metadata
+# handles at process exit; checking query results alone cannot detect this leak.
+loop i 0 20
+
+query II
+SELECT count(*), sum(value) FROM delta_scan('${DELTA_KERNEL_TESTS_PATH}/table-without-dv-small')
+----
+10	45
+
+endloop
