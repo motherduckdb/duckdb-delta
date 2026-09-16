@@ -60,6 +60,50 @@ SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timesta
 LogHistoryError
 
 # -----------------------------------------------------------------------------
+# A timestamp the table cannot have reached yet
+#
+# It would name whatever commit is last at the moment of the read, so it is refused on every surface.
+# now() is the transaction's own clock and names an instant the table has reached, so it is allowed.
+
+statement error
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+----
+later than now
+
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_future (TYPE delta);
+
+statement error
+SELECT count() FROM ict_future AT (TIMESTAMP => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+----
+later than now
+
+query I
+SELECT count() FROM ict_future AT (TIMESTAMP => now());
+----
+12
+
+# A minute either side of now, which a fixed cutoff would not tell apart. Zoneless arithmetic, since
+# adding an interval to a TIMESTAMPTZ needs icu; the session timezone is UTC here, as is now().
+query I
+SELECT count() FROM ict_future AT (TIMESTAMP => now()::TIMESTAMP - INTERVAL '1 minute');
+----
+12
+
+statement error
+SELECT count() FROM ict_future AT (TIMESTAMP => now()::TIMESTAMP + INTERVAL '1 minute');
+----
+later than now
+
+statement ok
+DETACH ict_future;
+
+statement error
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_future_attach (TYPE delta, TIMESTAMP TIMESTAMPTZ '2099-01-01 00:00:00+00');
+----
+later than now
+
+# -----------------------------------------------------------------------------
 # Accepted spellings of the same instant
 #
 
