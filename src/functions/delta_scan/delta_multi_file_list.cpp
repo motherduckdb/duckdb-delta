@@ -18,6 +18,7 @@
 #include "duckdb/parser/expression/comparison_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/transaction/meta_transaction.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/parser/constraint.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
@@ -879,6 +880,15 @@ static string FormatEpochMs(int64_t timestamp_ms) {
 
 idx_t DeltaMultiFileList::VersionAsOf(ClientContext &context, SharedKernelSnapshot &head,
                                       ffi::KernelStringSlice path_slice, int64_t timestamp_ms) const {
+	// A timestamp the table cannot have reached yet names whatever commit happens to be last, which is a
+	// different answer every time a writer commits. Measured against the transaction's clock, the one
+	// now() reads, so every timestamp in a transaction is judged against the same instant.
+	auto transaction_start = MetaTransaction::Get(context).GetCurrentTransactionStartTimestamp();
+	auto now_ms = Timestamp::GetEpochMs(transaction_start);
+	if (timestamp_ms > now_ms) {
+		throw InvalidInputException("Delta time travel cannot read %s: that is later than now (%s)",
+		                            FormatEpochMs(timestamp_ms), FormatEpochMs(now_ms));
+	}
 	idx_t head_version;
 	ffi::FfiCommitAt commit;
 	{

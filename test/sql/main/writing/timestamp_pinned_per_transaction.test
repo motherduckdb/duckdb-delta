@@ -21,14 +21,15 @@ ATTACH '{TEMP_DIR}/main/writing/timestamp_pinned_per_transaction/delta_lake' AS 
 # -----------------------------------------------------------------------------
 # test: a commit from another connection does not move a timestamp already resolved
 #
-# A timestamp past every commit names the latest version, which is the one a new commit changes.
+# now() is the transaction's own clock, so it names the same instant in every statement con1 runs, and
+# con2's commit lands after it.
 #
 
 statement ok con1
 BEGIN;
 
 query I con1
-SELECT count() FROM t AT (TIMESTAMP => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+SELECT count() FROM t AT (TIMESTAMP => now());
 ----
 10
 
@@ -36,7 +37,7 @@ statement ok con2
 INSERT INTO t VALUES (10);
 
 query I con1
-SELECT count() FROM t AT (TIMESTAMP => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+SELECT count() FROM t AT (TIMESTAMP => now());
 ----
 10
 
@@ -44,7 +45,7 @@ statement ok con1
 COMMIT;
 
 query I con1
-SELECT count() FROM t AT (TIMESTAMP => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+SELECT count() FROM t AT (TIMESTAMP => now());
 ----
 11
 
@@ -64,7 +65,7 @@ statement ok con2
 INSERT INTO t VALUES (11);
 
 query I con1
-SELECT count() FROM t AT (TIMESTAMP => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+SELECT count() FROM t AT (TIMESTAMP => now());
 ----
 11
 
@@ -79,7 +80,7 @@ statement ok con1
 BEGIN;
 
 query I con1
-SELECT count() FROM t AT (TIMESTAMP => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+SELECT count() FROM t AT (TIMESTAMP => now());
 ----
 12
 
