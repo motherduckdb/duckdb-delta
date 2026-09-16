@@ -86,17 +86,10 @@ SELECT count() FROM ict_future AT (TIMESTAMP => now());
 statement ok
 DETACH ict_future;
 
-# ATTACH defers its work, so the attached timestamp is refused by the first read, not by the ATTACH.
-statement ok
-ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_future_attach (TYPE delta, TIMESTAMP TIMESTAMPTZ '2099-01-01 00:00:00+00');
-
 statement error
-SELECT count() FROM ict_future_attach;
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_future_attach (TYPE delta, TIMESTAMP TIMESTAMPTZ '2099-01-01 00:00:00+00');
 ----
 later than now
-
-statement ok
-DETACH ict_future_attach;
 
 # -----------------------------------------------------------------------------
 # Accepted spellings of the same instant

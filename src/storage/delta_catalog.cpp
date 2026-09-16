@@ -8,6 +8,9 @@
 #include "duckdb/main/attached_database.hpp"
 #include "duckdb/planner/logical_operator.hpp"
 #include "duckdb/common/types/timestamp.hpp"
+#include "duckdb/common/operator/multiply.hpp"
+#include "duckdb/common/types/interval.hpp"
+#include "duckdb/transaction/meta_transaction.hpp"
 
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 
@@ -18,6 +21,24 @@ int64_t DeltaTimestampToEpochMs(timestamp_tz_t timestamp) {
 		throw InvalidInputException("Delta time travel requires a finite timestamp");
 	}
 	return Timestamp::GetEpochMs(timestamp_t(timestamp));
+}
+
+string DeltaFormatEpochMs(int64_t timestamp_ms) {
+	int64_t micros;
+	if (!TryMultiplyOperator::Operation(timestamp_ms, Interval::MICROS_PER_MSEC, micros)) {
+		return to_string(timestamp_ms) + "ms";
+	}
+	return Value::TIMESTAMPTZ(timestamp_tz_t(micros)).ToString();
+}
+
+// Rejects future timestamps, i.e. named > now(), where now() is defined as start of this transaction.
+void DeltaRejectFutureTimestamp(ClientContext &context, int64_t timestamp_ms) {
+	auto now_ms = Timestamp::GetEpochMs(MetaTransaction::Get(context).GetCurrentTransactionStartTimestamp());
+	if (timestamp_ms > now_ms) {
+		throw InvalidInputException(
+		    "Delta time travel does not accept future timestamp %s: that is later than now (%s)",
+		    DeltaFormatEpochMs(timestamp_ms), DeltaFormatEpochMs(now_ms));
+	}
 }
 
 DeltaTimeTravelSpec DeltaTimeTravelSpec::FromVersion(idx_t version) {

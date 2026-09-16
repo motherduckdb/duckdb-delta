@@ -868,27 +868,10 @@ ffi::Handle<ffi::MutableFfiSnapshotBuilder> DeltaMultiFileList::CreateSnapshotBu
 	return builder;
 }
 
-//! Delta timestamps are epoch milliseconds; logs are for humans. The kernel supplies some of these,
-//! so an unrepresentable value falls back to the raw number rather than throwing out of a log call.
-static string FormatEpochMs(int64_t timestamp_ms) {
-	int64_t micros;
-	if (!TryMultiplyOperator::Operation(timestamp_ms, Interval::MICROS_PER_MSEC, micros)) {
-		return to_string(timestamp_ms) + "ms";
-	}
-	return Value::TIMESTAMPTZ(timestamp_tz_t(micros)).ToString();
-}
-
 idx_t DeltaMultiFileList::VersionAsOf(ClientContext &context, SharedKernelSnapshot &head,
                                       ffi::KernelStringSlice path_slice, int64_t timestamp_ms) const {
-	// A timestamp the table cannot have reached yet names whatever commit happens to be last, which is a
-	// different answer every time a writer commits. Measured against the transaction's clock, the one
-	// now() reads, so every timestamp in a transaction is judged against the same instant.
-	auto transaction_start = MetaTransaction::Get(context).GetCurrentTransactionStartTimestamp();
-	auto now_ms = Timestamp::GetEpochMs(transaction_start);
-	if (timestamp_ms > now_ms) {
-		throw InvalidInputException("Delta time travel cannot read %s: that is later than now (%s)",
-		                            FormatEpochMs(timestamp_ms), FormatEpochMs(now_ms));
-	}
+	DeltaRejectFutureTimestamp(context, timestamp_ms);
+
 	idx_t head_version;
 	ffi::FfiCommitAt commit;
 	{
@@ -904,7 +887,7 @@ idx_t DeltaMultiFileList::VersionAsOf(ClientContext &context, SharedKernelSnapsh
 	// or is falling back to file modification times (approximate).
 	DUCKDB_LOG_INTERNAL(context, "delta.TimeTravel", LogLevel::LOG_DEBUG,
 	                    "Timestamp %s resolved to version %s committed at %s; head is version %s for '%s'",
-	                    FormatEpochMs(timestamp_ms), to_string(resolved), FormatEpochMs(commit.timestamp),
+	                    DeltaFormatEpochMs(timestamp_ms), to_string(resolved), DeltaFormatEpochMs(commit.timestamp),
 	                    to_string(head_version), string(path_slice.ptr, path_slice.len));
 	return resolved;
 }
