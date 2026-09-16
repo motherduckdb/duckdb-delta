@@ -895,6 +895,9 @@ idx_t DeltaMultiFileList::VersionAsOf(ClientContext &context, SharedKernelSnapsh
 // req: this.lock must already be owned
 idx_t DeltaMultiFileList::ResolveTimestamp(ClientContext &context, ffi::KernelStringSlice path_slice,
                                            int64_t timestamp_ms) const {
+	// Refused here as well as in VersionAsOf, so a timestamp the table cannot have reached costs no listing.
+	DeltaRejectFutureTimestamp(context, timestamp_ms);
+
 	// The kernel searches the version range the snapshot spans, so a HEAD snapshot has to exist before
 	// the timestamp can name anything. Seeded from old_snapshot when there is one, so this reads only
 	// the commits after it rather than replaying the whole log.

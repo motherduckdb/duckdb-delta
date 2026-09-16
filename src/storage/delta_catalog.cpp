@@ -33,7 +33,10 @@ string DeltaFormatEpochMs(int64_t timestamp_ms) {
 
 // Rejects future timestamps, i.e. named > now(), where now() is defined as start of this transaction.
 void DeltaRejectFutureTimestamp(ClientContext &context, int64_t timestamp_ms) {
-	auto now_ms = Timestamp::GetEpochMs(MetaTransaction::Get(context).GetCurrentTransactionStartTimestamp());
+	auto now = context.transaction.HasActiveTransaction()
+	               ? MetaTransaction::Get(context).GetCurrentTransactionStartTimestamp()
+	               : Timestamp::GetCurrentTimestamp();
+	auto now_ms = Timestamp::GetEpochMs(now);
 	if (timestamp_ms > now_ms) {
 		throw InvalidInputException(
 		    "Delta time travel does not accept future timestamp %s: that is later than now (%s)",

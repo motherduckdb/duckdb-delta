@@ -83,6 +83,18 @@ SELECT count() FROM ict_future AT (TIMESTAMP => now());
 ----
 12
 
+# A minute either side of now, which a fixed cutoff would not tell apart. Zoneless arithmetic, since
+# adding an interval to a TIMESTAMPTZ needs icu; the session timezone is UTC here, as is now().
+query I
+SELECT count() FROM ict_future AT (TIMESTAMP => now()::TIMESTAMP - INTERVAL '1 minute');
+----
+12
+
+statement error
+SELECT count() FROM ict_future AT (TIMESTAMP => now()::TIMESTAMP + INTERVAL '1 minute');
+----
+later than now
+
 statement ok
 DETACH ict_future;
 
