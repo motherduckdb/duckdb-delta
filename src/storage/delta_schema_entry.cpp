@@ -424,7 +424,7 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction tran
 		// default, so the AT clause overrides it.
 		auto at_clause = lookup_info.GetAtClause();
 		if (at_clause) {
-			auto spec = DeltaTimeTravelSpec::FromAtClause(*at_clause);
+			auto spec = DeltaTimeTravelSpec::FromAtClause(context, *at_clause);
 			if (spec.IsTimestamp()) {
 				auto timestamp = spec.GetTimestamp();
 				auto resolved = delta_transaction.GetTimestampVersion(timestamp);

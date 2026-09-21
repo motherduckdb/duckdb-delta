@@ -24,7 +24,7 @@ class DeltaTimeTravelSpec {
 public:
 	DeltaTimeTravelSpec() = default;
 
-	static DeltaTimeTravelSpec FromAtClause(const BoundAtClause &at_clause);
+	static DeltaTimeTravelSpec FromAtClause(ClientContext &context, const BoundAtClause &at_clause);
 	static DeltaTimeTravelSpec FromVersion(idx_t version);
 	static DeltaTimeTravelSpec FromTimestamp(timestamp_tz_t timestamp);
 
