@@ -72,7 +72,7 @@ timestamp_tz_t DeltaTimeTravelSpec::GetTimestamp() const {
 	return timestamp;
 }
 
-DeltaTimeTravelSpec DeltaTimeTravelSpec::FromAtClause(const BoundAtClause &at_clause) {
+DeltaTimeTravelSpec DeltaTimeTravelSpec::FromAtClause(ClientContext &context, const BoundAtClause &at_clause) {
 	auto &unit = at_clause.Unit();
 
 	// Casting throws its own conversion error, which names the offending value and target type, so
@@ -84,7 +84,8 @@ DeltaTimeTravelSpec DeltaTimeTravelSpec::FromAtClause(const BoundAtClause &at_cl
 	if (unit == "timestamp") {
 		// Anything without a zone -- a naive TIMESTAMP or a string with no offset -- resolves through
 		// the session timezone.
-		return FromTimestamp(at_clause.GetValue().DefaultCastAs(LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>());
+		return FromTimestamp(
+		    at_clause.GetValue().CastAs(context, LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>());
 	}
 
 	throw InvalidConfigurationException("Delta tables only support at_clause with unit 'version' or 'timestamp'");

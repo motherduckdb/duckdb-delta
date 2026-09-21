@@ -51,7 +51,8 @@ static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo>
 			}
 			res->use_cache = true;
 			res->has_specific_timestamp = true;
-			res->specific_timestamp = option.second.DefaultCastAs(LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>();
+			res->specific_timestamp =
+			    option.second.CastAs(context, LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>();
 			DeltaRejectFutureTimestamp(context, DeltaTimestampToEpochMs(res->specific_timestamp));
 			res->access_mode = AccessMode::READ_ONLY;
 		}
