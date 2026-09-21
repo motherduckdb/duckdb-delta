@@ -336,8 +336,8 @@ bool DeltaMultiFileReader::ParseOption(const Identifier &key, const Value &val, 
 		if (!requested.IsLatest()) {
 			throw InvalidInputException("delta_scan: 'version' and 'timestamp' are mutually exclusive");
 		}
-		requested =
-		    DeltaTimeTravelSpec::FromTimestamp(val.CastAs(context, LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>());
+		requested = DeltaTimeTravelSpec::FromTimestamp(
+		    val.CastAs(context, LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>());
 		return true;
 	}
 
