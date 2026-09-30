@@ -84,7 +84,8 @@ if("${OS_NAME}" STREQUAL "linux")
       ${RUST_ENV_VARS}
       OPENSSL_STATIC=1
       OPENSSL_LIB_DIR=${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/lib
-      OPENSSL_INCLUDE_DIR=${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include)
+      OPENSSL_INCLUDE_DIR=${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/include
+  )
 elseif("${OS_NAME}" STREQUAL "osx")
   if("${OSX_BUILD_ARCH}" STREQUAL "arm64")
     set(RUST_PLATFORM_TARGET "aarch64-apple-darwin")
@@ -136,8 +137,7 @@ set(DELTA_KERNEL_FFI_HEADER_CXX
 )
 
 set(DELTA_KERNEL_FFI_HEADER_PATCHED
-    "${CMAKE_BINARY_DIR}/codegen/include/generated_delta_kernel_ffi.hpp"
-)
+    "${CMAKE_BINARY_DIR}/codegen/include/generated_delta_kernel_ffi.hpp")
 
 # Cargo optimization/debug symbol flags
 set(CARGO_PROFILE "$<IF:$<CONFIG:Debug>,dev,release>")
@@ -156,26 +156,26 @@ ExternalProject_Add(
   # Build debug build
   BUILD_COMMAND
     ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS} ${RUST_ENV_VARS} cargo build
-      --package delta_kernel_ffi --profile=${CARGO_PROFILE}
-      --features "default-engine-rustls,arrow,test-ffi,delta-kernel-unity-catalog,tracing"
-      ${RUST_PLATFORM_PARAM}
-  # acceptance depends on delta_kernel_benchmarks (regular dep, not dev), whose build.rs
-  # downloads benchmark workload data we don't need. Pre-create the .done marker to skip it.
+    --package delta_kernel_ffi --profile=${CARGO_PROFILE} --features
+    "default-engine-rustls,arrow,test-ffi,delta-kernel-unity-catalog,tracing"
+    ${RUST_PLATFORM_PARAM}
+  # acceptance depends on delta_kernel_benchmarks (regular dep, not dev), whose
+  # build.rs downloads benchmark workload data we don't need. Pre-create the
+  # .done marker to skip it.
   COMMAND ${CMAKE_COMMAND} -E make_directory
-    "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/benchmarks/workloads"
+          "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/benchmarks/workloads"
   COMMAND ${CMAKE_COMMAND} -E touch
-    "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/benchmarks/workloads/.done"
+          "${CMAKE_BINARY_DIR}/rust/src/delta_kernel/benchmarks/workloads/.done"
   # Build DATs
   COMMAND
     ${CMAKE_COMMAND} -E env ${RUST_UNSET_ENV_VARS} ${RUST_ENV_VARS} cargo build
-      --manifest-path=${CMAKE_BINARY_DIR}/rust/src/delta_kernel/acceptance/Cargo.toml
-  # Copy, patch, and generate the C++ FFI header into codegen/include/.
-  # See scripts/ffi/generate_delta_kernel_ffi_header and cbindgen#402 for details.
+    --manifest-path=${CMAKE_BINARY_DIR}/rust/src/delta_kernel/acceptance/Cargo.toml
+  # Copy, patch, and generate the C++ FFI header into codegen/include/. See
+  # scripts/ffi/generate_delta_kernel_ffi_header and cbindgen#402 for details.
   COMMAND
     sh ${CMAKE_CURRENT_SOURCE_DIR}/scripts/ffi/generate_delta_kernel_ffi_header
-      ${CMAKE_CURRENT_SOURCE_DIR}/scripts/ffi
-      ${DELTA_KERNEL_FFI_HEADER_CXX}
-      ${CMAKE_BINARY_DIR}/codegen/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/scripts/ffi ${DELTA_KERNEL_FFI_HEADER_CXX}
+    ${CMAKE_BINARY_DIR}/codegen/include
   # Define the byproducts, required for building with Ninja
   BUILD_BYPRODUCTS "${DELTA_KERNEL_LIBPATH}"
   BUILD_BYPRODUCTS "${DELTA_KERNEL_FFI_HEADER_C}"
@@ -190,8 +190,9 @@ build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
 # The generated FFI header is copied to codegen/include/ and patched at build
-# time (see scripts/ffi/{prefix,suffix}.inc; inline_msvc_compat.inc is generated dynamically).
-# TODO: when cbindgen C-linkage issue is resolved upstream, remove the sed patches.
+# time (see scripts/ffi/{prefix,suffix}.inc; inline_msvc_compat.inc is generated
+# dynamically). TODO: when cbindgen C-linkage issue is resolved upstream, remove
+# the sed patches.
 include_directories("${CMAKE_BINARY_DIR}/codegen/include")
 
 # Hides annoying linker warnings

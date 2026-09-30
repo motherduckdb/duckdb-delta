@@ -76,8 +76,7 @@ static void DeltaScanSerialize(Serializer &serializer, const optional_ptr<Functi
 	throw NotImplementedException("DeltaScan serialization not implemented");
 }
 
-static unique_ptr<FunctionData> DeltaScanDeserialize(Deserializer &deserializer,
-                                                     BoundTableFunction &function) {
+static unique_ptr<FunctionData> DeltaScanDeserialize(Deserializer &deserializer, BoundTableFunction &function) {
 	throw NotImplementedException("DeltaScan deserialization not implemented");
 }
 
