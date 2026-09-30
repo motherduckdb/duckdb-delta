@@ -107,7 +107,7 @@ void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileO
 	}
 }
 
-unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {
+unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const BoundTableFunction &table_function) {
 	auto result = make_uniq<DeltaMultiFileReader>();
 
 	if (table_function.function_info) {

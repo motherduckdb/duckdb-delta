@@ -133,9 +133,11 @@ static unique_ptr<FunctionData> DeltaFileListBind(ClientContext &context, TableF
 
 DeltaFileListFunction::DeltaFileListFunction() : DeltaBaseMetadataFunction("delta_metadata", DeltaFileListBind) {
 	// arguments.push_back(LogicalType::VARCHAR);
-	named_parameters.insert({"transform_expression", LogicalType::BOOLEAN});
-	named_parameters.insert({"delete_count", LogicalType::BOOLEAN});
-	named_parameters.insert({"version", LogicalType::UBIGINT});
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+		options.Add("transform_expression", LogicalType::BOOLEAN)
+		    .Add("delete_count", LogicalType::BOOLEAN)
+		    .Add("version", LogicalType::UBIGINT);
+	});
 }
 
 TableFunctionSet DeltaFunctions::GetDeltaFileListFunction(ExtensionLoader &loader) {
