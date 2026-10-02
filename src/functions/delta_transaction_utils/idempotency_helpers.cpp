@@ -136,13 +136,20 @@ static unique_ptr<GlobalTableFunctionState> TransactionInitGlobalState(ClientCon
 
 vector<TableFunction> DeltaFunctions::GetTransactionIdempotencyHelpers(DatabaseInstance &instance) {
 	vector<TableFunction> result;
-	result.push_back(TableFunction("delta_get_transaction_version", {LogicalType::VARCHAR, LogicalType::VARCHAR},
+	result.push_back(TableFunction("delta_get_transaction_version",
+	                               FunctionSignature()
+	                                   .AddPositionalOnly("path", LogicalType::VARCHAR)
+	                                   .AddPositionalOnly("app_id", LogicalType::VARCHAR),
 	                               DeltaGetTransactionVersionFunction, DeltaGetTransactionVersionBind,
 	                               TransactionInitGlobalState));
-	result.push_back(
-	    TableFunction("delta_set_transaction_version",
-	                  {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::UBIGINT, LogicalType::UBIGINT},
-	                  DeltaSetTransactionVersionFunction, DeltaSetTransactionVersionBind, TransactionInitGlobalState));
+	result.push_back(TableFunction("delta_set_transaction_version",
+	                               FunctionSignature()
+	                                   .AddPositionalOnly("path", LogicalType::VARCHAR)
+	                                   .AddPositionalOnly("app_id", LogicalType::VARCHAR)
+	                                   .AddPositionalOnly("new_version", LogicalType::UBIGINT)
+	                                   .AddPositionalOnly("expected_version", LogicalType::UBIGINT),
+	                               DeltaSetTransactionVersionFunction, DeltaSetTransactionVersionBind,
+	                               TransactionInitGlobalState));
 	return result;
 }
 

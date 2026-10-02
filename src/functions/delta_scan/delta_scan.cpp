@@ -72,11 +72,11 @@ virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionD
 }
 
 static void DeltaScanSerialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data,
-                               const TableFunction &function) {
+                               const BoundTableFunction &function) {
 	throw NotImplementedException("DeltaScan serialization not implemented");
 }
 
-static unique_ptr<FunctionData> DeltaScanDeserialize(Deserializer &deserializer, TableFunction &function) {
+static unique_ptr<FunctionData> DeltaScanDeserialize(Deserializer &deserializer, BoundTableFunction &function) {
 	throw NotImplementedException("DeltaScan deserialization not implemented");
 }
 
@@ -107,16 +107,31 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(ExtensionLoader &loader) {
 
 		function.to_string = DeltaFunctionToString;
 
-		// Schema param is just confusing here
-		function.named_parameters.erase("schema");
+		// Schema param is just confusing here, so the options are rebuilt without it
+		auto &signature = function.GetSignature();
+		signature.ExtendTypedKwargs([](TypedKwargs &options) {
+			TypedKwargs without_schema;
+			for (auto &option : options.GetOptions()) {
+				if (option.name == "schema") {
+					continue;
+				}
+				without_schema.Add(option.name, option.type);
+				for (auto &alias : option.aliases) {
+					without_schema.Alias(alias);
+				}
+			}
+			options = std::move(without_schema);
+		});
 
-		function.named_parameters["pushdown_partition_info"] = LogicalType::BOOLEAN;
-		function.named_parameters["pushdown_filters"] = LogicalType::VARCHAR;
-		function.named_parameters["version"] = LogicalType::UBIGINT;
-		// ANY, since the binder casts a typed named parameter without the session time zone.
-		function.named_parameters["timestamp"] = LogicalType::ANY;
-		function.named_parameters["log_tail"] = KernelUtils::GetLogPathType();
-		function.named_parameters["max_catalog_version"] = LogicalType::BIGINT;
+		signature.ExtendTypedKwargs([&](TypedKwargs &options) {
+			options.Add("pushdown_partition_info", LogicalType::BOOLEAN)
+			    .Add("pushdown_filters", LogicalType::VARCHAR)
+			    .Add("version", LogicalType::UBIGINT)
+			    // ANY, since the binder casts a typed named parameter without the session time zone.
+			    .Add("timestamp", LogicalType::ANY)
+			    .Add("log_tail", KernelUtils::GetLogPathType())
+			    .Add("max_catalog_version", LogicalType::BIGINT);
+		});
 
 		function.SetName("delta_scan");
 	});

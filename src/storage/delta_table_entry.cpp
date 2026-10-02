@@ -76,7 +76,7 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 	delta_scan_function.function_info = std::move(function_info);
 
 	vector<Value> inputs = {delta_catalog.GetDBPath()};
-	named_parameter_map_t param_map;
+	named_argument_map_t param_map;
 	vector<LogicalType> return_types;
 	vector<Identifier> names;
 	TableFunctionRef empty_ref;
@@ -89,7 +89,9 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 		param_map.insert({"version", Value::UBIGINT(param_version)});
 	}
 
-	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, delta_scan_function,
+	// the bind sees the function as a bound call would; nothing is read back off it afterwards
+	BoundTableFunction bound_scan_function(delta_scan_function);
+	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, bound_scan_function,
 	                                  empty_ref);
 
 	auto result = delta_scan_function.bind(context, bind_input, return_types, names);

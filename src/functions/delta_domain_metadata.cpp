@@ -64,7 +64,8 @@ static unique_ptr<FunctionData> DeltaDomainMetadataBind(ClientContext &context, 
 
 DeltaDomainMetadataFunction::DeltaDomainMetadataFunction()
     : DeltaBaseMetadataFunction("delta_domain_metadata", DeltaDomainMetadataBind) {
-	named_parameters.insert({"version", LogicalType::UBIGINT});
+	GetSignature().WithTypedKwargs("options",
+	                               [&](TypedKwargs &options) { options.Add("version", LogicalType::UBIGINT); });
 }
 
 TableFunctionSet DeltaFunctions::GetDeltaDomainMetadataFunction(ExtensionLoader &loader) {
