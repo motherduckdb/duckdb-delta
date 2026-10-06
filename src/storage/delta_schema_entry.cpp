@@ -91,8 +91,8 @@ static string GetCreateTablePath(ClientContext &context, TableFunctionBinder &bi
 }
 
 //! Every option that does not name the location is a Delta table property, handed to kernel untouched:
-//! kernel decides which keys it recognizes and derives the protocol from them. Sorted, so the written
-//! configuration does not depend on the option map's iteration order.
+//! kernel decides which keys it recognizes and derives the protocol from them. Sorted so that two bad
+//! properties always fail in the same order; the written configuration is a map kernel orders itself.
 static vector<pair<string, string>> GetCreateTableProperties(ClientContext &context, TableFunctionBinder &binder,
                                                              const CreateTableInfo &base) {
 	vector<pair<string, string>> properties;
@@ -297,9 +297,18 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::CreateTable(CatalogTransaction tran
 		}
 	}
 
+	// A catalog-managed table's version 0 goes through the catalog's committer, as every commit after it
+	// does: kernel refuses to create one through the filesystem committer. Kernel writes version 0 itself
+	// and leaves the table unregistered, so whoever staged it finishes the registration.
 	ffi::ExclusiveCreateTransaction *create_transaction;
 	auto build_res =
-	    KernelUtils::TryUnpackResult(ffi::create_table_builder_build(create_builder, engine.get()), create_transaction);
+	    delta_catalog.parent_commit
+	        ? KernelUtils::TryUnpackResult(
+	              ffi::create_table_builder_build_with_committer(
+	                  create_builder, GetDeltaTransaction(transaction).CreateCatalogCommitter(path), engine.get()),
+	              create_transaction)
+	        : KernelUtils::TryUnpackResult(ffi::create_table_builder_build(create_builder, engine.get()),
+	                                       create_transaction);
 	if (build_res.HasError()) {
 		build_res.Throw();
 	}
@@ -314,6 +323,12 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::CreateTable(CatalogTransaction tran
 	ffi::free_committed_transaction(committed);
 	DUCKDB_LOG_INTERNAL(context, "delta.CreateTable", LogLevel::LOG_DEBUG, "Created %s at version %s", path,
 	                    to_string(version));
+
+	if (delta_catalog.parent_commit) {
+		// A CMT cannot be read from storage until the catalog knows its commits, and the catalog learns about this once
+		// it's registered; thus, there is nothing to serve here; that caller's own catalog answers the next lookup.
+		return nullptr;
+	}
 
 	// Serve the table we just committed through the regular lookup path, so the schema cache and the
 	// transaction's entry end up in the same state as for a table that already existed. Reading it back
