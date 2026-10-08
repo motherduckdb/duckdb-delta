@@ -28,7 +28,7 @@ struct DeltaMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 struct DeltaMultiFileReader : public MultiFileReader {
 	static constexpr column_t DELTA_FILE_NUMBER_COLUMN_ID = UINT64_C(10000000000000000000);
 
-	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
+	static unique_ptr<MultiFileReader> CreateInstance(const BoundTableFunction &table_function);
 	//! Return a DeltaMultiFileList
 	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
 	                                         const FileGlobInput &glob_input) override;
