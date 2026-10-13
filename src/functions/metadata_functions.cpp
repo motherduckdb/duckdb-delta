@@ -44,8 +44,9 @@ static void MetadataFunctionExecute(ClientContext &context, TableFunctionInput &
 	output.SetCardinality(count);
 }
 
-DeltaBaseMetadataFunction::DeltaBaseMetadataFunction(string name_p, table_function_bind_t bind)
-    : TableFunction(std::move(name_p), {LogicalType::VARCHAR}, MetadataFunctionExecute, bind, MetadataFunctionInit) {
+DeltaBaseMetadataFunction::DeltaBaseMetadataFunction(Identifier name_p, table_function_bind_t bind)
+    : TableFunction(std::move(name_p), FunctionSignature().AddPositionalOnly("path", LogicalType::VARCHAR),
+                    MetadataFunctionExecute, bind, MetadataFunctionInit) {
 }
 
 } // namespace duckdb

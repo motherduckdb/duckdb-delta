@@ -57,9 +57,19 @@ FROM read_json('{TEMP_DIR}/cm_name/_delta_log/00000000000000000001.json') WHERE 
 ----
 true	false
 
-# An insert naming an explicit column list is not covered here: on this branch it fails for every
-# Delta table, mapped or not, because the binder does not fill in the unnamed columns. Nothing about
-# column mapping is involved, and the fix for it is not part of this backport.
+# An explicit column list writes the same file: the mapping is keyed off the table schema, not off
+# what the statement happened to name.
+statement ok
+INSERT INTO n (code) VALUES ('only-code');
+
+query II
+SELECT name, field_id FROM parquet_schema('{TEMP_DIR}/cm_name/duckdb-*.parquet')
+WHERE name <> 'duckdb_schema' ORDER BY name;
+----
+col-aaaa	1
+col-aaaa	1
+col-bbbb	2
+col-bbbb	2
 
 statement ok
 DETACH n;

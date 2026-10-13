@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "delta_time_travel.hpp"
+
 #include "delta_utils.hpp"
 #include "duckdb/common/multi_file/multi_file_reader.hpp"
 #include "duckdb/common/multi_file/multi_file_data.hpp"
@@ -26,19 +28,19 @@ struct DeltaMultiFileReaderGlobalState : public MultiFileReaderGlobalState {
 struct DeltaMultiFileReader : public MultiFileReader {
 	static constexpr column_t DELTA_FILE_NUMBER_COLUMN_ID = UINT64_C(10000000000000000000);
 
-	static unique_ptr<MultiFileReader> CreateInstance(const TableFunction &table_function);
+	static unique_ptr<MultiFileReader> CreateInstance(const BoundTableFunction &table_function);
 	//! Return a DeltaMultiFileList
 	shared_ptr<MultiFileList> CreateFileList(ClientContext &context, const vector<string> &paths,
 	                                         const FileGlobInput &glob_input) override;
 
 	//! Override the regular parquet bind using the MultiFileReader Bind. The bind from these are what DuckDB's file
 	//! readers will try read
-	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types, vector<string> &names,
-	          MultiFileReaderBindData &bind_data) override;
+	bool Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
+	          vector<Identifier> &names, MultiFileReaderBindData &bind_data) override;
 
 	//! Override the Options bind
 	void BindOptions(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
-	                 vector<string> &names, MultiFileReaderBindData &bind_data) override;
+	                 vector<Identifier> &names, MultiFileReaderBindData &bind_data) override;
 
 	unique_ptr<MultiFileReaderGlobalState>
 	InitializeGlobalState(ClientContext &context, const MultiFileOptions &file_options,
@@ -63,14 +65,16 @@ struct DeltaMultiFileReader : public MultiFileReader {
 	                   ExpressionExecutor &executor, optional_ptr<MultiFileReaderGlobalState> global_state) override;
 
 	//! Override the ParseOption call to parse delta_scan specific options
-	bool ParseOption(const string &key, const Value &val, MultiFileOptions &options, ClientContext &context) override;
+	bool ParseOption(const Identifier &key, const Value &val, MultiFileOptions &options,
+	                 ClientContext &context) override;
 
 	// A snapshot can be injected into the multifilereader, this ensures the GetMultiFileList can return this snapshot
 	// (note that the path should match the one passed to CreateFileList)
 	shared_ptr<DeltaMultiFileList> snapshot;
-	// Version requested via the `version` named parameter, captured in ParseOption. Used as a
-	// fallback by CreateFileList when no pre-built snapshot was injected via function_info.
-	idx_t requested_version = DConstants::INVALID_INDEX;
+	// Time travel requested via the `version` or `timestamp` named parameter, captured in ParseOption.
+	// Transferred to the snapshot before Bind (see DeltaMultiFileReader::Bind) when no snapshot was
+	// injected via function_info.
+	DeltaTimeTravelSpec requested;
 };
 
 } // namespace duckdb

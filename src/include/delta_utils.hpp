@@ -4,8 +4,8 @@
 #define DEFINE_DEFAULT_ENGINE_BASE 1
 #include "delta_kernel_ffi.hpp"
 #include "duckdb/common/enum_util.hpp"
-#include "duckdb/planner/filter/conjunction_filter.hpp"
-#include "duckdb/planner/filter/constant_filter.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
+#include "duckdb/planner/filter/table_filter_functions.hpp"
 #include "duckdb/planner/expression.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/common/multi_file/multi_file_data.hpp"
@@ -60,12 +60,21 @@ struct KernelUtils {
 	static LogicalType GetLogPathType();
 	static ffi::KernelStringSlice ToDeltaString(const string &str);
 	static string FromDeltaString(const struct ffi::KernelStringSlice slice);
+	//! Reads the value of a literal, or of a cast over a literal, as produced by ConstantExpression::FromValue
+	static bool TryGetLiteralValue(const ParsedExpression &expr, Value &result);
 	static vector<bool> FromDeltaBoolSlice(const struct ffi::KernelBoolSlice slice);
-	static string FetchFromStringMap(ffi::Handle<ffi::SharedExternEngine> engine, const ffi::CStringMap *map,
-	                                 const string &key);
+	//! Did kernel refuse to load a catalog-managed table for lack of a max catalog version?
+	static bool IsMissingMaxCatalogVersion(const ErrorData &error);
+	//! A schema field's metadata value typed as kernel holds it: BIGINT, VARCHAR, BOOLEAN, or JSON for any other
+	//! JSON (a JSON null included); nothing when the key is absent. Compare whole types, never ids: JSON is a
+	//! VARCHAR with an alias.
+	static optional<Value> FetchFromMetadataMap(ffi::Handle<ffi::SharedExternEngine> engine,
+	                                            const ffi::CMetadataMap *map, const string &key);
 	// Read `delta.columnMapping.mode` from the snapshot's table-property
 	// configuration. Returns NONE when the property is absent or `"none"`.
 	static DeltaColumnMappingMode ReadColumnMappingMode(ffi::SharedSnapshot *snapshot);
+	//! A table property from the snapshot's configuration, as written in the log; empty when absent.
+	static string ReadTableProperty(ffi::SharedSnapshot *snapshot, const string &key);
 
 	static void *StringAllocationNew(const struct ffi::KernelStringSlice slice) {
 		return new string(slice.ptr, slice.len);
@@ -103,7 +112,7 @@ struct KernelUtils {
 		return none;
 	}
 
-	static vector<unique_ptr<ParsedExpression>> &
+	static vector<unique_ptr<ParsedExpression>>
 	UnpackTransformExpression(const vector<unique_ptr<ParsedExpression>> &parsed_expression);
 };
 
@@ -133,7 +142,7 @@ private:
 	static void VisitPrimitiveLiteral(void *state, uintptr_t sibling_list_id, CPP_TYPE value) {
 		auto state_cast = static_cast<KernelExpressionVisitor *>(state);
 		auto duckdb_value = CREATE_VALUE_FUN(value);
-		auto expression = make_uniq<ConstantExpression>(duckdb_value);
+		auto expression = ConstantExpression::FromValue(duckdb_value);
 		state_cast->AppendToList(sibling_list_id, std::move(expression));
 	}
 
@@ -157,7 +166,10 @@ private:
 	                               uintptr_t child_value_list_id);
 	static void VisitDecimalLiteral(void *state, uintptr_t sibling_list_id, int64_t value_ms, uint64_t value_ls,
 	                                uint8_t precision, uint8_t scale);
-	static void VisitColumnExpression(void *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name);
+	static void VisitColumnExpression(void *state, uintptr_t sibling_list_id, const ffi::KernelStringSlice *parts,
+	                                  uintptr_t parts_len);
+	static void VisitIntervalYearMonthLiteral(void *state, uintptr_t sibling_list_id, int32_t months);
+	static void VisitIntervalDayTimeLiteral(void *state, uintptr_t sibling_list_id, int64_t micros);
 	static void VisitStructExpression(void *state, uintptr_t sibling_list_id, uintptr_t child_list_id);
 	static void VisitStructPatchExpression(void *data, uintptr_t sibling_list_id, uintptr_t input_path_list_id,
 	                                       uintptr_t prepended_field_list_id, uintptr_t field_patch_list_id,
@@ -195,7 +207,7 @@ private:
 		auto state_cast = static_cast<KernelExpressionVisitor *>(state);
 		auto children = state_cast->TakeFieldList(child_list_id);
 		if (!children) {
-			state_cast->AppendToList(sibling_list_id, std::move(make_uniq<ConstantExpression>(Value(42))));
+			state_cast->AppendToList(sibling_list_id, ConstantExpression::Integer(42));
 			return;
 		}
 		unique_ptr<ParsedExpression> expression = make_uniq<EXPRESSION_TYPENAME>(EXPRESSION_TYPE, std::move(*children));
@@ -213,12 +225,12 @@ private:
 		auto state_cast = static_cast<KernelExpressionVisitor *>(state);
 		auto children = state_cast->TakeFieldList(child_list_id);
 		if (!children) {
-			state_cast->AppendToList(sibling_list_id, std::move(make_uniq<ConstantExpression>(Value(42))));
+			state_cast->AppendToList(sibling_list_id, ConstantExpression::Integer(42));
 			return;
 		}
 
 		if (children->size() != 2) {
-			state_cast->AppendToList(sibling_list_id, std::move(make_uniq<ConstantExpression>(Value(42))));
+			state_cast->AppendToList(sibling_list_id, ConstantExpression::Integer(42));
 			state_cast->error =
 			    ErrorData("INCORRECT SIZE IN VISIT_BINARY_EXPRESSION" + EnumUtil::ToString(EXPRESSION_TYPE));
 			return;
@@ -283,10 +295,10 @@ struct DeltaMultiFileColumnDefinition : public MultiFileColumnDefinition {
 	                           const vector<DeltaMultiFileColumnDefinition> &schema, bool physical) {
 		case_insensitive_set_t names;
 		for (auto &column : schema) {
-			names.insert(physical ? column.physical_name : column.name);
+			names.insert(physical ? column.physical_name : column.name.GetIdentifierName());
 		}
 		for (auto &column : file_columns) {
-			if (names.find(column.name) == names.end()) {
+			if (names.find(column.name.GetIdentifierName()) == names.end()) {
 				return false;
 			}
 		}
@@ -341,7 +353,8 @@ struct DeltaMultiFileColumnDefinition : public MultiFileColumnDefinition {
 		}
 		for (const auto &col : schema) {
 			if (!col.HasFieldIdsRecursive()) {
-				throw InvalidInputException("Column '%s' has no column mapping id, which id mode requires", col.name);
+				throw InvalidInputException("Column '%s' has no column mapping id, which id mode requires",
+				                            col.name.GetIdentifierName());
 			}
 		}
 		return true;
@@ -429,61 +442,75 @@ private:
 
 	static ffi::EngineSchemaVisitor CreateSchemaVisitor(KernelSchemaVisitor &state);
 
-	//! Keeps the first error; the caller throws it once the visit returns
-	void RecordError(ExceptionType type, const string &message);
-
 	typedef void(SimpleTypeVisitorFunction)(void *, uintptr_t, ffi::KernelStringSlice, bool is_nullable,
-	                                        const ffi::CStringMap *metadata);
+	                                        const ffi::CMetadataMap *metadata);
 
 	//! Sets `identifier` for the active mode, see DeltaColumnMappingMode: the INTEGER field id, the physical
 	//! name, or nothing, which the name mapper reads as the display name.
-	static void ApplyDeltaColumnMapping(KernelSchemaVisitor *state, const ffi::CStringMap *metadata,
+	//! Called from kernel's schema callbacks, so a bad annotation is recorded, never thrown: an exception
+	//! unwinding through the Rust frames aborts the process.
+	static void ApplyDeltaColumnMapping(KernelSchemaVisitor *state, const ffi::CMetadataMap *metadata,
 	                                    DeltaMultiFileColumnDefinition &col_def) {
-		auto engine = state->engine;
 		// The two keys carry the same number: the kernel derives `parquet.field.id` from
 		// `delta.columnMapping.id` when it builds a physical schema. Read whichever the schema at hand
 		// spells it with.
-		auto id = KernelUtils::FetchFromStringMap(engine, metadata, "delta.columnMapping.id");
-		if (id.empty()) {
-			id = KernelUtils::FetchFromStringMap(engine, metadata, "parquet.field.id");
+		auto id = KernelUtils::FetchFromMetadataMap(state->engine, metadata, "delta.columnMapping.id");
+		if (!id) {
+			id = KernelUtils::FetchFromMetadataMap(state->engine, metadata, "parquet.field.id");
 		}
-		if (!id.empty()) {
-			col_def.field_id = optional_idx(Value(id).DefaultCastAs(LogicalType::UBIGINT).GetValue<uint64_t>());
+		if (id) {
+			if (id->type() != LogicalType::BIGINT || id->GetValue<int64_t>() < 0 ||
+			    id->GetValue<int64_t>() > NumericLimits<int32_t>::Maximum()) {
+				state->RecordError(ExceptionType::INVALID_INPUT,
+				                   StringUtil::Format("Column '%s' has the column mapping id %s, which is not an "
+				                                      "integer between 0 and %d",
+				                                      col_def.name.GetIdentifierName(), id->ToSQLString(),
+				                                      NumericLimits<int32_t>::Maximum()));
+				return;
+			}
+			col_def.field_id = optional_idx(id->GetValue<int64_t>());
 		}
-		auto name = KernelUtils::FetchFromStringMap(engine, metadata, "delta.columnMapping.physicalName");
-		if (!name.empty()) {
-			col_def.physical_name = name;
+		auto name = KernelUtils::FetchFromMetadataMap(state->engine, metadata, "delta.columnMapping.physicalName");
+		if (name) {
+			if (name->type() != LogicalType::VARCHAR || StringValue::Get(*name).empty()) {
+				state->RecordError(ExceptionType::INVALID_INPUT,
+				                   StringUtil::Format("Column '%s' has the physical name %s, which is not a "
+				                                      "non-empty string",
+				                                      col_def.name.GetIdentifierName(), name->ToSQLString()));
+				return;
+			}
+			col_def.physical_name = StringValue::Get(*name);
 		}
 
 		// Resolve `col_def.identifier` per the active mode, not just whichever metadata key happens to be
 		// present -- the kernel emits both id and physicalName whenever column mapping is enabled at all.
 		switch (state->mapping_mode) {
 		case DeltaColumnMappingMode::ID:
-			if (!id.empty()) {
-				// INTEGER, not BIGINT: MultiFileColumnDefinition::GetIdentifierFieldId requires it. Called from
-				// kernel's schema callbacks, so a bad id is recorded, never thrown: an exception unwinding through
-				// the Rust frames aborts the process.
-				Value field_id(id);
-				if (!field_id.DefaultTryCastAs(LogicalType::INTEGER)) {
-					state->RecordError(ExceptionType::INVALID_INPUT,
-					                   StringUtil::Format("Column '%s' has the column mapping id %s, which is not an "
-					                                      "integer between 0 and %d",
-					                                      col_def.name, id, NumericLimits<int32_t>::Maximum()));
-					return;
-				}
-				col_def.identifier = field_id;
+			if (id) {
+				// INTEGER, not BIGINT: MultiFileColumnDefinition::GetIdentifierFieldId requires it
+				col_def.identifier = Value::INTEGER(NumericCast<int32_t>(id->GetValue<int64_t>()));
 			}
 			break;
 		case DeltaColumnMappingMode::NAME:
-			if (!name.empty()) {
-				col_def.identifier = Value(name);
+			if (name) {
+				col_def.identifier = *name;
 			}
 			break;
 		case DeltaColumnMappingMode::NONE:
 			break;
 		}
-		col_def.char_varchar_type = KernelUtils::FetchFromStringMap(engine, metadata, "__CHAR_VARCHAR_TYPE_STRING");
-		col_def.default_expression = make_uniq<ConstantExpression>(Value(col_def.type));
+		auto char_varchar = KernelUtils::FetchFromMetadataMap(state->engine, metadata, "__CHAR_VARCHAR_TYPE_STRING");
+		if (char_varchar) {
+			if (char_varchar->type() != LogicalType::VARCHAR) {
+				state->RecordError(ExceptionType::INVALID_INPUT,
+				                   StringUtil::Format("Column '%s' has the CHAR/VARCHAR annotation %s, which is not "
+				                                      "a string",
+				                                      col_def.name.GetIdentifierName(), char_varchar->ToSQLString()));
+				return;
+			}
+			col_def.char_varchar_type = StringValue::Get(*char_varchar);
+		}
+		col_def.default_expression = ConstantExpression::FromValue(Value(col_def.type));
 	}
 
 	// A synthetic child (list element, map key/value) carries no column mapping id of its own. IcebergCompat
@@ -491,19 +518,20 @@ private:
 	// other writers record nothing, and FillContainerChildIds derives one.
 	// Only in `id` mode: `name`-mode tables carry `nested.ids` too (UniForm requires them), and the
 	// name mapper reads every identifier as a VARCHAR.
-	static void ApplyNestedFieldIds(KernelSchemaVisitor *state, const ffi::CStringMap *metadata,
+	static void ApplyNestedFieldIds(KernelSchemaVisitor *state, const ffi::CMetadataMap *metadata,
 	                                const DeltaMultiFileColumnDefinition &parent, DeltaMultiFileColumnDefinition &child,
 	                                const string &suffix) {
 		if (state->mapping_mode != DeltaColumnMappingMode::ID) {
 			return;
 		}
-		auto nested = KernelUtils::FetchFromStringMap(state->engine, metadata, "delta.columnMapping.nested.ids");
-		if (nested.empty()) {
+		auto nested_ids = KernelUtils::FetchFromMetadataMap(state->engine, metadata, "delta.columnMapping.nested.ids");
+		if (!nested_ids || nested_ids->type().id() != LogicalTypeId::VARCHAR) {
 			return;
 		}
 		if (parent.physical_name.empty()) {
 			return;
 		}
+		const auto &nested = StringValue::Get(*nested_ids);
 		// The full key: a bare `.key":` would also match `<name>.value.key":` of a nested map
 		auto needle = "\"" + parent.physical_name + suffix + "\":";
 		auto pos = nested.find(needle);
@@ -517,16 +545,17 @@ private:
 		}
 		if (end > pos) {
 			auto digits = nested.substr(pos, end - pos);
-			Value id(digits);
-			if (!id.DefaultTryCastAs(LogicalType::INTEGER)) {
+			auto id = Value(digits).DefaultTryCastAs(LogicalType::INTEGER);
+			if (!id) {
 				state->RecordError(ExceptionType::INVALID_INPUT,
 				                   StringUtil::Format("Column '%s' has the nested column mapping id %s for '%s', which "
 				                                      "is not an integer between 0 and %d",
-				                                      parent.name, digits, parent.physical_name + suffix,
+				                                      parent.name.GetIdentifierName(), digits,
+				                                      parent.physical_name + suffix,
 				                                      NumericLimits<int32_t>::Maximum()));
 				return;
 			}
-			child.identifier = id;
+			child.identifier = *id;
 		}
 	}
 
@@ -536,7 +565,7 @@ private:
 	}
 	template <LogicalTypeId TypeId>
 	static void VisitSimpleTypeImpl(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-	                                bool is_nullable, const ffi::CStringMap *metadata) {
+	                                bool is_nullable, const ffi::CMetadataMap *metadata) {
 		DeltaMultiFileColumnDefinition col_def(KernelUtils::FromDeltaString(name), TypeId, is_nullable);
 		ApplyDeltaColumnMapping(state, metadata, col_def);
 
@@ -544,16 +573,30 @@ private:
 	}
 
 	static void VisitDecimal(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-	                         bool is_nullable, const ffi::CStringMap *metadata, uint8_t precision, uint8_t scale);
+	                         bool is_nullable, const ffi::CMetadataMap *metadata, uint8_t precision, uint8_t scale);
 	static uintptr_t MakeFieldList(KernelSchemaVisitor *state, uintptr_t capacity_hint);
 	static void VisitStruct(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-	                        bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id);
+	                        bool is_nullable, const ffi::CMetadataMap *metadata, uintptr_t child_list_id);
 	static void VisitArray(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-	                       bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id);
+	                       bool is_nullable, const ffi::CMetadataMap *metadata, uintptr_t child_list_id);
 	static void VisitMap(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-	                     bool is_nullable, const ffi::CStringMap *metadata, uintptr_t child_list_id);
+	                     bool is_nullable, const ffi::CMetadataMap *metadata, uintptr_t child_list_id);
 	static void VisitVariant(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
-	                         bool is_nullable, const ffi::CStringMap *metadata);
+	                         bool is_nullable, const ffi::CMetadataMap *metadata);
+	static void VisitIntervalYearMonth(KernelSchemaVisitor *state, uintptr_t sibling_list_id,
+	                                   ffi::KernelStringSlice name, bool is_nullable,
+	                                   const ffi::CMetadataMap *metadata);
+	static void VisitIntervalDayTime(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+	                                 bool is_nullable, const ffi::CMetadataMap *metadata);
+	static void VisitGeometry(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+	                          bool is_nullable, const ffi::CMetadataMap *metadata, ffi::KernelStringSlice crs);
+	static void VisitGeography(KernelSchemaVisitor *state, uintptr_t sibling_list_id, ffi::KernelStringSlice name,
+	                           bool is_nullable, const ffi::CMetadataMap *metadata, ffi::KernelStringSlice crs,
+	                           ffi::KernelStringSlice algorithm);
+	//! Records the first error of a visit; it is raised once the visit is over
+	void RecordError(ExceptionType type, const string &message);
+	//! Records that a column has a type DuckDB cannot read yet
+	void RefuseType(ffi::KernelStringSlice name, const string &type_name);
 
 	uintptr_t MakeFieldListImpl(uintptr_t capacity_hint);
 	void AppendToList(uintptr_t id, ffi::KernelStringSlice name, DeltaMultiFileColumnDefinition &&child);
@@ -683,29 +726,33 @@ protected:
 };
 
 typedef SharedKernelPointer<ffi::SharedSnapshot, ffi::free_snapshot> SharedKernelSnapshot;
+struct DeltaTableFilters;
 
 class PredicateVisitor : public ffi::EnginePredicate {
 public:
-	PredicateVisitor(const vector<DeltaMultiFileColumnDefinition> &columns, optional_ptr<const TableFilterSet> filters);
+	PredicateVisitor(const vector<DeltaMultiFileColumnDefinition> &columns,
+	                 optional_ptr<const DeltaTableFilters> filters);
 
 	ErrorData error_data;
 
 private:
-	unordered_map<string, TableFilter *> column_filters;
+	unordered_map<string, optional_ptr<const ExpressionFilter>> column_filters;
+	// Top-level column types, keyed by the same name as column_filters, used to reject filters whose subject is a bare
+	// reference to a nested (struct/list/map) column - the path to the scalar leaf is not recoverable in that form.
+	unordered_map<string, LogicalType> column_types;
 
 	static uintptr_t VisitPredicate(PredicateVisitor *predicate, ffi::KernelExpressionVisitorState *state);
 
-	uintptr_t VisitConstantFilter(const string &col_name, const ConstantFilter &filter,
+	uintptr_t VisitConstantFilter(const vector<string> &col_path, ExpressionType comparison_type, const Value &value,
 	                              ffi::KernelExpressionVisitorState *state);
-	uintptr_t VisitAndFilter(const string &col_name, const ConjunctionAndFilter &filter,
-	                         ffi::KernelExpressionVisitorState *state);
+	uintptr_t VisitFilterExpression(const string &col_name, const Expression &expr,
+	                                ffi::KernelExpressionVisitorState *state);
 
-	uintptr_t VisitIsNull(const string &col_name, ffi::KernelExpressionVisitorState *state);
-	uintptr_t VisitIsNotNull(const string &col_name, ffi::KernelExpressionVisitorState *state);
-	uintptr_t VisitStructExtractFilter(const string &col_name, const StructFilter &filter,
-	                                   ffi::KernelExpressionVisitorState *state);
+	uintptr_t VisitIsNull(const vector<string> &col_path, ffi::KernelExpressionVisitorState *state);
+	uintptr_t VisitIsNotNull(const vector<string> &col_path, ffi::KernelExpressionVisitorState *state);
 
-	uintptr_t VisitFilter(const string &col_name, const TableFilter &filter, ffi::KernelExpressionVisitorState *state);
+	uintptr_t VisitFilter(const string &col_name, const ExpressionFilter &filter,
+	                      ffi::KernelExpressionVisitorState *state);
 };
 
 // Singleton class to forward logs to DuckDB

@@ -13,17 +13,17 @@ foreach type float double
 # using <type> column to skip files
 query II
 EXPLAIN ANALYZE SELECT value1, value2, value3
-FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
+FROM delta_scan('./data/generated/test_file_skipping/{type}/delta_lake')
 WHERE
     value1 > 0.5 and
     value2 > 2.5 and
     value3 < 3.5
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value1>0.5.*value2>2.5.*value3<3.5.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1 > 0.5.*value2 > 2.5.*value3 < 3.5.*Scanning Files: 1/5.*
 
 query III
 SELECT value1, value2, value3
-FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
+FROM delta_scan('./data/generated/test_file_skipping/{type}/delta_lake')
 WHERE
     value1 > 0.5 and
     value2 > 2.5 and
@@ -33,7 +33,7 @@ WHERE
 
 query II
 EXPLAIN ANALYZE SELECT part
-FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
+FROM delta_scan('./data/generated/test_file_skipping/{type}/delta_lake')
 WHERE part > 0.5
 ----
 analyzed_plan	<REGEX>:.* Scanning Files: 4/5.*
@@ -45,17 +45,17 @@ foreach type int tinyint smallint bigint
 # using <type> column to skip files
 query II
 EXPLAIN ANALYZE SELECT value1, value2, value3
-FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
+FROM delta_scan('./data/generated/test_file_skipping/{type}/delta_lake')
 WHERE
     value1 > 1 and
     value2 > 2 and
     value3 < 4
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value1>1.*value2>2.*value3<4.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1 > 1.*value2 > 2.*value3 < 4.*Scanning Files: 1/5.*
 
 query III
 SELECT value1, value2, value3
-FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
+FROM delta_scan('./data/generated/test_file_skipping/{type}/delta_lake')
 WHERE
     value1 > 1 and
     value2 > 2 and
@@ -65,7 +65,7 @@ WHERE
 
 query II
 EXPLAIN ANALYZE SELECT part
-FROM delta_scan('./data/generated/test_file_skipping/${type}/delta_lake')
+FROM delta_scan('./data/generated/test_file_skipping/{type}/delta_lake')
 WHERE part = 0
 ----
 analyzed_plan	<REGEX>:.* Scanning Files: 1/5.*
@@ -81,7 +81,7 @@ WHERE
     value2 = '2' and
     value3 = '2'
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value1='2'.*value2='2'.*value3='2'.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1 = '2'.*value2 = '2'.*value3 = '2'.*Scanning Files: 1/5.*
 
 query III
 SELECT value1, value2, value3
@@ -109,7 +109,7 @@ FROM delta_scan('./data/generated/test_file_skipping/date/delta_lake')
 WHERE
     value1 = '1994-01-01'::DATE
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value1='1994-01-01'.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1 = '1994-01-01'.*Scanning Files: 1/5.*
 
 query II
 SELECT value1, part
@@ -133,7 +133,7 @@ EXPLAIN ANALYZE SELECT value1, part
 FROM delta_scan('./data/generated/test_file_skipping/decimal/delta_lake')
 WHERE value1 = 3.00::DECIMAL(10,2)
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value1=3.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1 = 3.*Scanning Files: 1/5.*
 
 query II
 SELECT value1, part
@@ -157,7 +157,7 @@ EXPLAIN ANALYZE SELECT value1, part
 FROM delta_scan('./data/generated/test_file_skipping/timestamp/delta_lake')
 WHERE value1 = '2024-01-03 00:00:00'::TIMESTAMP
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value1='2024-01-03.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1 = '2024-01-03 00:00:00'.*Scanning Files: 1/5.*
 
 query II
 SELECT value1, part
@@ -195,7 +195,7 @@ EXPLAIN ANALYZE SELECT value1, part
 FROM delta_scan('./data/generated/test_file_skipping/timestamptz/delta_lake')
 WHERE value1 = '2024-01-03 00:00:00+00'::TIMESTAMPTZ
 ----
-analyzed_plan	<REGEX>:.*File Filters:.*value1='2024-01-03.*Scanning Files: 1/5.*
+analyzed_plan	<REGEX>:.*File Filters:.*value1 = .*Scanning Files: 1/5.*
 
 # Compared against a literal rather than asserted as rendered text: TIMESTAMPTZ
 # renders in the session timezone, and pinning it would need icu.

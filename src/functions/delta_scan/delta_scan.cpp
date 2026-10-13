@@ -72,11 +72,11 @@ virtual_column_map_t DeltaVirtualColumns(ClientContext &, optional_ptr<FunctionD
 }
 
 static void DeltaScanSerialize(Serializer &serializer, const optional_ptr<FunctionData> bind_data,
-                               const TableFunction &function) {
+                               const BoundTableFunction &function) {
 	throw NotImplementedException("DeltaScan serialization not implemented");
 }
 
-static unique_ptr<FunctionData> DeltaScanDeserialize(Deserializer &deserializer, TableFunction &function) {
+static unique_ptr<FunctionData> DeltaScanDeserialize(Deserializer &deserializer, BoundTableFunction &function) {
 	throw NotImplementedException("DeltaScan deserialization not implemented");
 }
 
@@ -90,7 +90,7 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(ExtensionLoader &loader) {
 	auto &parquet_scan = loader.GetTableFunction("parquet_scan");
 	auto parquet_scan_copy = parquet_scan.functions;
 
-	for (auto &function : parquet_scan_copy.functions) {
+	parquet_scan_copy.ApplyToFunctions([](TableFunction &function) {
 		// Register the MultiFileReader as the driver for reads
 		function.get_multi_file_reader = DeltaMultiFileReader::CreateInstance;
 
@@ -102,23 +102,40 @@ TableFunctionSet DeltaFunctions::GetDeltaScanFunction(ExtensionLoader &loader) {
 		function.table_scan_progress = nullptr;
 		function.get_bind_info = nullptr;
 		function.get_virtual_columns = DeltaVirtualColumns;
+		function.supports_pushdown_extract = nullptr;
 		function.late_materialization = false;
 
 		function.to_string = DeltaFunctionToString;
 
-		// Schema param is just confusing here
-		function.named_parameters.erase("schema");
+		// Schema param is just confusing here, so the options are rebuilt without it
+		auto &signature = function.GetSignature();
+		signature.ExtendTypedKwargs([](TypedKwargs &options) {
+			TypedKwargs without_schema;
+			for (auto &option : options.GetOptions()) {
+				if (option.name == "schema") {
+					continue;
+				}
+				without_schema.Add(option.name, option.type);
+				for (auto &alias : option.aliases) {
+					without_schema.Alias(alias);
+				}
+			}
+			options = std::move(without_schema);
+		});
 
-		function.named_parameters["pushdown_partition_info"] = LogicalType::BOOLEAN;
-		function.named_parameters["pushdown_filters"] = LogicalType::VARCHAR;
-		function.named_parameters["log_tail"] = KernelUtils::GetLogPathType();
-		function.named_parameters["version"] = LogicalType::UBIGINT;
-		function.named_parameters["max_catalog_version"] = LogicalType::BIGINT;
+		signature.ExtendTypedKwargs([&](TypedKwargs &options) {
+			options.Add("pushdown_partition_info", LogicalType::BOOLEAN)
+			    .Add("pushdown_filters", LogicalType::VARCHAR)
+			    .Add("version", LogicalType::UBIGINT)
+			    .Add("timestamp", LogicalType::TIMESTAMP_TZ)
+			    .Add("log_tail", KernelUtils::GetLogPathType())
+			    .Add("max_catalog_version", LogicalType::BIGINT);
+		});
 
-		function.name = "delta_scan";
-	}
+		function.SetName("delta_scan");
+	});
 
-	parquet_scan_copy.name = "delta_scan";
+	parquet_scan_copy.SetName("delta_scan");
 	return parquet_scan_copy;
 }
 

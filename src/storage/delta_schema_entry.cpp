@@ -1,5 +1,6 @@
 #include "storage/delta_schema_entry.hpp"
 
+#include "delta_schema_builder.hpp"
 #include "delta_utils.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 #include "storage/delta_catalog.hpp"
@@ -9,14 +10,22 @@
 #include "storage/delta_table_entry.hpp"
 #include "storage/delta_transaction.hpp"
 
+#include "duckdb/catalog/entry_lookup_info.hpp"
+#include "duckdb/common/algorithm.hpp"
 #include "duckdb/common/file_system.hpp"
 #include "duckdb/common/path.hpp"
+#include "duckdb/common/string_util.hpp"
+#include "duckdb/common/to_string.hpp"
 #include "duckdb/common/unordered_set.hpp"
+#include "duckdb/execution/expression_executor.hpp"
+#include "duckdb/logging/logger.hpp"
 #include "duckdb/parser/constraints/list.hpp"
 #include "duckdb/parser/expression/columnref_expression.hpp"
 #include "duckdb/parser/parsed_data/create_index_info.hpp"
 #include "duckdb/parser/parsed_data/drop_info.hpp"
 #include "duckdb/parser/parsed_expression_iterator.hpp"
+#include "duckdb/planner/binder.hpp"
+#include "duckdb/planner/expression_binder/table_function_binder.hpp"
 #include "duckdb/planner/parsed_data/bound_create_table_info.hpp"
 #include "duckdb/planner/tableref/bound_at_clause.hpp"
 
@@ -28,15 +37,6 @@ DeltaSchemaEntry::DeltaSchemaEntry(Catalog &catalog, CreateSchemaInfo &info) : S
 DeltaSchemaEntry::~DeltaSchemaEntry() {
 }
 
-//! Whether a Delta table has been created at `path` yet, judged the same way kernel judges it: by
-//! the presence of `_delta_log`. Only conclusive on a local filesystem -- S3 reports every directory
-//! as existing -- so treat a true answer as "probably", and never a false one as permission to skip
-//! work kernel would redo.
-static bool DeltaTableExistsAt(ClientContext &context, const string &path) {
-	auto &fs = FileSystem::GetFileSystem(context);
-	return fs.DirectoryExists(Path::FromString(path).Join("_delta_log").ToString());
-}
-
 DeltaTransaction &GetDeltaTransaction(CatalogTransaction transaction) {
 	if (!transaction.transaction) {
 		throw InternalException("No transaction!?");
@@ -44,8 +44,297 @@ DeltaTransaction &GetDeltaTransaction(CatalogTransaction transaction) {
 	return transaction.transaction->Cast<DeltaTransaction>();
 }
 
+//! Canonical form for comparing two spellings of one table location. `Path::ToString` is base +
+//! path + trailing separator, so dropping the separator is just leaving the last part off.
+static string CanonicalTablePath(const string &path) {
+	auto parsed = Path::FromString(path);
+	return parsed.GetBase() + parsed.GetPath();
+}
+
+//! Table options reach the catalog as unevaluated parsed expressions, so bind and evaluate each one
+//! here. An option then accepts anything that evaluates to a constant, not only a literal.
+static Value ParseCreateTableOption(ClientContext &context, TableFunctionBinder &binder,
+                                    const ParsedExpression &expression, const string &name, const LogicalType &type) {
+	auto copy = expression.Copy();
+	auto bound = binder.Bind(copy);
+	auto value = ExpressionExecutor::EvaluateScalar(context, *bound, true);
+	if (value.IsNull()) {
+		throw BinderException("NULL is not a valid value for Delta CREATE TABLE option '%s'", name);
+	}
+	return value.DefaultCastAs(type);
+}
+
+//! Resolves the destination path for a CREATE TABLE. Defaults to the attached path; `WITH (location =
+//! '...')` names it explicitly, spelled as the Iceberg catalog spells it. `path` named the same thing
+//! before this, and it never shipped, so it is refused rather than taken for a table property.
+static string GetCreateTablePath(ClientContext &context, TableFunctionBinder &binder, const CreateTableInfo &base,
+                                 DeltaCatalog &delta_catalog) {
+	if (base.options.find("path") != base.options.end()) {
+		throw BinderException("Delta CREATE TABLE names the destination with 'location', not 'path'");
+	}
+	auto option = base.options.find("location");
+	if (option == base.options.end()) {
+		return delta_catalog.GetDBPath();
+	}
+	auto path = ParseCreateTableOption(context, binder, *option->second, option->first, LogicalType::VARCHAR)
+	                .GetValue<string>();
+
+	// A Delta catalog is a single table at a single path, so a divergent path would produce a
+	// catalog entry that does not describe what was attached. Compare normalized, so a trailing
+	// slash or a relative spelling of the attached path is not a spurious mismatch.
+	auto attached_path = delta_catalog.GetDBPath();
+	if (CanonicalTablePath(path) != CanonicalTablePath(attached_path)) {
+		throw NotImplementedException(
+		    "Delta CREATE TABLE can only create a table at the attached path ('%s'), not at '%s'", attached_path, path);
+	}
+	return path;
+}
+
+//! Every option that does not name the location is a Delta table property, handed to kernel untouched:
+//! kernel decides which keys it recognizes and derives the protocol from them. Sorted so that two bad
+//! properties always fail in the same order; the written configuration is a map kernel orders itself.
+static vector<pair<string, string>> GetCreateTableProperties(ClientContext &context, TableFunctionBinder &binder,
+                                                             const CreateTableInfo &base) {
+	vector<pair<string, string>> properties;
+	for (auto &option : base.options) {
+		if (StringUtil::CIEquals(option.first, "location")) {
+			continue;
+		}
+		auto value = ParseCreateTableOption(context, binder, *option.second, option.first, LogicalType::VARCHAR);
+		properties.emplace_back(option.first, value.GetValue<string>());
+	}
+	std::sort(properties.begin(), properties.end());
+	return properties;
+}
+
+//! The mode kernel will map with: the property when it names one, and `name` when
+//! `delta.enableIcebergCompatV3` requires mapping without naming a mode
+//! (`maybe_enable_iceberg_compat_v3_dependencies` in kernel's create-table builder). Kernel refuses every
+//! other combination itself, and says why, so nothing else is mirrored here. Values are matched exactly,
+//! as kernel matches them.
+static string EffectiveColumnMappingMode(const vector<pair<string, string>> &properties) {
+	string mode;
+	bool iceberg_compat_v3 = false;
+	for (auto &property : properties) {
+		if (property.first == "delta.columnMapping.mode") {
+			mode = property.second;
+		} else if (property.first == "delta.enableIcebergCompatV3") {
+			iceberg_compat_v3 = property.second == "true";
+		}
+	}
+	if (mode.empty() && iceberg_compat_v3) {
+		return "name";
+	}
+	return mode;
+}
+
+//! The writer maps top-level columns only and refuses nested or partitioned mapped tables at INSERT, so
+//! refuse those shapes here rather than create a table nothing can insert into.
+static void ThrowIfColumnMappingUnwritable(const CreateTableInfo &base, const vector<string> &partition_columns,
+                                           const vector<pair<string, string>> &properties) {
+	auto mode = EffectiveColumnMappingMode(properties);
+	if (mode != "name" && mode != "id") {
+		return;
+	}
+	for (auto &col : base.columns.Logical()) {
+		auto type_id = col.Type().id();
+		if (type_id == LogicalTypeId::STRUCT || type_id == LogicalTypeId::LIST || type_id == LogicalTypeId::MAP) {
+			throw NotImplementedException(
+			    "Creating a Delta table that uses column mapping on a nested column is not supported");
+		}
+	}
+	if (!partition_columns.empty()) {
+		throw NotImplementedException("Creating a partitioned Delta table that uses column mapping is not supported");
+	}
+}
+
+//! Whether a Delta table has been created at `path` yet, judged the same way kernel judges it: by
+//! the presence of `_delta_log`. Deliberately a cheap existence probe rather than a snapshot build,
+//! because callers need "is there a table here" to be answerable before there is one.
+static bool DeltaTableExistsAt(ClientContext &context, const string &path) {
+	auto &fs = FileSystem::GetFileSystem(context);
+	auto log_path = Path::FromString(path).Join("_delta_log");
+	if (Path::FromString(path).IsLocal()) {
+		return fs.DirectoryExists(log_path.ToString());
+	}
+	// An object store has no directories, and S3's DirectoryExists answers true for every prefix, so
+	// judge by content instead, as kernel does: any file under the log, a staged commit in `_commits`
+	// included, means the table is there.
+	return !fs.Glob(log_path.Join("**").ToString()).empty();
+}
+
+//! Applies DuckDB's CREATE conflict semantics ahead of the kernel call. Kernel remains the
+//! authoritative existence check; this only decides what DuckDB should do when the table is already
+//! there. Returns false when the statement should be skipped entirely.
+static bool HandleCreateConflict(ClientContext &context, const CreateTableInfo &base, const string &path) {
+	if (base.on_conflict == OnCreateConflict::REPLACE_ON_CONFLICT) {
+		// Replacing means dropping, and Delta tables do not support dropping yet.
+		throw NotImplementedException("Delta tables do not support CREATE OR REPLACE TABLE");
+	}
+	if (base.on_conflict != OnCreateConflict::IGNORE_ON_CONFLICT) {
+		return true;
+	}
+
+	return !DeltaTableExistsAt(context, path);
+}
+
+//! Kernel rejects a table location that does not exist. Object stores conjure prefixes on write, but
+//! a local filesystem needs the directory to be there first.
+static void EnsureTableDirectory(ClientContext &context, const string &path) {
+	if (!Path::FromString(path).IsLocal()) {
+		return;
+	}
+	auto &fs = FileSystem::GetFileSystem(context);
+	if (!fs.DirectoryExists(path)) {
+		fs.CreateDirectoriesRecursive(path);
+	}
+}
+
+static vector<string> GetCreateTablePartitionColumns(const CreateTableInfo &base) {
+	vector<string> result;
+	for (auto &key : base.partition_keys) {
+		if (key->GetExpressionClass() != ExpressionClass::COLUMN_REF) {
+			throw BinderException("Delta CREATE TABLE only supports plain column names in PARTITIONED BY, found '%s'",
+			                      key->ToString());
+		}
+		auto &colref = key->Cast<ColumnRefExpression>();
+		if (colref.IsQualified()) {
+			throw BinderException("Delta CREATE TABLE does not support qualified partition columns ('%s')",
+			                      key->ToString());
+		}
+		result.push_back(colref.GetColumnName().GetIdentifierName());
+	}
+	return result;
+}
+
 optional_ptr<CatalogEntry> DeltaSchemaEntry::CreateTable(CatalogTransaction transaction, BoundCreateTableInfo &info) {
-	throw BinderException("Delta tables do not support creating tables");
+	if (!transaction.HasContext()) {
+		throw NotImplementedException("Can not create a Delta table without context");
+	}
+	auto &context = transaction.GetContext();
+	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
+	auto &base = info.Base();
+
+	if (delta_catalog.access_mode == AccessMode::READ_ONLY) {
+		throw InvalidInputException("Can not create a table in a read only Delta catalog");
+	}
+
+	// LookupEntry only ever resolves the single attached table, so any other name would create a
+	// table that could never be read back.
+	auto table_name = base.GetTableName().GetIdentifierName();
+	if (table_name != catalog.GetName() && table_name != delta_catalog.internal_table_name) {
+		throw NotImplementedException("Delta CREATE TABLE must use the attached name ('%s'), found '%s'",
+		                              catalog.GetName().GetIdentifierName(), table_name);
+	}
+	// SORTED BY is rejected by DeltaCatalog::SupportsCreateTable, which the binder consults first.
+	for (auto &constraint : base.constraints) {
+		// Delta requires columns to be nullable unless the `invariants` writer feature is enabled,
+		// which we do not request yet.
+		if (constraint->type == ConstraintType::NOT_NULL) {
+			throw NotImplementedException("Delta CREATE TABLE does not support NOT NULL constraints");
+		}
+		throw NotImplementedException("Delta CREATE TABLE does not support constraints");
+	}
+
+	auto binder = Binder::CreateBinder(context);
+	TableFunctionBinder option_binder(*binder, context, "CREATE TABLE", "Table option");
+	auto path = GetCreateTablePath(context, option_binder, base, delta_catalog);
+	auto partition_columns = GetCreateTablePartitionColumns(base);
+	auto table_properties = GetCreateTableProperties(context, option_binder, base);
+	ThrowIfColumnMappingUnwritable(base, partition_columns, table_properties);
+
+	// After the options are read, so that a bad option fails even where IF NOT EXISTS makes the
+	// statement a no-op: embedded SQL should not carry a typo until the day the table is gone.
+	if (!HandleCreateConflict(context, base, path)) {
+		return nullptr;
+	}
+
+	EnsureTableDirectory(context, path);
+	auto engine = CreateDeltaEngine(context, path);
+
+	// The builder holds a borrowed pointer to `schema_builder`, and kernel runs the visitor during
+	// get_create_table_builder -- both must outlive that call.
+	DeltaSchemaBuilder schema_builder(base.columns);
+	auto engine_schema = schema_builder.CreateEngineSchema();
+
+	ffi::ExclusiveCreateTableBuilder *create_builder;
+	auto builder_res =
+	    KernelUtils::TryUnpackResult(ffi::get_create_table_builder(KernelUtils::ToDeltaString(path), &engine_schema,
+	                                                               KernelUtils::ToDeltaString("DuckDB"), engine.get()),
+	                                 create_builder);
+	if (builder_res.HasError()) {
+		// A schema-lowering failure surfaces from kernel as a generic schema error; the specific
+		// cause (e.g. an unsupported column type) is only on the builder.
+		if (schema_builder.GetError().HasError()) {
+			schema_builder.GetError().Throw();
+		}
+		builder_res.Throw();
+	}
+
+	if (!partition_columns.empty()) {
+		vector<ffi::KernelStringSlice> slices;
+		for (auto &partition_column : partition_columns) {
+			slices.push_back(KernelUtils::ToDeltaString(partition_column));
+		}
+		// Consumes the builder handle unconditionally, including on error.
+		auto partition_res =
+		    KernelUtils::TryUnpackResult(ffi::create_table_builder_with_partition_columns(create_builder, slices.data(),
+		                                                                                  slices.size(), engine.get()),
+		                                 create_builder);
+		if (partition_res.HasError()) {
+			partition_res.Throw();
+		}
+	}
+
+	for (auto &property : table_properties) {
+		// Consumes the builder handle unconditionally, including on error.
+		auto property_res = KernelUtils::TryUnpackResult(
+		    ffi::create_table_builder_with_table_property(create_builder, KernelUtils::ToDeltaString(property.first),
+		                                                  KernelUtils::ToDeltaString(property.second), engine.get()),
+		    create_builder);
+		if (property_res.HasError()) {
+			property_res.Throw();
+		}
+	}
+
+	// A catalog-managed table's version 0 goes through the catalog's committer, as every commit after it
+	// does: kernel refuses to create one through the filesystem committer. Kernel writes version 0 itself
+	// and leaves the table unregistered, so whoever staged it finishes the registration.
+	ffi::ExclusiveCreateTransaction *create_transaction;
+	auto build_res =
+	    delta_catalog.parent_commit
+	        ? KernelUtils::TryUnpackResult(
+	              ffi::create_table_builder_build_with_committer(
+	                  create_builder, GetDeltaTransaction(transaction).CreateCatalogCommitter(path), engine.get()),
+	              create_transaction)
+	        : KernelUtils::TryUnpackResult(ffi::create_table_builder_build(create_builder, engine.get()),
+	                                       create_transaction);
+	if (build_res.HasError()) {
+		build_res.Throw();
+	}
+
+	ffi::ExclusiveCommittedTransaction *committed;
+	auto commit_res =
+	    KernelUtils::TryUnpackResult(ffi::create_table_commit(create_transaction, engine.get()), committed);
+	if (commit_res.HasError()) {
+		commit_res.Throw();
+	}
+	auto version = ffi::committed_transaction_version(&committed);
+	ffi::free_committed_transaction(committed);
+	DUCKDB_LOG_INTERNAL(context, "delta.CreateTable", LogLevel::LOG_DEBUG, "Created %s at version %s", path,
+	                    to_string(version));
+
+	if (delta_catalog.parent_commit) {
+		// A CMT cannot be read from storage until the catalog knows its commits, and the catalog learns about this once
+		// it's registered; thus, there is nothing to serve here; that caller's own catalog answers the next lookup.
+		return nullptr;
+	}
+
+	// Serve the table we just committed through the regular lookup path, so the schema cache and the
+	// transaction's entry end up in the same state as for a table that already existed. Reading it back
+	// also means the catalog serves the new snapshot without a re-attach.
+	EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, QualifiedName(base.GetTableName()));
+	return LookupEntry(transaction, lookup_info);
 }
 
 optional_ptr<CatalogEntry> DeltaSchemaEntry::CreateFunction(CatalogTransaction transaction, CreateFunctionInfo &info) {
@@ -53,10 +342,10 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::CreateFunction(CatalogTransaction t
 }
 
 void DeltaUnqualifyColumnRef(ParsedExpression &expr) {
-	if (expr.type == ExpressionType::COLUMN_REF) {
+	if (expr.GetExpressionType() == ExpressionType::COLUMN_REF) {
 		auto &colref = expr.Cast<ColumnRefExpression>();
-		auto name = std::move(colref.column_names.back());
-		colref.column_names = {std::move(name)};
+		auto name = std::move(colref.ColumnNamesMutable().back());
+		colref.ColumnNamesMutable() = {std::move(name)};
 		return;
 	}
 	ParsedExpressionIterator::EnumerateChildren(expr, DeltaUnqualifyColumnRef);
@@ -116,8 +405,8 @@ static bool CatalogTypeIsSupported(CatalogType type) {
 	}
 }
 
-unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &context, idx_t version,
-                                                               optional_ptr<const DeltaMultiFileList> old_snapshot) {
+shared_ptr<DeltaMultiFileList> DeltaSchemaEntry::CreateFileList(ClientContext &context, idx_t version,
+                                                                optional_ptr<const DeltaMultiFileList> old_snapshot) {
 	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 	auto snapshot = make_shared_ptr<DeltaMultiFileList>(context, delta_catalog.GetDBPath(), version, old_snapshot);
 
@@ -129,19 +418,56 @@ unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &co
 		snapshot->max_catalog_version = delta_catalog.max_catalog_version;
 	}
 
+	return snapshot;
+}
+
+// req: this.lock must already be owned, since it reads cached_table
+const DeltaMultiFileList &DeltaSchemaEntry::TransactionHead(ClientContext &context, DeltaTransaction &transaction) {
+	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
+	if (!delta_catalog.UseCachedSnapshot()) {
+		// As a plain read does, so later transactions read only the commits after this one
+		if (!cached_table) {
+			cached_table = CreateTableEntry(context, DConstants::INVALID_INDEX, nullptr);
+		}
+	} else if (!delta_catalog.has_specific_timestamp &&
+	           delta_catalog.use_specific_version == DConstants::INVALID_INDEX) {
+		// pin_snapshot: one latest version for every transaction
+		if (!cached_table) {
+			cached_table = CreateTableEntry(context, DConstants::INVALID_INDEX, nullptr);
+		}
+		return *cached_table->snapshot;
+	}
+	optional_ptr<const DeltaMultiFileList> old_snapshot;
+	if (cached_table) {
+		old_snapshot = cached_table->snapshot.get();
+	}
+	return *transaction.InitializeTableEntry(context, *this, DConstants::INVALID_INDEX, old_snapshot).snapshot;
+}
+
+// req: this.lock must already be owned
+idx_t DeltaSchemaEntry::ResolveTimestamp(ClientContext &context, DeltaTransaction &transaction,
+                                         timestamp_tz_t timestamp) {
+	return TransactionHead(context, transaction).ResolveTimestampWithin(context, timestamp);
+}
+
+unique_ptr<DeltaTableEntry> DeltaSchemaEntry::CreateTableEntry(ClientContext &context, idx_t version,
+                                                               optional_ptr<const DeltaMultiFileList> old_snapshot) {
+	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
+	auto snapshot = CreateFileList(context, version, old_snapshot);
+
 	// Get the names and types from the delta snapshot
 	vector<LogicalType> return_types;
-	vector<string> names;
+	vector<Identifier> names;
 	snapshot->Bind(return_types, names);
 
 	// TODO: forward nullability constraints
 
 	CreateTableInfo table_info;
 	for (idx_t i = 0; i < return_types.size(); i++) {
-		table_info.columns.AddColumn(ColumnDefinition(names[i], return_types[i]));
+		table_info.columns.AddColumn(ColumnDefinition(Identifier(names[i]), return_types[i]));
 	}
-	table_info.table =
-	    !delta_catalog.internal_table_name.empty() ? delta_catalog.internal_table_name : catalog.GetName();
+	table_info.SetTableName(!delta_catalog.internal_table_name.empty() ? Identifier(delta_catalog.internal_table_name)
+	                                                                   : catalog.GetName());
 
 	// Copy over constraints to table info TODO: these are incompatible currently
 	// table_info.constraints = snapshot->not_null_constraints;}
@@ -197,12 +523,42 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction tran
 	if (type == CatalogType::TABLE_ENTRY && (name == catalog.GetName() || name == delta_catalog.internal_table_name)) {
 		auto &delta_transaction = GetDeltaTransaction(transaction);
 
+		// An attached timestamp binds to a version on first use; from there it is an attached version.
+		// TODO: bind at ATTACH instead, once ATTACH stops deferring its work -- deferring here means an
+		// unreadable table or an out-of-range timestamp is reported by the first query, not by ATTACH.
+		if (delta_catalog.has_specific_timestamp && delta_catalog.use_specific_version == DConstants::INVALID_INDEX) {
+			unique_lock<mutex> l(lock);
+			if (delta_catalog.use_specific_version == DConstants::INVALID_INDEX) {
+				delta_catalog.use_specific_version =
+				    ResolveTimestamp(context, delta_transaction, delta_catalog.specific_timestamp);
+			}
+		}
+
 		idx_t version = delta_catalog.use_specific_version;
 
-		// If there's an AT clause we are doing timetravel
+		// If there's an AT clause we are doing timetravel. An attached version or timestamp is only the
+		// default, so the AT clause overrides it.
 		auto at_clause = lookup_info.GetAtClause();
 		if (at_clause) {
-			version = ParseDeltaVersionFromAtClause(*at_clause);
+			auto spec = DeltaTimeTravelSpec::FromAtClause(context, *at_clause);
+			if (spec.IsTimestamp()) {
+				auto timestamp = spec.GetTimestamp();
+				auto resolved = delta_transaction.GetTimestampVersion(timestamp);
+				if (resolved.IsValid()) {
+					version = resolved.GetIndex();
+					DUCKDB_LOG_INTERNAL(
+					    context, "delta.TimeTravel", LogLevel::LOG_DEBUG,
+					    "Timestamp %s reuses version %s, resolved earlier in this transaction, for '%s'",
+					    Value::TIMESTAMPTZ(timestamp).ToString(), to_string(version),
+					    DeltaMultiFileList::ToDeltaPath(delta_catalog.GetDBPath()));
+				} else {
+					unique_lock<mutex> l(lock);
+					version = delta_transaction.SetTimestampVersion(
+					    timestamp, ResolveTimestamp(context, delta_transaction, timestamp));
+				}
+			} else {
+				version = spec.GetVersion();
+			}
 		}
 
 		auto transaction_table_entry = delta_transaction.GetTableEntry(version);
@@ -211,10 +567,9 @@ optional_ptr<CatalogEntry> DeltaSchemaEntry::LookupEntry(CatalogTransaction tran
 		}
 
 		// With nothing cached the entry has to come from a snapshot, and kernel refuses to build one
-		// where no table exists. Answer "not found" instead of letting that IO error escape, so the
-		// caller can name what it was looking for, and so enumerating an empty attach lists nothing
-		// rather than throwing. The cost is that a mistyped attach path no longer reports itself:
-		// the error names the table, not the path.
+		// where no table exists. Report that as "not found" instead of letting the IO error escape:
+		// DuckDB looks the table up before CREATE TABLE, so without this no table can ever be created
+		// at a fresh path, and plain catalog enumeration of an empty attach throws too.
 		if (!GetCachedTable() && !DeltaTableExistsAt(context, delta_catalog.GetDBPath())) {
 			return nullptr;
 		}

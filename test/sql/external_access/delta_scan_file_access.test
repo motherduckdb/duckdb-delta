@@ -1,0 +1,20 @@
+# name: test/sql/external_access/delta_scan_file_access.test
+# description: delta_scan checks the file access settings before resolving the table location
+# group: [external_access]
+
+require delta
+
+statement ok
+SET enable_external_access=false;
+
+# a local path that is not allowed: blocked uniformly, before the kernel resolves the location (no existence oracle)
+statement error
+SELECT * FROM delta_scan('/tmp/duckdb_delta_external_access_not_allowed');
+----
+<REGEX>:.*disabled by configuration.*
+
+# a remote URL: blocked before any outbound request is made
+statement error
+SELECT * FROM delta_scan('http://169.254.169.254/latest/meta-data/');
+----
+<REGEX>:.*disabled by configuration.*

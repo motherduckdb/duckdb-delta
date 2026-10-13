@@ -1,5 +1,10 @@
 name: Local functional tests
-on: [push, pull_request,repository_dispatch]
+on:
+  push:
+    branches: [main, "v[12].[0-9]+-[a-zA-Z]*", "features/**"]
+  pull_request:
+  workflow_dispatch: # manual "Run workflow" for any branch (requires write access)
+  repository_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
   cancel-in-progress: true
@@ -7,18 +12,23 @@ defaults:
   run:
     shell: bash
 env:
-  BASE_BRANCH: ${{ github.base_ref || (endsWith(github.ref, '_feature') && 'feature' || 'main') }}
+  BASE_BRANCH: ${{ github.base_ref || (startsWith(github.ref, 'refs/heads/features/') && 'feature' || 'main') }}
   BUILD_EXTENSION_TEST_DEPS: full # NOTE: force checkout/build of httpfs in all builds
   GEN: ninja
-  VCPKG_BINARY_SOURCES: 'clear;http,https://vcpkg-cache.duckdb.org,read'
-  VCPKG_COMMIT_ID: 84bab45d415d22042bd0b9081aea57f362da3f35
+  VCPKG_BINARY_SOURCES: clear;http,https://vcpkg-cache.duckdb.org,read
+  VCPKG_COMMIT_ID: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3 # Release 2026.06.24
   VCPKG_TARGET_TRIPLET: x64-linux # NOTE: only works cuz all linux in this file
   VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+  # sccache caches BOTH C++ (duckdb auto-detects it, CMakeLists.txt NAMES ccache sccache)
+  # and Rust (delta-kernel via RUSTC_WRAPPER); GHA backend is shared across jobs & runs.
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
+  CARGO_INCREMENTAL: 0 # sccache cannot cache incremental compilation
 
 jobs:
   azurite-tests-linux:
     name: Azurite (local azure test server) tests (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
     env:
       ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
 
@@ -28,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: 'true'
+          submodules: true
 
       - &ninja
         name: Install Ninja
@@ -37,12 +47,11 @@ jobs:
       - &python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: 3.12
 
-      - &ccache
-        uses: hendrikmuhs/ccache-action@main
-        with:
-          key: ${{ github.job }}
+      - &sccache
+        name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - &vcpkg
         uses: lukka/run-vcpkg@v11.1
@@ -55,22 +64,24 @@ jobs:
       - &openssl_rust_context
         name: Handle OpenSSL dependency for rust build
         run: |
-          echo "OPENSSL_ROOT_DIR=`pwd`/build/release/vcpkg_installed/x64-linux" >> $GITHUB_ENV
-          echo "OPENSSL_DIR=`pwd`/build/release/vcpkg_installed/x64-linux" >> $GITHUB_ENV
-          echo "OPENSSL_USE_STATIC_LIBS=true" >> $GITHUB_ENV
+          cat >> "$GITHUB_ENV" <<EOF
+          OPENSSL_ROOT_DIR="$PWD/build/release/vcpkg_installed/x64-linux"
+          OPENSSL_DIR="$PWD/build/release/vcpkg_installed/x64-linux"
+          OPENSSL_USE_STATIC_LIBS=true
+          EOF
 
       - uses: actions/setup-node@v4
       - name: install Azure test service
         run: |
           npm install -g azurite
-          sudo apt-get install -y azure-cli 
+          sudo apt-get install -y azure-cli
 
       - run: make release
 
       - name: Launch & populate Azure test service
         run: |
           # skipApiVersionCheck -- see https://learn.microsoft.com/en-us/rest/api/storageservices/versioning-for-the-azure-storage-services
-          azurite --skipApiVersionCheck > azurite_log.txt 2>&1 &
+          azurite --skipApiVersionCheck --blobPort 28000 --queuePort 28001 --tablePort 28002 > azurite_log.txt 2>&1 &
           sleep 10
           ./scripts/upload_test_files_to_azurite.sh
 
@@ -84,16 +95,13 @@ jobs:
 
   s3-tests-linux:
     name: S3 (local RustFS test server) tests (Linux)
-    runs-on: ubuntu-latest
-    env:
-      # The runner skips any file whose error mentions HTTP; here the server is local, so fail instead.
-      DUCKDB_TEST_SKIP_ERROR_MESSAGES: "[]"
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
 
     steps:
       - *checkout
       - *python
       - *ninja
-      - *ccache
+      - *sccache
       - *vcpkg
       - *rust
       - *openssl_rust_context
@@ -110,12 +118,12 @@ jobs:
 
   generated-tests-linux:
     name: Generated Tests (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
     steps:
       - *checkout
       - *ninja
       - *python
-      - *ccache
+      - *sccache
       - *vcpkg
       - *rust
       - *openssl_rust_context
@@ -126,16 +134,16 @@ jobs:
 
   regression-test-benchmark-runner:
     name: Performance Regression Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
     env:
       BUILD_BENCHMARK: 1
-    if: github.event_name == 'skip' # FIXME: @benfleis - disabling to unblock v1.5 progress - https://github.com/duckdblabs/duckdb-internal/issues/7233
+    if: false # FIXME: @benfleis - disabling to unblock v1.5 progress - https://github.com/duckdblabs/duckdb-internal/issues/7233
 
     steps:
       - *checkout
       - *ninja
       - *python
-      - *ccache
+      - *sccache
       - *vcpkg
       - *rust
       - *openssl_rust_context
@@ -146,7 +154,7 @@ jobs:
           rm -rf build/release/rust
 
       - name: Build ${{ env.BASE_BRANCH }} branch
-        run: | 
+        run: |
           git clone --branch ${{ env.BASE_BRANCH }} https://github.com/duckdb/duckdb-delta.git --depth=1 
           cd duckdb-delta
           git submodule update --init --recursive

@@ -59,7 +59,7 @@ void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileO
 	// create a map of name -> column index
 	auto &local_columns = reader_data.reader->GetColumns();
 	auto &filename = reader_data.reader->GetFileName();
-	case_insensitive_map_t<idx_t> name_map;
+	identifier_map_t<idx_t> name_map;
 	if (file_options.union_by_name) {
 		for (idx_t col_idx = 0; col_idx < local_columns.size(); col_idx++) {
 			auto &column = local_columns[col_idx];
@@ -107,7 +107,7 @@ void FinalizeBindBaseOverride(MultiFileReaderData &reader_data, const MultiFileO
 	}
 }
 
-unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunction &table_function) {
+unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const BoundTableFunction &table_function) {
 	auto result = make_uniq<DeltaMultiFileReader>();
 
 	if (table_function.function_info) {
@@ -118,7 +118,7 @@ unique_ptr<MultiFileReader> DeltaMultiFileReader::CreateInstance(const TableFunc
 }
 
 bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files, vector<LogicalType> &return_types,
-                                vector<string> &names, MultiFileReaderBindData &bind_data) {
+                                vector<Identifier> &names, MultiFileReaderBindData &bind_data) {
 	auto &delta_snapshot = dynamic_cast<DeltaMultiFileList &>(files);
 
 	// MultiFileBind constructs the file list before parsing named parameters, so the scan-time
@@ -128,8 +128,8 @@ bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
 	// These mirror the ATTACH options set in delta_schema_entry.cpp, so a scan and an attach of the
 	// same table read identically.
 	if (!snapshot) {
-		if (requested_version != DConstants::INVALID_INDEX) {
-			delta_snapshot.PinVersion(requested_version);
+		if (!requested.IsLatest()) {
+			delta_snapshot.Pin(requested);
 		}
 		auto log_tail_setting = options.custom_options.find("log_tail");
 		if (log_tail_setting != options.custom_options.end()) {
@@ -147,22 +147,28 @@ bool DeltaMultiFileReader::Bind(MultiFileOptions &options, MultiFileList &files,
 }
 
 void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList &files,
-                                       vector<LogicalType> &return_types, vector<string> &names,
+                                       vector<LogicalType> &return_types, vector<Identifier> &names,
                                        MultiFileReaderBindData &bind_data) {
 	// Disable all other multifilereader options
 	options.auto_detect_hive_partitioning = false;
 	options.hive_partitioning = false;
 	options.union_by_name = false;
 
-	// Before core appends the generated filename column (filename=true; not the virtual one): core fills that
-	// column per file as a constant and never looks it up, and the field-id mapper wants an identifier on every
-	// column it is handed.
-	bind_data.schema = DeltaMultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, return_types);
-	for (auto &col : bind_data.schema) {
-		col.default_expression = make_uniq<ConstantExpression>(Value(col.type));
-	}
+	// Core appends its generated columns (filename=true, file_row_number=true -- not the virtual ones) after
+	// the table's own, so remember where the table's columns end before calling it.
+	const auto table_columns = names.size();
 
 	MultiFileReader::BindOptions(options, files, return_types, names, bind_data);
+
+	// This schema *is* the global column list a scan resolves ids against (multi_file_function.hpp: a reader's
+	// schema wins over the bind's own columns), so the generated columns belong in it or their ids strand.
+	// Only the table's own columns take a default expression -- it is what gives the field-id mapper an
+	// identifier to work from, while a generated column carrying one is never filled and reads back NULL.
+	bind_data.schema = DeltaMultiFileColumnDefinition::ColumnsFromNamesAndTypes(names, return_types);
+	for (idx_t i = 0; i < table_columns; i++) {
+		auto &col = bind_data.schema[i];
+		col.default_expression = ConstantExpression::FromValue(Value(col.type));
+	}
 
 	// We abuse the hive_partitioning_indexes to forward partitioning information to DuckDB
 	// TODO: we should clean up this API: hive_partitioning_indexes is confusingly named here. We should make this
@@ -174,8 +180,8 @@ void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList 
 		auto partitions = snapshot.GetPartitionColumns();
 		for (auto &part : partitions) {
 			idx_t hive_partitioning_index;
-			auto lookup = std::find_if(names.begin(), names.end(),
-			                           [&](const string &col_name) { return StringUtil::CIEquals(col_name, part); });
+			auto lookup =
+			    std::find_if(names.begin(), names.end(), [&](const Identifier &col_name) { return col_name == part; });
 			if (lookup != names.end()) {
 				// hive partitioning column also exists in file - override
 				auto idx = NumericCast<idx_t>(lookup - names.begin());
@@ -184,8 +190,32 @@ void DeltaMultiFileReader::BindOptions(MultiFileOptions &options, MultiFileList 
 				throw IOException("Delta Snapshot returned partition column that is not present in the schema");
 			}
 			bind_data.hive_partitioning_indexes.emplace_back(part, hive_partitioning_index);
+			// Register the partition column's type so pre-open filter skipping resolves the partition value as the
+			// column type instead of defaulting to VARCHAR (which crashes typed ExpressionFilter evaluation).
+			options.hive_types_schema[part] = return_types[hive_partitioning_index];
 		}
 	}
+}
+
+static bool IsNaiveTimestamp(const LogicalType &type) {
+	return type.id() == LogicalTypeId::TIMESTAMP || type.id() == LogicalTypeId::TIMESTAMP_NS;
+}
+
+// A Delta `timestamp` is a UTC instant whatever its parquet type (Delta's PROTOCOL.md, Primitive Types), so a value
+// without the UTC flag, such as Spark's INT96, is reinterpreted, never converted through the session time zone. Inside
+// a struct, list or map the whole nested value takes the built-in casts.
+static void CastNaiveTimestampsAsUtc(unique_ptr<Expression> &expr) {
+	if (BoundCastExpression::IsCast(*expr)) {
+		auto &cast = expr->Cast<BoundFunctionExpression>();
+		auto target = BoundCastExpression::TargetType(cast);
+		if (TypeVisitor::Contains(BoundCastExpression::SourceType(cast), IsNaiveTimestamp) &&
+		    TypeVisitor::Contains(target, LogicalTypeId::TIMESTAMP_TZ)) {
+			expr = BoundCastExpression::AddDefaultCastToType(std::move(BoundCastExpression::ChildMutable(cast)), target,
+			                                                 BoundCastExpression::IsTryCast(cast));
+		}
+	}
+	ExpressionIterator::EnumerateChildren(*expr,
+	                                      [](unique_ptr<Expression> &child) { CastNaiveTimestampsAsUtc(child); });
 }
 
 enum class DeltaColumnMappingPolicy { STRICT, LENIENT };
@@ -236,26 +266,6 @@ ResolveFileWithoutFieldIds(ClientContext &context, const vector<DeltaMultiFileCo
 	                            filename);
 }
 
-static bool IsNaiveTimestamp(const LogicalType &type) {
-	return type.id() == LogicalTypeId::TIMESTAMP || type.id() == LogicalTypeId::TIMESTAMP_NS;
-}
-
-// A Delta `timestamp` is a UTC instant whatever its parquet type (Delta's PROTOCOL.md, Primitive Types), so a value
-// without the UTC flag, such as Spark's INT96, is reinterpreted, never converted through the session time zone. Inside
-// a struct, list or map the whole nested value takes the built-in casts.
-static void CastNaiveTimestampsAsUtc(unique_ptr<Expression> &expr) {
-	if (expr->GetExpressionClass() == ExpressionClass::BOUND_CAST) {
-		auto &cast = expr->Cast<BoundCastExpression>();
-		auto target = cast.return_type;
-		if (TypeVisitor::Contains(cast.child->return_type, IsNaiveTimestamp) &&
-		    TypeVisitor::Contains(target, LogicalTypeId::TIMESTAMP_TZ)) {
-			expr = BoundCastExpression::AddDefaultCastToType(std::move(cast.child), target, cast.try_cast);
-		}
-	}
-	ExpressionIterator::EnumerateChildren(*expr,
-	                                      [](unique_ptr<Expression> &child) { CastNaiveTimestampsAsUtc(child); });
-}
-
 ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData &reader_data,
                                                             const MultiFileBindData &bind_data,
                                                             const vector<MultiFileColumnDefinition> &global_columns,
@@ -269,12 +279,35 @@ ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData 
 
 	auto &scan_columns = snapshot.GetLazyLoadedGlobalColumns();
 
-	// We need to override the global columns, because only now we have the correct column mapping information
-	D_ASSERT(scan_columns.size() == global_columns.size());
-	auto overridden_global_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
+	// The kernel's column mapping information only exists now, so overlay it onto the columns the bind
+	// produced rather than replacing them: the tail holds core's generated columns, and a requested id indexes
+	// the whole list.
+	D_ASSERT(scan_columns.size() <= global_columns.size());
+	auto overridden_global_columns = global_columns;
+	auto kernel_columns = DeltaMultiFileColumnDefinition::ConvertToBase(scan_columns);
+	for (idx_t i = 0; i < kernel_columns.size(); i++) {
+		overridden_global_columns[i] = std::move(kernel_columns[i]);
+	}
 
-	FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, overridden_global_columns,
-	             global_column_ids, context, global_state);
+	// file_row_number is not a column of the file: it comes from the reader's row-number virtual column, which
+	// core arranges by rewriting the id before it maps. This override has to do the same.
+	auto column_ids = global_column_ids;
+	auto &file_row_number_idx = bind_data.reader_bind.file_row_number_idx;
+	if (file_row_number_idx.IsValid()) {
+		for (auto &column_id : column_ids) {
+			if (column_id.GetPrimaryIndex() == file_row_number_idx.GetIndex()) {
+				column_id = ColumnIndex(MultiFileReader::COLUMN_IDENTIFIER_FILE_ROW_NUMBER);
+			}
+		}
+	}
+
+	FinalizeBind(reader_data, bind_data.file_options, bind_data.reader_bind, overridden_global_columns, column_ids,
+	             context, global_state);
+
+	// The mapper only resolves the table's own columns -- core serves filename from the constant map and
+	// file_row_number from the virtual column above -- and in id mode it asserts a field id on every column.
+	overridden_global_columns.erase(overridden_global_columns.begin() + NumericCast<ptrdiff_t>(scan_columns.size()),
+	                                overridden_global_columns.end());
 
 	// Only `id` mode needs the field-id mapper; the name mapper takes a physical-name identifier and an unset
 	// one alike.
@@ -293,13 +326,13 @@ ReaderInitializeType DeltaMultiFileReader::InitializeReader(MultiFileReaderData 
 		}
 	}
 
-	auto result = CreateMapping(context, reader_data, overridden_global_columns, global_column_ids, table_filters,
+	auto result = CreateMapping(context, reader_data, overridden_global_columns, column_ids, table_filters,
 	                            gstate.file_list, bind_data.reader_bind, bind_data.virtual_columns, mapping_mode);
 	for (auto &expr : reader_data.expressions) {
 		CastNaiveTimestampsAsUtc(expr);
 	}
 	for (auto &entry : reader_data.reader->expression_map) {
-		CastNaiveTimestampsAsUtc(entry.second);
+		CastNaiveTimestampsAsUtc(entry.second.expression);
 	}
 	return result;
 }
@@ -385,32 +418,42 @@ void DeltaMultiFileReader::FinalizeChunk(ClientContext &context, const MultiFile
 	D_ASSERT(delta_global_state.file_list);
 };
 
-bool DeltaMultiFileReader::ParseOption(const string &key, const Value &val, MultiFileOptions &options,
+bool DeltaMultiFileReader::ParseOption(const Identifier &key, const Value &val, MultiFileOptions &options,
                                        ClientContext &context) {
-	auto loption = StringUtil::Lower(key);
-
-	if (loption == "pushdown_partition_info") {
+	if (key == "pushdown_partition_info") {
 		options.custom_options["pushdown_partition_info"] = val;
 		return true;
 	}
 
-	if (loption == "log_tail") {
-		options.custom_options["log_tail"] = val;
-		return true;
-	}
-
 	// We need to capture this one to know whether to emit
-	if (loption == "pushdown_filters") {
+	if (key == "pushdown_filters") {
 		options.custom_options["pushdown_filters"] = val;
 		return true;
 	}
 
-	if (loption == "version") {
-		requested_version = val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>();
+	if (key == "version") {
+		if (!requested.IsLatest()) {
+			throw InvalidInputException("delta_scan: 'version' and 'timestamp' are mutually exclusive");
+		}
+		requested = DeltaTimeTravelSpec::FromVersion(val.DefaultCastAs(LogicalType::UBIGINT).GetValue<idx_t>());
 		return true;
 	}
 
-	if (loption == "max_catalog_version") {
+	if (key == "timestamp") {
+		if (!requested.IsLatest()) {
+			throw InvalidInputException("delta_scan: 'version' and 'timestamp' are mutually exclusive");
+		}
+		requested = DeltaTimeTravelSpec::FromTimestamp(
+		    val.CastAs(context, LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>());
+		return true;
+	}
+
+	if (key == "log_tail") {
+		options.custom_options["log_tail"] = val;
+		return true;
+	}
+
+	if (key == "max_catalog_version") {
 		options.custom_options["max_catalog_version"] = val;
 		return true;
 	}

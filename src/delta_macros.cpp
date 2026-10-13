@@ -6,6 +6,7 @@
 #include "duckdb/function/table_macro_function.hpp"
 #include "duckdb/parser/parser.hpp"
 #include "duckdb/parser/parsed_data/create_macro_info.hpp"
+#include "duckdb/parser/expression/columnref_expression.hpp"
 
 namespace duckdb {
 
@@ -51,23 +52,24 @@ static constexpr auto FILE_COPY_MACRO = R"(
 
 void DeltaMacros::RegisterTableMacro(ExtensionLoader &loader, const string &name, const string &query,
                                      const vector<string> &params, const child_list_t<Value> &named_params) {
-	Parser parser;
+	auto parser = Parser::GetBuiltinParser();
 	parser.ParseQuery(query);
 	const auto &stmt = parser.statements.back();
 	auto &node = stmt->Cast<SelectStatement>().node;
 
 	auto func = make_uniq<TableMacroFunction>(std::move(node));
 	for (auto &param : params) {
-		func->parameters.push_back(make_uniq<ColumnRefExpression>(param));
+		func->parameters.push_back(make_uniq<ColumnRefExpression>(Identifier(param)));
 	}
 
 	for (auto &param : named_params) {
-		func->default_parameters[param.first] = make_uniq<ConstantExpression>(param.second);
+		func->default_parameters[Identifier(param.first)] = ConstantExpression::FromValue(param.second);
 	}
 
 	CreateMacroInfo info(CatalogType::TABLE_MACRO_ENTRY);
-	info.schema = DEFAULT_SCHEMA;
-	info.name = name;
+	info.SetQualifiedName(
+	    QualifiedName(info.GetQualifiedName().Catalog(), Identifier::DefaultSchema(), info.GetQualifiedName().Name()));
+	info.SetFunctionName(Identifier(name));
 	info.temporary = true;
 	info.internal = true;
 	info.macros.push_back(std::move(func));
@@ -76,11 +78,9 @@ void DeltaMacros::RegisterTableMacro(ExtensionLoader &loader, const string &name
 }
 
 static DefaultMacro delta_macros[] = {
-    {DEFAULT_SCHEMA,
-     "parse_delta_filter_logline",
-     {"x", nullptr},
-     {{nullptr, nullptr}},
-     "x::STRUCT(path VARCHAR, type VARCHAR, filters_before VARCHAR[], filters_after VARCHAR[], files_before BIGINT, "
+    {DEFAULT_SCHEMA, "parse_delta_filter_logline",
+     "(x) AS x::STRUCT(path VARCHAR, type VARCHAR, filters_before VARCHAR[], filters_after VARCHAR[], files_before "
+     "BIGINT, "
      "files_after BIGINT)"},
 };
 

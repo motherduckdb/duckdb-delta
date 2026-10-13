@@ -2,8 +2,10 @@
 
 #include "duckdb/common/sorting/hashed_sort.hpp"
 #include "duckdb/common/path.hpp"
+#include "duckdb/common/type_visitor.hpp"
 
 #include "duckdb/catalog/catalog_entry_retriever.hpp"
+#include "duckdb/execution/physical_plan_generator.hpp"
 #include "duckdb/catalog/catalog_entry/copy_function_catalog_entry.hpp"
 #include "duckdb/main/client_data.hpp"
 #include "duckdb/planner/operator/logical_copy_to_file.hpp"
@@ -140,11 +142,19 @@ static DeltaColumnStats ParseColumnStats(const vector<Value> col_stats) {
 			D_ASSERT(!column_stats.has_num_values);
 			column_stats.has_num_values = true;
 			column_stats.num_values = StringUtil::ToUnsigned(stats_value);
+		} else if (stats_name == "min_is_exact" || stats_name == "max_is_exact") {
+			// Parquet reports these false only for strings cut off at the writer's stats size limit, which
+			// PROTOCOL.md (Per-file Statistics, note 1) keeps inside tightBounds=true -- bounds stay tight.
+			// Thus accept and drop.
+			continue;
+		} else if (stats_name == "nan_count") {
+			// `has_nan` beside it carries everything Delta records about NaN, so the count is dropped.
+			continue;
 		} else if (stats_name == "variant_type") {
 			//! Should be handled elsewhere
 			continue;
 		} else {
-			throw NotImplementedException("Unsupported stats type \"%s\" in DuckLakeInsert::Sink()", stats_name);
+			throw NotImplementedException("Unsupported stats type \"%s\" in DeltaInsert::Sink()", stats_name);
 		}
 	}
 	return column_stats;
@@ -203,11 +213,11 @@ static void AddWrittenFiles(DeltaInsertGlobalState &global_state, DataChunk &chu
 			LogicalType coltype;
 			string logical_name;
 			for (auto &col : global_state.columns) {
-				const auto &written_name = col.physical_name.empty() ? col.name : col.physical_name;
+				const auto &written_name = col.physical_name.empty() ? col.name.GetIdentifierName() : col.physical_name;
 				if (written_name == column_names[0]) {
 					found = true;
 					coltype = col.type;
-					logical_name = col.name;
+					logical_name = col.name.GetIdentifierName();
 					break;
 				}
 			}
@@ -262,7 +272,6 @@ static void AddWrittenFiles(DeltaInsertGlobalState &global_state, DataChunk &chu
 				// hold for STRING columns, where "" is itself a legal value.
 				if (!struct_children[1].IsNull()) {
 					file_partition_info.partition_value = StringValue::Get(struct_children[1]);
-					file_partition_info.has_partition_value = true;
 				}
 				data_file.partition_values.push_back(std::move(file_partition_info));
 			}
@@ -321,7 +330,7 @@ string DeltaInsert::GetName() const {
 
 InsertionOrderPreservingMap<string> DeltaInsert::ParamsToString() const {
 	InsertionOrderPreservingMap<string> result;
-	result["Table Name"] = table ? table->name : info->Base().table;
+	result["Table Name"] = table ? table->name.GetIdentifierName() : info->Base().GetTableName().GetIdentifierName();
 	return result;
 }
 
@@ -332,8 +341,8 @@ static optional_ptr<CopyFunctionCatalogEntry> TryGetCopyFunction(DatabaseInstanc
 	D_ASSERT(!name.empty());
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 	auto data = CatalogTransaction::GetSystemTransaction(db);
-	auto &schema = system_catalog.GetSchema(data, DEFAULT_SCHEMA);
-	return schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, name)->Cast<CopyFunctionCatalogEntry>();
+	auto &schema = system_catalog.GetSchema(data, Identifier::DefaultSchema());
+	return schema.GetEntry(data, CatalogType::COPY_FUNCTION_ENTRY, Identifier(name))->Cast<CopyFunctionCatalogEntry>();
 }
 
 namespace {
@@ -361,10 +370,10 @@ struct DeltaStringWidthCheckData : public FunctionData {
 //! Reject rather than truncate: Spark re-checks the width on every rewrite, so a truncating write would trade silent
 //! data loss for a table the reference writer later refuses.
 void DeltaStringWidthCheck(DataChunk &args, ExpressionState &state, Vector &result) {
-	auto &info = state.expr.Cast<BoundFunctionExpression>().bind_info->Cast<DeltaStringWidthCheckData>();
+	auto &info = state.expr.Cast<BoundFunctionExpression>().BindInfo()->Cast<DeltaStringWidthCheckData>();
 
 	UnifiedVectorFormat input;
-	args.data[0].ToUnifiedFormat(args.size(), input);
+	args.data[0].ToUnifiedFormat(input);
 	auto strings = UnifiedVectorFormat::GetData<string_t>(input);
 	for (idx_t i = 0; i < args.size(); i++) {
 		auto idx = input.sel->get_index(i);
@@ -426,14 +435,14 @@ static PhysicalOperator &PlanInsertProjection(PhysicalPlanGenerator &planner, Ph
 			        : StringUtil::Format("declares the width %s on a nested field", width_bound.declared_type);
 			throw NotImplementedException("Delta column \"%s\" %s, which duckdb-delta cannot enforce on write yet. "
 			                              "Refusing the write rather than committing values Spark would reject.",
-			                              column.Name(), declared);
+			                              column.Name().GetIdentifierName(), declared);
 		}
 
 		vector<unique_ptr<Expression>> check_children;
 		check_children.push_back(std::move(expressions[width_bound.column_index]));
 		expressions[width_bound.column_index] = make_uniq<BoundFunctionExpression>(
-		    LogicalType::VARCHAR, GetStringWidthCheckFunction(), std::move(check_children),
-		    make_uniq<DeltaStringWidthCheckData>(column.Name(), width_bound.declared_type,
+		    BoundScalarFunction(GetStringWidthCheckFunction()), std::move(check_children),
+		    make_uniq<DeltaStringWidthCheckData>(column.Name().GetIdentifierName(), width_bound.declared_type,
 		                                         width_bound.max_length.GetIndex()));
 	}
 
@@ -455,7 +464,7 @@ static void ApplyColumnMappingToWriteSchema(DeltaTableEntry &table_entry, CopyIn
 	unordered_map<string, const_reference<DeltaMultiFileColumnDefinition>> by_logical_name;
 	bool mapped = false;
 	for (auto &col : schema) {
-		by_logical_name.emplace(col.name, col);
+		by_logical_name.emplace(col.name.GetIdentifierName(), col);
 		mapped |= col.IsColumnMapped();
 	}
 	if (!mapped) {
@@ -470,7 +479,7 @@ static void ApplyColumnMappingToWriteSchema(DeltaTableEntry &table_entry, CopyIn
 		auto entry = by_logical_name.find(name);
 		if (entry == by_logical_name.end()) {
 			throw InternalException("Delta column \"%s\" is missing from the write schema of table %s", name,
-			                        table_entry.name);
+			                        table_entry.name.GetIdentifierName());
 		}
 		auto &col = entry->second.get();
 		if (!col.physical_name.empty()) {
@@ -504,7 +513,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 		// In child catalog mode, the LogicalInsert will not actually contain the table entry, so we need to look it up
 		// here
 		CatalogEntryRetriever retriever(context);
-		EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, default_table);
+		EntryLookupInfo lookup_info(CatalogType::TABLE_ENTRY, Identifier(default_table));
 		auto default_table_entry =
 		    LookupEntry(retriever, default_schema, lookup_info, OnEntryNotFound::THROW_EXCEPTION);
 		table_entry = default_table_entry.entry->Cast<DeltaTableEntry>();
@@ -542,15 +551,39 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 
 	// Bind Copy Function
 	auto &columns = table_entry->GetColumns();
+	// The parquet writer writes VARIANT only as a top-level column; name the column instead of passing its error on
+	for (auto &col : columns.Logical()) {
+		auto &type = col.Type();
+		if (type.id() != LogicalTypeId::VARIANT && TypeVisitor::Contains(type, LogicalTypeId::VARIANT)) {
+			throw NotImplementedException("Delta INSERT does not support column '%s' with a VARIANT nested in a %s "
+			                              "yet; only top-level VARIANT columns can be written",
+			                              col.Name().GetIdentifierName(), LogicalTypeIdToString(type.id()));
+		}
+	}
 
 	auto names_to_write = columns.GetColumnNames();
 	auto types_to_write = columns.GetColumnTypes();
 
 	ApplyColumnMappingToWriteSchema(*table_entry, *info, names_to_write);
 
+	// Delta allows shredded VARIANT files only when delta.enableVariantShredding is true; otherwise write unshredded.
+	// A shredding type of 'NULL' tells the parquet writer to leave the column unshredded.
+	if (!table_entry->snapshot->VariantShreddingEnabled()) {
+		child_list_t<Value> shredding;
+		for (idx_t i = 0; i < types_to_write.size(); i++) {
+			if (types_to_write[i].id() == LogicalTypeId::VARIANT) {
+				shredding.emplace_back(names_to_write[i], Value("NULL"));
+			}
+		}
+		if (!shredding.empty()) {
+			info->options["shredding"] = {Value::STRUCT(std::move(shredding))};
+		}
+	}
+
 	CopyFunctionBindInput bind_input(*info);
 
-	auto function_data = copy_fun->function.copy_to_bind(context, bind_input, names_to_write, types_to_write);
+	auto function_data =
+	    copy_fun->function.copy_to_bind(context, bind_input, StringsToIdentifiers(names_to_write), types_to_write);
 
 	auto &insert = planner.Make<DeltaInsert>(op, *table_entry, op.column_index_map);
 
@@ -585,12 +618,11 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 	physical_copy_ref.file_extension = "parquet";
 	physical_copy_ref.overwrite_mode = CopyOverwriteMode::COPY_OVERWRITE_OR_IGNORE;
 	physical_copy_ref.per_thread_output = false;
-	physical_copy_ref.rotate = false;
 	physical_copy_ref.return_type = CopyFunctionReturnType::WRITTEN_FILE_STATISTICS;
 	physical_copy_ref.write_partition_columns = true;
 	physical_copy_ref.children.push_back(
 	    PlanInsertProjection(planner, *plan, columns, table_entry->snapshot->GetStringWidthBounds()));
-	physical_copy_ref.names = names_to_write;
+	physical_copy_ref.names = StringsToIdentifiers(names_to_write);
 	physical_copy_ref.expected_types = types_to_write;
 	physical_copy_ref.hive_file_pattern = true;
 

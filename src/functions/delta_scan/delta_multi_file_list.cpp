@@ -1,9 +1,13 @@
 #include "functions/delta_scan/delta_scan.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
 #include "functions/delta_scan/delta_multi_file_reader.hpp"
+#include "storage/delta_catalog.hpp"
 
 #include "duckdb/common/local_file_system.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/common/operator/cast_operators.hpp"
+#include "duckdb/common/operator/multiply.hpp"
+#include "duckdb/common/types/interval.hpp"
 #include "duckdb/logging/logger.hpp"
 #include "duckdb/function/table_function.hpp"
 #include "duckdb/main/client_data.hpp"
@@ -15,11 +19,13 @@
 #include "duckdb/parser/expression/comparison_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/planner/table_filter.hpp"
+#include "duckdb/transaction/meta_transaction.hpp"
 #include "duckdb/planner/operator/logical_get.hpp"
 #include "duckdb/parser/constraint.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
 
 #include <regex>
+#include <algorithm>
 #include <cstdlib>
 
 #include "duckdb/planner/constraints/bound_not_null_constraint.hpp"
@@ -356,6 +362,16 @@ static ffi::EngineBuilder *CreateBuilder(ClientContext &context, const string &p
 	return builder;
 }
 
+KernelExternEngine CreateDeltaEngine(ClientContext &context, const string &path) {
+	auto interface_builder = CreateBuilder(context, path);
+	ffi::SharedExternEngine *engine;
+	auto res = KernelUtils::TryUnpackResult(ffi::builder_build(interface_builder), engine);
+	if (res.HasError()) {
+		res.Throw();
+	}
+	return KernelExternEngine(engine);
+}
+
 struct KernelPartitionVisitorData {
 	vector<string> partitions;
 	ErrorData err_data;
@@ -368,19 +384,19 @@ static void KernelPartitionStringVisitor(ffi::NullableCvoid engine_context, ffi:
 
 static unordered_map<idx_t, Value> FindPartitionValues(ParsedExpression &transformation,
                                                        const vector<DeltaMultiFileColumnDefinition> &cols) {
-	if (transformation.Cast<FunctionExpression>().function_name != "delta_kernel_transform_expression") {
+	if (transformation.Cast<FunctionExpression>().FunctionName() != "delta_kernel_transform_expression") {
 		throw IOException("Unexpected function of root expression returned by delta kernel: %s",
-		                  transformation.Cast<FunctionExpression>().function_name);
+		                  transformation.Cast<FunctionExpression>().FunctionName());
 	}
 
 	unordered_map<idx_t, Value> res;
 
 	// Iterate the children of the transform
-	for (auto &child : transformation.Cast<FunctionExpression>().children) {
-		auto &transform_op = child->Cast<FunctionExpression>();
-		if (transform_op.function_name != "delta_transform_op") {
+	for (auto &child : transformation.Cast<FunctionExpression>().GetArguments()) {
+		auto &transform_op = child.GetExpression().Cast<FunctionExpression>();
+		if (transform_op.FunctionName() != "delta_transform_op") {
 			throw IOException("Unexpected function for delta_transform_op returned by delta kernel: %s",
-			                  child->Cast<FunctionExpression>().function_name);
+			                  child.GetExpression().Cast<FunctionExpression>().FunctionName());
 		}
 
 		// kind: "prepend" | "field" | "append" (see MakeStructPatchOp in delta_utils.cpp).
@@ -392,11 +408,19 @@ static unordered_map<idx_t, Value> FindPartitionValues(ParsedExpression &transfo
 		bool has_field_name = false;
 		vector<Value> values;
 
-		for (auto &transform_op_child : transform_op.children) {
-			if (transform_op_child->GetExpressionType() == ExpressionType::COMPARE_EQUAL) {
-				auto name =
-				    transform_op_child->Cast<ComparisonExpression>().left->Cast<ColumnRefExpression>().GetName();
-				auto value = transform_op_child->Cast<ComparisonExpression>().right->Cast<ConstantExpression>().value;
+		for (auto &transform_op_child : transform_op.GetArguments()) {
+			if (transform_op_child.GetExpression().GetExpressionType() == ExpressionType::COMPARE_EQUAL) {
+				auto name = transform_op_child.GetExpression()
+				                .Cast<ComparisonExpression>()
+				                .Left()
+				                .Cast<ColumnRefExpression>()
+				                .GetName();
+				auto &comparison = transform_op_child.GetExpression().Cast<ComparisonExpression>();
+				Value value;
+				if (!KernelUtils::TryGetLiteralValue(comparison.Right(), value)) {
+					throw InternalException("Unexpected value for delta_transform_op returned by delta kernel: %s",
+					                        transform_op_child.GetExpression().ToString());
+				}
 
 				if (name == "kind") {
 					kind = value.ToString();
@@ -413,12 +437,14 @@ static unordered_map<idx_t, Value> FindPartitionValues(ParsedExpression &transfo
 					throw InternalException("Unexpected name for delta_transform_op returned by delta kernel: %s",
 					                        name);
 				}
-			} else if (transform_op_child->GetExpressionType() == ExpressionType::VALUE_CONSTANT) {
-				values.push_back(transform_op_child->Cast<ConstantExpression>().value);
 			} else {
-				throw NotImplementedException(
-				    "Unexpected expression for delta_transform_op returned by delta kernel: %s",
-				    transform_op_child->ToString());
+				Value value;
+				if (!KernelUtils::TryGetLiteralValue(transform_op_child.GetExpression(), value)) {
+					throw NotImplementedException(
+					    "Unexpected expression for delta_transform_op returned by delta kernel: %s",
+					    transform_op_child.GetExpression().ToString());
+				}
+				values.push_back(std::move(value));
 			}
 		}
 
@@ -519,12 +545,12 @@ void ScanDataCallBack::VisitCallbackInternal(ffi::NullableCvoid engine_context, 
 		auto transform_partitions =
 		    FindPartitionValues(*(*parsed_transformation_expression)[0], snapshot.global_columns);
 
-		case_insensitive_map_t<Value> constant_map;
+		identifier_map_t<Value> constant_map;
 		for (idx_t i = 0; i < snapshot.partitions.size(); ++i) {
 			const auto &partition_id = context->snapshot.partition_ids[i];
 			const auto &partition_name = context->snapshot.partitions[i];
 
-			constant_map[partition_name] = transform_partitions[partition_id];
+			constant_map[Identifier(partition_name)] = transform_partitions[partition_id];
 		}
 		snapshot.metadata.back()->partition_map = std::move(constant_map);
 		snapshot.metadata.back()->transform_expression =
@@ -566,6 +592,12 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path_p, idx_t version_p,
                                        optional_ptr<const DeltaMultiFileList> previous)
     : SimpleMultiFileList({ToDeltaPath(path_p)}), version(version_p) {
+	// delta-kernel resolves the table location using its own file and HTTP I/O, outside of the file systems of DuckDB,
+	// so check the file access settings here before that happens
+	if (!DBConfig::GetConfig(context_p).CanAccessFile(ToDuckDBPath(path_p), FileType::FILE_TYPE_DIR)) {
+		throw PermissionException("Cannot access \"%s\" - file system operations are disabled by configuration",
+		                          path_p);
+	}
 	unique_lock<mutex> lck(lock);
 
 	if (previous) {
@@ -702,12 +734,12 @@ static bool ExtractHasNullConstraintsInArrays(const vector<DeltaMultiFileColumnD
 	return false;
 }
 
-void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> &names) {
+void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<Identifier> &names) {
 	unique_lock<mutex> lck(lock);
 
 	if (have_bound) {
 		for (const auto &field : global_columns) {
-			names.push_back(field.name);
+			names.push_back(Identifier(field.name));
 			return_types.push_back(field.type);
 		}
 		return;
@@ -723,7 +755,7 @@ void DeltaMultiFileList::Bind(vector<LogicalType> &return_types, vector<string> 
 	}
 
 	for (const auto &field : visited_schema) {
-		names.push_back(field.name);
+		names.push_back(Identifier(field.name));
 		return_types.push_back(field.type);
 	}
 
@@ -791,14 +823,12 @@ OpenFileInfo DeltaMultiFileList::GetFile(idx_t i) const {
 
 // Kernel refuses a catalog-managed table without max_catalog_version -- its newest commit may be
 // catalog-tracked and not yet backfilled. Catch that kernel/API error, and rephrase it for users.
-// NOTE:  Text match, but it cannot rot unnoticed: the builder API this calls is gone post-v0.26, so
-// that bump breaks the build here before the match can go stale.
 ffi::Handle<ffi::SharedSnapshot>
 DeltaMultiFileList::BuildSnapshot(ffi::Handle<ffi::MutableFfiSnapshotBuilder> builder) const {
 	ffi::Handle<ffi::SharedSnapshot> built;
 	auto res = KernelUtils::TryUnpackResult(ffi::snapshot_builder_build(builder), built);
 	if (res.HasError()) {
-		if (StringUtil::Contains(res.RawMessage(), "Catalog-managed table requires max_catalog_version")) {
+		if (KernelUtils::IsMissingMaxCatalogVersion(res)) {
 			throw InvalidInputException(
 			    "Table at '%s' is a catalog-managed Delta table: reading it directly from storage would skip "
 			    "commits that are only tracked by the catalog. Attach the catalog that owns it instead (e.g. "
@@ -811,48 +841,117 @@ DeltaMultiFileList::BuildSnapshot(ffi::Handle<ffi::MutableFfiSnapshotBuilder> bu
 }
 
 // req: this.lock must already be owned
+ffi::Handle<ffi::MutableFfiSnapshotBuilder> DeltaMultiFileList::CreateSnapshotBuilder(ffi::KernelStringSlice path_slice,
+                                                                                      idx_t target_version,
+                                                                                      bool &using_incremental) const {
+	ffi::Handle<ffi::MutableFfiSnapshotBuilder> builder;
+	using_incremental = false;
+
+	if (old_snapshot) {
+		auto old_snapshot_ref = old_snapshot->GetLockingRef();
+		auto old_version = ffi::version(old_snapshot_ref.GetPtr());
+		if (target_version == DConstants::INVALID_INDEX || target_version >= old_version) {
+			// Going forward (or HEAD): use old snapshot as hint
+			using_incremental = true;
+			builder =
+			    TryUnpackKernelResult(ffi::get_snapshot_builder_from(old_snapshot_ref.GetPtr(), extern_engine.get()));
+		} else {
+			// Going backward: kernel rejects builder_from for older versions
+			builder = TryUnpackKernelResult(ffi::get_snapshot_builder(path_slice, extern_engine.get()));
+		}
+	} else {
+		builder = TryUnpackKernelResult(ffi::get_snapshot_builder(path_slice, extern_engine.get()));
+	}
+
+	if (target_version != DConstants::INVALID_INDEX) {
+		ffi::snapshot_builder_set_version(&builder, target_version);
+	}
+	if (delta_log_path) {
+		TryUnpackKernelResult(ffi::snapshot_builder_set_log_tail(&builder, delta_log_path->GetFFIPtr()));
+	}
+	if (max_catalog_version >= 0) {
+		ffi::snapshot_builder_set_max_catalog_version(&builder, static_cast<uint64_t>(max_catalog_version));
+	}
+
+	return builder;
+}
+
+idx_t DeltaMultiFileList::VersionAsOf(ClientContext &context, SharedKernelSnapshot &head,
+                                      ffi::KernelStringSlice path_slice, int64_t timestamp_ms) const {
+	DeltaRejectFutureTimestamp(context, timestamp_ms);
+
+	idx_t head_version;
+	ffi::FfiCommitAt commit;
+	{
+		auto head_ref = head.GetLockingRef();
+		head_version = ffi::version(head_ref.GetPtr());
+		commit = TryUnpackKernelResult(ffi::latest_version_as_of(head_ref.GetPtr(), extern_engine.get(), timestamp_ms,
+		                                                         ffi::FfiHistoryCommitType::Recreatable));
+	}
+	auto resolved = static_cast<idx_t>(commit.version);
+
+	// The commit's own timestamp is what makes this readable after the fact: it is the gap between what
+	// was asked for and what was read, and it says whether the table has in-commit timestamps (exact)
+	// or is falling back to file modification times (approximate).
+	DUCKDB_LOG_INTERNAL(context, "delta.TimeTravel", LogLevel::LOG_DEBUG,
+	                    "Timestamp %s resolved to version %s committed at %s; head is version %s for '%s'",
+	                    DeltaFormatEpochMs(timestamp_ms), to_string(resolved), DeltaFormatEpochMs(commit.timestamp),
+	                    to_string(head_version), string(path_slice.ptr, path_slice.len));
+	return resolved;
+}
+
+// req: this.lock must already be owned
+idx_t DeltaMultiFileList::ResolveTimestamp(ClientContext &context, ffi::KernelStringSlice path_slice,
+                                           int64_t timestamp_ms) const {
+	// Refused here as well as in VersionAsOf, so a timestamp the table cannot have reached costs no listing.
+	DeltaRejectFutureTimestamp(context, timestamp_ms);
+
+	// The kernel searches the version range the snapshot spans, so a HEAD snapshot has to exist before
+	// the timestamp can name anything. Seeded from old_snapshot when there is one, so this reads only
+	// the commits after it rather than replaying the whole log.
+	bool using_incremental = false;
+	auto head_builder = CreateSnapshotBuilder(path_slice, DConstants::INVALID_INDEX, using_incremental);
+	DUCKDB_LOG_INTERNAL(context, "delta.DeltaMultiFileList", LogLevel::LOG_DEBUG,
+	                    "Loading snapshot for '%s': version=HEAD, log_tail=%s, incremental=%s",
+	                    string(path_slice.ptr, path_slice.len), delta_log_path ? "true" : "false",
+	                    using_incremental ? "true" : "false");
+	auto head = make_shared_ptr<SharedKernelSnapshot>(BuildSnapshot(head_builder));
+
+	auto resolved = VersionAsOf(context, *head, path_slice, timestamp_ms);
+	if (resolved == ffi::version(head->GetLockingRef().GetPtr())) {
+		snapshot = std::move(head);
+	}
+	return resolved;
+}
+
+idx_t DeltaMultiFileList::ResolveTimestampWithin(ClientContext &context, timestamp_tz_t timestamp) const {
+	unique_lock<mutex> lck(lock);
+	EnsureSnapshotInitialized();
+	auto path_slice = KernelUtils::ToDeltaString(paths[0].path);
+	return VersionAsOf(context, *snapshot, path_slice, DeltaTimestampToEpochMs(timestamp));
+}
+
 void DeltaMultiFileList::InitializeSnapshot() const {
 	// D_ASSERT(lock.is_locked())  -- no such check available; could use recursive mutex
 	D_ASSERT(!client_ctx.expired());
 	auto client_ctx_shared = client_ctx.lock();
 	auto path_slice = KernelUtils::ToDeltaString(paths[0].path);
 
-	auto interface_builder = CreateBuilder(*client_ctx_shared, paths[0].path);
-	extern_engine = TryUnpackKernelResult(ffi::builder_build(interface_builder));
+	extern_engine = CreateDeltaEngine(*client_ctx_shared, paths[0].path);
+
+	if (!snapshot && has_requested_timestamp) {
+		version = ResolveTimestamp(*client_ctx_shared, path_slice, requested_timestamp_ms);
+	}
 
 	if (!snapshot) {
-		ffi::Handle<ffi::MutableFfiSnapshotBuilder> builder;
 		bool using_incremental = false;
-		if (old_snapshot) {
-			auto old_snapshot_ref = old_snapshot->GetLockingRef();
-			auto old_version = ffi::version(old_snapshot_ref.GetPtr());
-			if (version == DConstants::INVALID_INDEX || version >= old_version) {
-				// Going forward (or HEAD): use old snapshot as hint
-				using_incremental = true;
-				builder = TryUnpackKernelResult(
-				    ffi::get_snapshot_builder_from(old_snapshot_ref.GetPtr(), extern_engine.get()));
-			} else {
-				// Going backward: kernel rejects builder_from for older versions
-				builder = TryUnpackKernelResult(ffi::get_snapshot_builder(path_slice, extern_engine.get()));
-			}
-		} else {
-			builder = TryUnpackKernelResult(ffi::get_snapshot_builder(path_slice, extern_engine.get()));
-		}
+		auto builder = CreateSnapshotBuilder(path_slice, version, using_incremental);
 
 		DUCKDB_LOG_INTERNAL(*client_ctx_shared, "delta.DeltaMultiFileList", LogLevel::LOG_DEBUG,
 		                    "Loading snapshot for '%s': version=%s, log_tail=%s, incremental=%s",
 		                    string(path_slice.ptr, path_slice.len),
 		                    version == DConstants::INVALID_INDEX ? "HEAD" : to_string(version),
 		                    delta_log_path ? "true" : "false", using_incremental ? "true" : "false");
-		if (version != DConstants::INVALID_INDEX) {
-			ffi::snapshot_builder_set_version(&builder, version);
-		}
-		if (delta_log_path) {
-			TryUnpackKernelResult(ffi::snapshot_builder_set_log_tail(&builder, delta_log_path->GetFFIPtr()));
-		}
-		if (max_catalog_version >= 0) {
-			ffi::snapshot_builder_set_max_catalog_version(&builder, static_cast<uint64_t>(max_catalog_version));
-		}
 		snapshot = make_shared_ptr<SharedKernelSnapshot>(BuildSnapshot(builder));
 
 		auto snapshot_ref = snapshot->GetLockingRef();
@@ -940,21 +1039,24 @@ void DeltaMultiFileList::EnsureScanInitialized() const {
 	}
 }
 
-unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context,
-                                                                    TableFilterSet &new_filters) const {
+unique_ptr<DeltaMultiFileList> DeltaMultiFileList::PushdownInternal(ClientContext &context, TableFilterSet &new_filters,
+                                                                    vector<column_t> column_indexes) const {
 	auto filtered_list = make_uniq<DeltaMultiFileList>(context, paths[0].path, version);
 
-	TableFilterSet result_filter_set;
+	DeltaTableFilters result_filter_set;
 
 	// Add pre-existing filters
-	for (auto &entry : table_filters.filters) {
-		result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+	for (auto &entry : table_filters) {
+		result_filter_set.PushFilter(entry.first, entry.second->Copy());
 	}
 
 	// Add new filters
-	for (auto &entry : new_filters.filters) {
-		if (entry.first < global_columns.size()) {
-			result_filter_set.PushFilter(ColumnIndex(entry.first), entry.second->Copy());
+	for (auto &entry : new_filters) {
+		auto &column_id = column_indexes[entry.GetIndex()];
+		if (column_id < global_columns.size()) {
+			auto &filter =
+			    ExpressionFilter::GetExpressionFilter(entry.Filter(), "DeltaMultiFileList::PushdownInternal");
+			result_filter_set.PushFilter(column_id, filter.Copy());
 		}
 	}
 
@@ -1003,11 +1105,11 @@ unique_ptr<MultiFileList> DeltaMultiFileList::ComplexFilterPushdown(ClientContex
 
 	vector<FilterPushdownResult> pushdown_results;
 	auto filter_set = combiner.GenerateTableScanFilters(info.column_indexes, pushdown_results);
-	if (filter_set.filters.empty()) {
+	if (!filter_set.HasFilters()) {
 		return nullptr;
 	}
 
-	auto filtered_list = PushdownInternal(context, filter_set);
+	auto filtered_list = PushdownInternal(context, filter_set, info.column_ids);
 
 	ReportFilterPushdown(context, *filtered_list, info.column_ids, "constant", info);
 
@@ -1051,64 +1153,64 @@ void DeltaMultiFileList::ReportFilterPushdown(ClientContext &context, DeltaMulti
 		new_total = new_list.GetTotalFileCount();
 
 		if (should_report_explain_output) {
-			if (!mfr_info->extra_info.total_files.IsValid()) {
+			// Filter pushdown can run multiple times for one query (e.g. RemoveUnusedColumns re-runs it on the
+			// already-filtered list), so old_total shrinks across passes. Keep the largest (the true pre-filter total).
+			if (!mfr_info->extra_info.total_files.IsValid() ||
+			    old_total > mfr_info->extra_info.total_files.GetIndex()) {
 				mfr_info->extra_info.total_files = old_total;
-			} else if (mfr_info->extra_info.total_files.GetIndex() != old_total) {
-				throw InternalException(
-				    "Error encountered when analyzing filtered out files for delta scan: total_files inconsistent!");
 			}
 
+			// Likewise keep the smallest post-filter count across passes (the most files skipped).
 			if (!mfr_info->extra_info.filtered_files.IsValid() ||
-			    mfr_info->extra_info.filtered_files.GetIndex() >= new_total) {
+			    new_total < mfr_info->extra_info.filtered_files.GetIndex()) {
 				mfr_info->extra_info.filtered_files = new_total;
-			} else {
-				throw InternalException(
-				    "Error encountered when analyzing filtered out files for delta scan: filtered_files inconsistent!");
 			}
 		}
 	}
 
-	// Report the new filters
-	vector<Value> old_filters_value_list;
-	for (auto &f : table_filters.filters) {
-		auto &column_index = f.first;
-		auto &filter = f.second;
-		if (column_index < global_columns.size()) {
-			auto &col_name = global_columns[column_index].name;
-			old_filters_value_list.push_back(filter->ToString(col_name));
+	// Collect a filter set's rendered strings, sorted for deterministic output (the underlying map is unordered).
+	auto collect_filter_strings = [&](const DeltaTableFilters &tf) {
+		vector<string> result;
+		for (auto &entry : tf) {
+			auto column_id = entry.first;
+			if (column_id < global_columns.size()) {
+				result.push_back(entry.second->ToString(global_columns[column_id].name.GetIdentifierName()));
+			}
 		}
-	}
-	auto old_filters_value = Value::LIST(LogicalType::VARCHAR, old_filters_value_list);
+		std::sort(result.begin(), result.end());
+		return result;
+	};
 
-	// Report the new filters
-	vector<Value> filters_value_list;
-	for (auto &f : new_list.table_filters.filters) {
-		auto &column_index = f.first;
-		auto &filter = f.second;
-		if (column_index < global_columns.size()) {
-			auto &col_name = global_columns[column_index].name;
-			filters_value_list.push_back(filter->ToString(col_name));
+	auto to_value_list = [](const vector<string> &strings) {
+		vector<Value> values;
+		for (auto &s : strings) {
+			values.push_back(Value(s));
 		}
-	}
-	auto filters_value = Value::LIST(LogicalType::VARCHAR, filters_value_list);
+		return Value::LIST(LogicalType::VARCHAR, values);
+	};
+
+	// Report the pre- and post-pushdown filters
+	auto old_filters_value = to_value_list(collect_filter_strings(table_filters));
+	auto new_filter_strings = collect_filter_strings(new_list.table_filters);
+	auto filters_value = to_value_list(new_filter_strings);
 
 	if (should_report_explain_output) {
 		string files_string;
-		for (auto &filter : filters_value_list) {
-			files_string += filter.ToString() + "\n";
+		for (auto &filter : new_filter_strings) {
+			files_string += filter + "\n";
 		}
 		mfr_info->extra_info.file_filters = files_string.substr(0, files_string.size() - 1);
 	}
 
 	if (should_log) {
 		child_list_t<Value> struct_fields;
-		struct_fields.push_back({"path", Value(GetPath())});
-		struct_fields.push_back({"type", Value(pushdown_type)});
-		struct_fields.push_back({"filters_before", old_filters_value});
-		struct_fields.push_back({"filters_after", filters_value});
+		struct_fields.emplace_back("path", Value(GetPath()));
+		struct_fields.emplace_back("type", Value(pushdown_type));
+		struct_fields.emplace_back("filters_before", old_filters_value);
+		struct_fields.emplace_back("filters_after", filters_value);
 		if (new_total != DConstants::INVALID_INDEX) {
-			struct_fields.push_back({"files_before", Value::BIGINT(old_total)});
-			struct_fields.push_back({"files_after", Value::BIGINT(new_total)});
+			struct_fields.emplace_back("files_before", Value::BIGINT(old_total));
+			struct_fields.emplace_back("files_after", Value::BIGINT(new_total));
 		}
 		auto struct_value = Value::STRUCT(struct_fields);
 		logger.WriteLog(delta_log_type, log_level, struct_value.ToString());
@@ -1116,32 +1218,39 @@ void DeltaMultiFileList::ReportFilterPushdown(ClientContext &context, DeltaMulti
 }
 
 unique_ptr<MultiFileList>
-DeltaMultiFileList::DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
-                                          const vector<string> &names, const vector<LogicalType> &types,
-                                          const vector<column_t> &column_ids, TableFilterSet &filters) const {
+DeltaMultiFileList::DynamicFilterPushdown(MultiFileDynamicPushdownInfo &dynamic_pushdown_info) const {
+	auto &options = dynamic_pushdown_info.options;
+	auto &names = dynamic_pushdown_info.column_names;
+	auto &types = dynamic_pushdown_info.column_types;
+	auto &column_ids = dynamic_pushdown_info.column_ids;
+	auto &context = dynamic_pushdown_info.context;
+	auto &filters = dynamic_pushdown_info.filters;
+
 	auto pushdown_mode = GetDeltaFilterPushdownMode(context, options);
 	if (pushdown_mode == DeltaFilterPushdownMode::NONE || pushdown_mode == DeltaFilterPushdownMode::CONSTANT_ONLY) {
 		return nullptr;
 	}
 
-	if (filters.filters.empty()) {
+	if (!filters.HasFilters()) {
 		return nullptr;
 	}
 
 	TableFilterSet filters_copy;
-	for (auto &filter : filters.filters) {
-		auto column_id = column_ids[filter.first];
-		auto previously_pushed_down_filter = this->table_filters.filters.find(column_id);
-		if (previously_pushed_down_filter != this->table_filters.filters.end() &&
-		    filter.second->Equals(*previously_pushed_down_filter->second)) {
+	for (auto &entry : filters) {
+		auto proj_id = entry.GetIndex();
+		auto &filter =
+		    ExpressionFilter::GetExpressionFilter(entry.Filter(), "DeltaMultiFileList::DynamicFilterPushdown");
+		auto column_id = column_ids[proj_id];
+		auto previously_pushed_down_filter = table_filters.TryGetFilterByColumnIndex(column_id);
+		if (previously_pushed_down_filter && filter.Equals(*previously_pushed_down_filter)) {
 			// Skip filters that we already have pushed down
 			continue;
 		}
-		filters_copy.PushFilter(ColumnIndex(column_id), filter.second->Copy());
+		filters_copy.PushFilter(proj_id, filter.Copy());
 	}
 
-	if (!filters_copy.filters.empty()) {
-		auto new_snap = PushdownInternal(context, filters_copy);
+	if (filters_copy.HasFilters()) {
+		auto new_snap = PushdownInternal(context, filters_copy, column_ids);
 		ReportFilterPushdown(context, *new_snap, column_ids, "dynamic", nullptr);
 		return std::move(new_snap);
 	}
@@ -1205,12 +1314,21 @@ idx_t DeltaMultiFileList::GetVersion() {
 	return version;
 }
 
-void DeltaMultiFileList::PinVersion(idx_t v) {
+void DeltaMultiFileList::Pin(const DeltaTimeTravelSpec &spec) {
 	unique_lock<mutex> lck(lock);
 	if (initialized_snapshot) {
-		throw InternalException("DeltaMultiFileList::PinVersion called after the snapshot was initialized");
+		throw InternalException("DeltaMultiFileList::Pin called after the snapshot was initialized");
 	}
-	version = v;
+	// Taking the whole spec at once is what keeps a version and a timestamp from both being set: one
+	// call, one kind, and the other is cleared.
+	if (spec.IsTimestamp()) {
+		version = DConstants::INVALID_INDEX;
+		has_requested_timestamp = true;
+		requested_timestamp_ms = DeltaTimestampToEpochMs(spec.GetTimestamp());
+	} else if (spec.IsVersion()) {
+		version = spec.GetVersion();
+		has_requested_timestamp = false;
+	}
 }
 
 DeltaFileMetaData &DeltaMultiFileList::GetMetaData(idx_t index) const {
@@ -1247,6 +1365,15 @@ vector<DeltaStringWidthBound> DeltaMultiFileList::GetStringWidthBounds() const {
 		return bounds;
 	}
 	return string_width_bounds;
+}
+
+bool DeltaMultiFileList::VariantShreddingEnabled() const {
+	unique_lock<mutex> lck(lock);
+	EnsureSnapshotInitialized();
+	auto snapshot_ref = snapshot->GetLockingRef();
+	// Case-insensitive like Spark's boolean table properties
+	return StringUtil::CIEquals(KernelUtils::ReadTableProperty(snapshot_ref.GetPtr(), "delta.enableVariantShredding"),
+	                            "true");
 }
 
 vector<NestedNotNullConstraint> DeltaMultiFileList::GetNestedNotNullConstraints() const {

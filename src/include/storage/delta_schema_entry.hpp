@@ -47,6 +47,17 @@ public:
 	                                             optional_ptr<const DeltaMultiFileList> old_snapshot);
 
 private:
+	//! A file list for `version` (INVALID_INDEX for HEAD), carrying the catalog's CCV2 settings
+	shared_ptr<DeltaMultiFileList> CreateFileList(ClientContext &context, idx_t version,
+	                                              optional_ptr<const DeltaMultiFileList> old_snapshot);
+
+	//! The table as this transaction reads its latest version, which bounds every timestamp it resolves
+	const DeltaMultiFileList &TransactionHead(ClientContext &context, DeltaTransaction &transaction);
+
+	//! The version `timestamp` names for this transaction. Reads the log, so callers should reuse the result.
+	idx_t ResolveTimestamp(ClientContext &context, DeltaTransaction &transaction, timestamp_tz_t timestamp);
+
+private:
 	//! Delta tables may be cached in the SchemaEntry. Since the TableEntry holds the snapshot, this allows sharing a
 	//! snapshot between different scans.
 	unique_ptr<DeltaTableEntry> cached_table;

@@ -18,12 +18,12 @@ static void DomainMetadataVisitor(ffi::NullableCvoid engine_context, ffi::Kernel
 }
 
 static unique_ptr<FunctionData> DeltaDomainMetadataBind(ClientContext &context, TableFunctionBindInput &input,
-                                                        vector<LogicalType> &return_types, vector<string> &names) {
+                                                        vector<LogicalType> &return_types, vector<Identifier> &names) {
 	auto input_string = input.inputs[0].ToString();
 	idx_t version = DConstants::INVALID_INDEX;
 
 	for (auto &kv : input.named_parameters) {
-		auto loption = StringUtil::Lower(kv.first);
+		auto loption = StringUtil::Lower(kv.first.GetIdentifierName());
 		if (loption == "version") {
 			version = kv.second.GetValue<idx_t>();
 		}
@@ -32,7 +32,7 @@ static unique_ptr<FunctionData> DeltaDomainMetadataBind(ClientContext &context, 
 	auto file_list = make_uniq<DeltaMultiFileList>(context, input_string, version);
 
 	// Trigger snapshot initialization
-	vector<string> _n;
+	vector<Identifier> _n;
 	vector<LogicalType> _t;
 	file_list->Bind(_t, _n);
 
@@ -64,7 +64,8 @@ static unique_ptr<FunctionData> DeltaDomainMetadataBind(ClientContext &context, 
 
 DeltaDomainMetadataFunction::DeltaDomainMetadataFunction()
     : DeltaBaseMetadataFunction("delta_domain_metadata", DeltaDomainMetadataBind) {
-	named_parameters.insert({"version", LogicalType::UBIGINT});
+	GetSignature().WithTypedKwargs("options",
+	                               [&](TypedKwargs &options) { options.Add("version", LogicalType::UBIGINT); });
 }
 
 TableFunctionSet DeltaFunctions::GetDeltaDomainMetadataFunction(ExtensionLoader &loader) {

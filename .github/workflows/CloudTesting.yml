@@ -1,5 +1,9 @@
 name: Cloud functional tests
-on: [push, repository_dispatch]
+on:
+  push:
+    branches: [main, "v[12].[0-9]+-[a-zA-Z]*", "features/**"]
+  repository_dispatch:
+  workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || '' }}-${{ github.base_ref || '' }}-${{ github.ref != 'refs/heads/main' || github.sha }}
   cancel-in-progress: true
@@ -8,14 +12,22 @@ defaults:
     shell: bash
 env:
   BUILD_EXTENSION_TEST_DEPS: full
-  GEN: Ninja
-  VCPKG_COMMIT_ID: 84bab45d415d22042bd0b9081aea57f362da3f35
+  GEN: ninja
+  VCPKG_COMMIT_ID: cd61e1e26a038e82d6550a3ebbe0fbbfe7da78e3 # Release 2026.06.24
   VCPKG_TOOLCHAIN_PATH: ${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+  # Pull prebuilt vcpkg packages (OpenSSL etc.) from duckdb's hosted read-only cache,
+  # same as LocalTesting -- avoids compiling them from source every run.
+  VCPKG_BINARY_SOURCES: clear;http,https://vcpkg-cache.duckdb.org,read
+  # sccache caches BOTH C++ (duckdb auto-detects it, CMakeLists.txt NAMES ccache sccache)
+  # and Rust (delta-kernel via RUSTC_WRAPPER); GHA backend is shared across jobs & runs.
+  RUSTC_WRAPPER: sccache
+  SCCACHE_GHA_ENABLED: true
+  CARGO_INCREMENTAL: 0 # sccache cannot cache incremental compilation
 
 jobs:
   azure-tests-linux:
     name: Azure tests (Linux)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner == 'duckdb' && 'namespace-profile-linux-x64' || 'ubuntu-latest' }}
     env:
       VCPKG_TARGET_TRIPLET: x64-linux
       DUCKDB_PLATFORM: linux_amd64
@@ -45,9 +57,8 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - uses: hendrikmuhs/ccache-action@main
-        with:
-          key: ${{ github.job }}
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.10
 
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11.1
@@ -56,9 +67,11 @@ jobs:
 
       - name: Configure OpenSSL for Rust
         run: |
-          echo "OPENSSL_ROOT_DIR=`pwd`/build/release/vcpkg_installed/x64-linux" >> $GITHUB_ENV
-          echo "OPENSSL_DIR=`pwd`/build/release/vcpkg_installed/x64-linux" >> $GITHUB_ENV
-          echo "OPENSSL_USE_STATIC_LIBS=true" >> $GITHUB_ENV
+          cat >> "$GITHUB_ENV" <<EOF
+          OPENSSL_ROOT_DIR="$PWD/build/release/vcpkg_installed/x64-linux"
+          OPENSSL_DIR="$PWD/build/release/vcpkg_installed/x64-linux"
+          OPENSSL_USE_STATIC_LIBS=true
+          EOF
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -69,7 +82,7 @@ jobs:
 
       - name: Test with Service Principal (SPN) in env vars
         run: |
-          ${ENV_AZURE} ./build/release/test/unittest `pwd`/test/sql/cloud/*
+          "$ENV_AZURE" ./build/release/test/unittest 'test/sql/cloud/*'
 
       - name: Test with SPN logged in in azure-cli
         env:
@@ -77,22 +90,19 @@ jobs:
         run: |
           # note: first CLI login, then allow env_azure to setup several key (non secret) vars, then clear SECRET after env script
           # to prevent accidental use of env secrets.
-          az login --service-principal --user="${AZURE_CLIENT_ID}" --password="${AZURE_CLIENT_SECRET}" --tenant="${AZURE_TENANT_ID}"
-          ${ENV_AZURE} env -u AZURE_CLIENT_SECRET ./build/release/test/unittest 'test/sql/cloud/*'
+          az login --service-principal --user="$AZURE_CLIENT_ID" --password="$AZURE_CLIENT_SECRET" --tenant="$AZURE_TENANT_ID"
+          "$ENV_AZURE" env -u AZURE_CLIENT_SECRET ./build/release/test/unittest 'test/sql/cloud/*'
 
       - name: Test with Access Token in env vars
         run: |
-          export AZURE_ACCESS_TOKEN=`az account get-access-token --resource https://storage.azure.com --query accessToken --output tsv`        
-          ${ENV_AZURE} env -u AZURE_CLIENT_SECRET ./build/release/test/unittest `pwd`/test/sql/cloud/*
+          AZURE_ACCESS_TOKEN=$(az account get-access-token --resource https://storage.azure.com --query accessToken --output tsv)
+          export AZURE_ACCESS_TOKEN
+          "$ENV_AZURE" env -u AZURE_CLIENT_SECRET ./build/release/test/unittest 'test/sql/cloud/*'
 
       - name: Log out azure-cli
         if: always()
         run: |
           az logout
 
-      - name: Tests that focus on public non-authenticated requests
-        env:
-          AZURE_STORAGE_ACCOUNT: ${{secrets.AZURE_STORAGE_ACCOUNT}}
-          DUCKDB_AZURE_PUBLIC_CONTAINER_AVAILABLE: 1
-        run: |
-          python3 duckdb/scripts/run_tests_one_by_one.py ./build/release/test/unittest `pwd`/test/sql/cloud/*
+      # TODO: no public/unauthenticated step for now -- unauthenticated.test does not run; it will
+      # be moved to azurite tests instead.

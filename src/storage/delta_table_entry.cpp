@@ -15,11 +15,15 @@
 namespace duckdb {
 
 DeltaTableEntry::DeltaTableEntry(Catalog &catalog, SchemaCatalogEntry &schema, CreateTableInfo &info)
-    : TableCatalogEntry(catalog, schema, info) {
+    : TableCatalogEntry(catalog, schema, info), columns(std::move(info.columns)) {
 	this->internal = false;
 }
 
 DeltaTableEntry::~DeltaTableEntry() = default;
+
+const ColumnList &DeltaTableEntry::GetColumns() const {
+	return columns;
+}
 
 unique_ptr<BaseStatistics> DeltaTableEntry::GetStatistics(ClientContext &context, column_t column_id) {
 	return nullptr;
@@ -36,14 +40,15 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 	auto &system_catalog = Catalog::GetSystemCatalog(db);
 
 	auto data = CatalogTransaction::GetSystemTransaction(db);
-	auto &schema = system_catalog.GetSchema(data, DEFAULT_SCHEMA);
+	auto &schema = system_catalog.GetSchema(data, Identifier::DefaultSchema());
 	auto catalog_entry = schema.GetEntry(data, CatalogType::TABLE_FUNCTION_ENTRY, "delta_scan");
 	if (!catalog_entry) {
 		throw InvalidInputException("Function with name \"%s\" not found in ExtensionLoader::GetTableFunction", name);
 	}
 	auto &delta_function_set = catalog_entry->Cast<TableFunctionCatalogEntry>();
 
-	auto delta_scan_function = delta_function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
+	// copied out of the set: the bind mutates function_info and needs a mutable function
+	auto delta_scan_function = *delta_function_set.functions.GetFunctionByArguments(context, {LogicalType::VARCHAR});
 	auto &delta_catalog = catalog.Cast<DeltaCatalog>();
 
 	auto &transaction = DeltaTransaction::Get(context, delta_catalog);
@@ -56,7 +61,10 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 
 	idx_t version = DConstants::INVALID_INDEX;
 	if (lookup_info && lookup_info->GetAtClause()) {
-		version = ParseDeltaVersionFromAtClause(*lookup_info->GetAtClause());
+		auto spec = DeltaTimeTravelSpec::FromAtClause(context, *lookup_info->GetAtClause());
+		// A timestamp was already bound to a version during the catalog lookup that produced this
+		// entry; resolving it again would re-read the log and could land on a newer commit.
+		version = spec.IsTimestamp() ? snapshot->GetVersion() : spec.GetVersion();
 	}
 
 	if (version != DConstants::INVALID_INDEX && snapshot->GetVersion() != version) {
@@ -64,13 +72,13 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 	}
 
 	function_info->snapshot = this->snapshot;
-	function_info->table_name = delta_catalog.GetName();
+	function_info->table_name = delta_catalog.GetName().GetIdentifierName();
 	delta_scan_function.function_info = std::move(function_info);
 
 	vector<Value> inputs = {delta_catalog.GetDBPath()};
-	named_parameter_map_t param_map;
+	named_argument_map_t param_map;
 	vector<LogicalType> return_types;
-	vector<string> names;
+	vector<Identifier> names;
 	TableFunctionRef empty_ref;
 
 	// Propagate settings
@@ -81,7 +89,9 @@ TableFunction DeltaTableEntry::GetScanFunctionInternal(ClientContext &context, u
 		param_map.insert({"version", Value::UBIGINT(param_version)});
 	}
 
-	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, delta_scan_function,
+	// the bind sees the function as a bound call would; nothing is read back off it afterwards
+	BoundTableFunction bound_scan_function(delta_scan_function);
+	TableFunctionBindInput bind_input(inputs, param_map, return_types, names, nullptr, nullptr, bound_scan_function,
 	                                  empty_ref);
 
 	auto result = delta_scan_function.bind(context, bind_input, return_types, names);
@@ -94,7 +104,7 @@ case_insensitive_map_t<vector<NestedNotNullConstraint>> DeltaTableEntry::GetNotN
 	case_insensitive_map_t<vector<NestedNotNullConstraint>> result;
 	for (auto &constraint : snapshot->GetNestedNotNullConstraints()) {
 		auto &col = GetColumn(constraint.index);
-		auto &item = result[col.Name()];
+		auto &item = result[col.Name().GetIdentifierName()];
 		item.push_back(constraint);
 	}
 	return result;

@@ -9,6 +9,8 @@
 
 #include "duckdb.hpp"
 #include "duckdb/common/exception.hpp"
+#include "duckdb/parser/parsed_data/attach_info.hpp"
+#include "duckdb/main/attached_database.hpp"
 #include "duckdb/function/table_macro_function.hpp"
 #include "duckdb/main/extension/extension_loader.hpp"
 #include "duckdb/main/extension_helper.hpp"
@@ -36,8 +38,22 @@ static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo>
 			res->filter_pushdown_mode = DeltaEnumUtils::FromString(str);
 		}
 		if (StringUtil::Lower(option.first) == "version") {
+			if (res->has_specific_timestamp) {
+				throw InvalidInputException("ATTACH: 'version' and 'timestamp' are mutually exclusive");
+			}
 			res->use_cache = true;
 			res->use_specific_version = UBigIntValue::Get(option.second.DefaultCastAs(LogicalType::UBIGINT));
+			res->access_mode = AccessMode::READ_ONLY;
+		}
+		if (StringUtil::Lower(option.first) == "timestamp") {
+			if (res->use_specific_version != DConstants::INVALID_INDEX) {
+				throw InvalidInputException("ATTACH: 'version' and 'timestamp' are mutually exclusive");
+			}
+			res->use_cache = true;
+			res->has_specific_timestamp = true;
+			res->specific_timestamp =
+			    option.second.CastAs(context, LogicalType::TIMESTAMP_TZ).GetValue<timestamp_tz_t>();
+			DeltaRejectFutureTimestamp(context, DeltaTimestampToEpochMs(res->specific_timestamp));
 			res->access_mode = AccessMode::READ_ONLY;
 		}
 		if (StringUtil::Lower(option.first) == "internal_table_name") {
@@ -69,15 +85,17 @@ static unique_ptr<Catalog> DeltaCatalogAttach(optional_ptr<StorageExtensionInfo>
 		string commit_fun_name = "__internal_delta_ccv2_commit_staged";
 
 		CatalogEntryRetriever retriever(context);
-		EntryLookupInfo lookup_info(CatalogType::TABLE_FUNCTION_ENTRY, commit_fun_name);
-		auto fun = retriever.GetEntry(res->parent_catalog_name, schema, lookup_info, OnEntryNotFound::RETURN_NULL);
+		EntryLookupInfo lookup_info(
+		    CatalogType::TABLE_FUNCTION_ENTRY,
+		    QualifiedName(Identifier(res->parent_catalog_name), Identifier(schema), Identifier(commit_fun_name)));
+		auto fun = retriever.GetEntry(lookup_info, OnEntryNotFound::RETURN_NULL);
 		if (!fun) {
 			throw InternalException("Parent catalog does not have a __internal_delta_ccv2_commit_staged function");
 		}
 		res->commit_function = fun->Cast<TableFunctionCatalogEntry>();
 	}
 
-	res->SetDefaultTable(DEFAULT_SCHEMA, res->GetInternalTableName());
+	res->SetDefaultTable(Identifier::DefaultSchema(), Identifier(res->GetInternalTableName()));
 
 	return std::move(res);
 }
@@ -125,7 +143,7 @@ static void LoadInternal(ExtensionLoader &loader) {
 	                          "How to read a data file of a column-mapped table that does not conform to the Delta "
 	                          "protocol, such as an id-mode file without parquet field ids. 'strict' refuses the "
 	                          "file; 'lenient' matches its columns by name and logs a warning.",
-	                          LogicalType::VARCHAR, Value("lenient"));
+	                          LogicalType::VARCHAR, Value("strict"));
 
 	config.AddExtensionOption(
 	    "delta_kernel_logging",

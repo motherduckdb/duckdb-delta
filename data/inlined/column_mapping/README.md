@@ -4,10 +4,10 @@ Hand-written Delta logs. Each has a `metaData` action whose `schemaString` carri
 `delta.columnMapping.physicalName` and `delta.columnMapping.id` per field, plus a `protocol` action
 enabling the `columnMapping` feature.
 
-**Write fixtures start empty**: `write_field_ids.test` inspects parquet files it just wrote, so the
-assertions are about what our writer emits. **Read fixtures carry one data file**, laid out the way a
-foreign writer would, so the assertions are about how the reader resolves it. The table says which is
-which.
+**Write fixtures start empty**: `write_field_ids.test` and `invalid_annotations.test` inspect parquet
+files they just wrote, so the assertions are about what our writer emits. **Read fixtures carry one
+data file**, laid out the way a foreign writer would, so the assertions are about how the reader
+resolves it. The table says which is which.
 
 | Fixture | Mode | Schema | Why it exists |
 |---|---|---|---|
@@ -27,7 +27,10 @@ which.
 | `id_mode_no_field_ids_unmatched` | `id` | `a`, `b` | Read fixture, non-conforming: no field ids, and columns named `x`, `y` that match nothing. Refused under both policies. |
 | `id_mode_missing_column` | `id` | `a`, `b`, `c` | Read fixture, two files: the first predates `c` and carries ids 1 and 2 only. An id a file lacks reads as NULL for that file. |
 | `name_mode_physical_names` | `name` | `a`, `b` | Read fixture. The file names its columns by physical name, as name mode requires. |
+| `invalid_id_null` | `name` | as `name_mode`, `id`'s id is `null` | A JSON `null` id must be an error, not a value. Kernel refuses it when loading the schema. |
+| `invalid_id_string` | `name` | as `name_mode`, `id`'s id is `"1"` | A numeric-looking string is still not a number. Kernel refuses it too. |
 | `invalid_nested_id_range` | `id` | `a`, `l BIGINT[]`, `m MAP`, one nested id above `INT32` max | Read fixture. A nested id that cannot be a parquet field id must be a readable error at bind, not an abort inside the kernel's schema callback. Read by `invalid_annotations.test`. |
+| `invalid_physical_name_empty` | `name` | as `name_mode`, `id`'s physical name is `""` | Kernel accepts an empty physical name on read (delta-spark accepts them); it names no column, so DuckDB refuses it. |
 
 Hand-written rather than generated because the field metadata above is the entire input to the write
 path, and because there is no way here to generate with Spark and read back with DuckDB in one run.

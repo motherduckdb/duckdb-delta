@@ -1,5 +1,7 @@
 #include "delta_kernel_ffi.hpp"
 #include "duckdb/execution/expression_executor.hpp"
+#include "duckdb/catalog/entry_lookup_info.hpp"
+#include "duckdb/catalog/catalog.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/function/scalar_function.hpp"
 #include "duckdb/planner/expression/bound_constant_expression.hpp"
@@ -81,7 +83,7 @@ static void DeltaSetTransactionVersionFunction(ClientContext &context, TableFunc
 
 static unique_ptr<FunctionData> DeltaGetTransactionVersionBind(ClientContext &context, TableFunctionBindInput &input,
                                                                vector<LogicalType> &return_types,
-                                                               vector<string> &names) {
+                                                               vector<Identifier> &names) {
 	auto res = make_uniq<TransactionGetVersionBindData>();
 
 	auto path = input.inputs[0].GetValue<string>();
@@ -91,7 +93,7 @@ static unique_ptr<FunctionData> DeltaGetTransactionVersionBind(ClientContext &co
 	names.emplace_back("version");
 
 	// TODO: support catalog.schema.table format
-	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, path);
+	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, Identifier(path));
 	auto lookup_result = Catalog::GetEntry(context, "", "", lookup, OnEntryNotFound::RETURN_NULL);
 	if (lookup_result.get()) {
 		res->delta_table_entry = lookup_result->Cast<DeltaTableEntry>();
@@ -104,7 +106,7 @@ static unique_ptr<FunctionData> DeltaGetTransactionVersionBind(ClientContext &co
 
 static unique_ptr<FunctionData> DeltaSetTransactionVersionBind(ClientContext &context, TableFunctionBindInput &input,
                                                                vector<LogicalType> &return_types,
-                                                               vector<string> &names) {
+                                                               vector<Identifier> &names) {
 	auto res = make_uniq<TransactionSetVersionBindData>();
 
 	auto path = input.inputs[0].GetValue<string>();
@@ -113,7 +115,7 @@ static unique_ptr<FunctionData> DeltaSetTransactionVersionBind(ClientContext &co
 	res->expected_version = input.inputs[3];
 
 	// TODO: support catalog.schema.table format
-	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, path);
+	EntryLookupInfo lookup(CatalogType::TABLE_ENTRY, Identifier(path));
 	auto lookup_result = Catalog::GetEntry(context, "", "", lookup, OnEntryNotFound::RETURN_NULL);
 	if (lookup_result.get()) {
 		res->delta_table_entry = lookup_result->Cast<DeltaTableEntry>();
@@ -134,13 +136,20 @@ static unique_ptr<GlobalTableFunctionState> TransactionInitGlobalState(ClientCon
 
 vector<TableFunction> DeltaFunctions::GetTransactionIdempotencyHelpers(DatabaseInstance &instance) {
 	vector<TableFunction> result;
-	result.push_back(TableFunction("delta_get_transaction_version", {LogicalType::VARCHAR, LogicalType::VARCHAR},
+	result.push_back(TableFunction("delta_get_transaction_version",
+	                               FunctionSignature()
+	                                   .AddPositionalOnly("path", LogicalType::VARCHAR)
+	                                   .AddPositionalOnly("app_id", LogicalType::VARCHAR),
 	                               DeltaGetTransactionVersionFunction, DeltaGetTransactionVersionBind,
 	                               TransactionInitGlobalState));
-	result.push_back(
-	    TableFunction("delta_set_transaction_version",
-	                  {LogicalType::VARCHAR, LogicalType::VARCHAR, LogicalType::UBIGINT, LogicalType::UBIGINT},
-	                  DeltaSetTransactionVersionFunction, DeltaSetTransactionVersionBind, TransactionInitGlobalState));
+	result.push_back(TableFunction("delta_set_transaction_version",
+	                               FunctionSignature()
+	                                   .AddPositionalOnly("path", LogicalType::VARCHAR)
+	                                   .AddPositionalOnly("app_id", LogicalType::VARCHAR)
+	                                   .AddPositionalOnly("new_version", LogicalType::UBIGINT)
+	                                   .AddPositionalOnly("expected_version", LogicalType::UBIGINT),
+	                               DeltaSetTransactionVersionFunction, DeltaSetTransactionVersionBind,
+	                               TransactionInitGlobalState));
 	return result;
 }
 

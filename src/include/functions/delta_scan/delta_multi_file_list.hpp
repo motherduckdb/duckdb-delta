@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "delta_time_travel.hpp"
+
 #include "delta_functions.hpp"
 #include "delta_utils.hpp"
 #include "functions/delta_scan/delta_multi_file_list.hpp"
@@ -16,8 +18,13 @@
 #include "duckdb/common/multi_file/multi_file_data.hpp"
 #include "duckdb/common/multi_file/multi_file_list.hpp"
 #include "duckdb/parser/constraints/not_null_constraint.hpp"
+#include "duckdb/planner/filter/expression_filter.hpp"
 
 namespace duckdb {
+
+//! Builds a kernel engine for a table path, applying the DuckDB secret matching that path. Callable
+//! before any snapshot exists, which is what the CREATE TABLE path needs.
+KernelExternEngine CreateDeltaEngine(ClientContext &context, const string &path);
 
 struct DeltaFileMetaData {
 	DeltaFileMetaData() {};
@@ -37,9 +44,46 @@ struct DeltaFileMetaData {
 	idx_t cardinality = DConstants::INVALID_INDEX;
 	ffi::KernelBoolSlice selection_vector = {nullptr, 0};
 
-	case_insensitive_map_t<Value> partition_map;
+	identifier_map_t<Value> partition_map;
 
 	unique_ptr<vector<unique_ptr<ParsedExpression>>> transform_expression;
+};
+
+struct DeltaTableFilters {
+	using filter_set_t = unordered_map<idx_t, unique_ptr<ExpressionFilter>>;
+	using iterator = filter_set_t::iterator;
+	using const_iterator = filter_set_t::const_iterator;
+
+public:
+	bool HasFilters() const {
+		return !table_filters.empty();
+	}
+	void PushFilter(column_t column_idx, unique_ptr<ExpressionFilter> table_filter) {
+		table_filters[column_idx] = std::move(table_filter);
+	}
+	optional_ptr<const ExpressionFilter> TryGetFilterByColumnIndex(column_t column_idx) const {
+		auto entry = table_filters.find(column_idx);
+		if (entry == table_filters.end()) {
+			return nullptr;
+		}
+		return entry->second.get();
+	}
+
+	iterator begin() { // NOLINT: match stl API
+		return table_filters.begin();
+	}
+	iterator end() { // NOLINT: match stl API
+		return table_filters.end();
+	}
+	const_iterator begin() const { // NOLINT: match stl API
+		return table_filters.begin();
+	}
+	const_iterator end() const { // NOLINT: match stl API
+		return table_filters.end();
+	}
+
+private:
+	filter_set_t table_filters;
 };
 
 // Constraint only for internal delta extension use
@@ -75,17 +119,15 @@ public:
 
 	//! MultiFileList API
 public:
-	void Bind(vector<LogicalType> &return_types, vector<string> &names);
+	void Bind(vector<LogicalType> &return_types, vector<Identifier> &names);
 	unique_ptr<MultiFileList> ComplexFilterPushdown(ClientContext &context, const MultiFileOptions &options,
 	                                                MultiFilePushdownInfo &info,
 	                                                vector<unique_ptr<Expression>> &filters) const override;
 
-	unique_ptr<MultiFileList> DynamicFilterPushdown(ClientContext &context, const MultiFileOptions &options,
-	                                                const vector<string> &names, const vector<LogicalType> &types,
-	                                                const vector<column_t> &column_ids,
-	                                                TableFilterSet &filters) const override;
+	unique_ptr<MultiFileList> DynamicFilterPushdown(MultiFileDynamicPushdownInfo &pushdown_info) const override;
 
-	unique_ptr<DeltaMultiFileList> PushdownInternal(ClientContext &context, TableFilterSet &new_filters) const;
+	unique_ptr<DeltaMultiFileList> PushdownInternal(ClientContext &context, TableFilterSet &new_filters,
+	                                                vector<column_t> column_indexes) const;
 
 	vector<OpenFileInfo> GetAllFiles() const override;
 	FileExpandResult GetExpandResult() const override;
@@ -93,15 +135,20 @@ public:
 	unique_ptr<NodeStatistics> GetCardinality(ClientContext &context) const override;
 	DeltaFileMetaData &GetMetaData(idx_t index) const;
 	idx_t GetVersion();
-	//! Pin a specific version on a not-yet-initialized snapshot. Must be called before any operation
-	//! that would trigger InitializeSnapshot (e.g. Bind, GetAllFiles).
-	void PinVersion(idx_t v);
+	//! Pin what this list will read. A timestamp is resolved against the log when the snapshot is
+	//! built; a version is used as-is. Passing the whole spec is what keeps the two from both being set.
+	void Pin(const DeltaTimeTravelSpec &spec);
+	//! The version `timestamp` names, searching no further than this list's snapshot: commits after it
+	//! cannot change the answer.
+	idx_t ResolveTimestampWithin(ClientContext &context, timestamp_tz_t timestamp) const;
 	vector<string> GetPartitionColumns();
 
 	vector<DeltaMultiFileColumnDefinition> &GetLazyLoadedGlobalColumns() const;
 	vector<NestedNotNullConstraint> GetNestedNotNullConstraints() const;
 	bool HasNullConstraintsInArrays() const;
 	vector<DeltaStringWidthBound> GetStringWidthBounds() const;
+	//! The `delta.enableVariantShredding` table property: shredded VARIANT files are allowed only when it is true.
+	bool VariantShreddingEnabled() const;
 
 	//! True for `id` mode tables. Initializes the scan.
 	bool ResolvesByFieldId() const;
@@ -118,6 +165,17 @@ protected:
 
 	//! Restates the kernel's catalog-managed refusal in terms the caller can act on
 	ffi::Handle<ffi::SharedSnapshot> BuildSnapshot(ffi::Handle<ffi::MutableFfiSnapshotBuilder> builder) const;
+
+	//! Builder for `target_version` (INVALID_INDEX for HEAD), with log tail and catalog bounds applied
+	ffi::Handle<ffi::MutableFfiSnapshotBuilder>
+	CreateSnapshotBuilder(ffi::KernelStringSlice path_slice, idx_t target_version, bool &using_incremental) const;
+
+	//! The version `timestamp_ms` names, adopting the HEAD snapshot built on the way when it already is
+	//! the answer. Requires extern_engine.
+	idx_t ResolveTimestamp(ClientContext &context, ffi::KernelStringSlice path_slice, int64_t timestamp_ms) const;
+	//! The version `timestamp_ms` names among the commits up to `head`. Requires extern_engine.
+	idx_t VersionAsOf(ClientContext &context, SharedKernelSnapshot &head, ffi::KernelStringSlice path_slice,
+	                  int64_t timestamp_ms) const;
 
 	void EnsureSnapshotInitialized() const;
 	void EnsureScanInitialized() const;
@@ -148,6 +206,10 @@ protected:
 	mutable mutex lock;
 	mutable idx_t version;
 
+	//! Time travel by timestamp, in milliseconds since the unix epoch (the delta protocol's unit)
+	mutable bool has_requested_timestamp = false;
+	mutable int64_t requested_timestamp_ms = 0;
+
 	//! Delta Kernel Structures
 	mutable shared_ptr<SharedKernelSnapshot> old_snapshot;
 
@@ -169,7 +231,7 @@ protected:
 	mutable vector<unique_ptr<DeltaFileMetaData>> metadata;
 
 	mutable vector<OpenFileInfo> resolved_files;
-	mutable TableFilterSet table_filters;
+	mutable DeltaTableFilters table_filters;
 
 	mutable vector<DeltaStringWidthBound> string_width_bounds;
 	mutable vector<NestedNotNullConstraint> not_null_constraints;

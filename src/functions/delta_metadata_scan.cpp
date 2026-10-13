@@ -26,7 +26,7 @@ static void AddFileInfo(OpenFileInfo &file_info, DeltaFileMetaData &metadata, ve
 	auto partitions = metadata.partition_map;
 	InsertionOrderPreservingMap<string> map;
 	for (auto &kv : partitions) {
-		map[kv.first] = kv.second.ToString();
+		map[kv.first.GetIdentifierName()] = kv.second.ToString();
 	}
 	row_values.emplace_back(Value::MAP(map));
 
@@ -63,7 +63,7 @@ static void AddFileInfo(OpenFileInfo &file_info, DeltaFileMetaData &metadata, ve
 }
 
 static unique_ptr<FunctionData> DeltaFileListBind(ClientContext &context, TableFunctionBindInput &input,
-                                                  vector<LogicalType> &return_types, vector<string> &names) {
+                                                  vector<LogicalType> &return_types, vector<Identifier> &names) {
 	//! Parse input
 
 	auto input_string = input.inputs[0].ToString();
@@ -71,7 +71,7 @@ static unique_ptr<FunctionData> DeltaFileListBind(ClientContext &context, TableF
 	DeltaFileListOptions options;
 
 	for (auto &kv : input.named_parameters) {
-		auto loption = StringUtil::Lower(kv.first);
+		auto loption = StringUtil::Lower(kv.first.GetIdentifierName());
 		auto &val = kv.second;
 		if (loption == "version") {
 			version = val.GetValue<idx_t>();
@@ -87,7 +87,7 @@ static unique_ptr<FunctionData> DeltaFileListBind(ClientContext &context, TableF
 	auto file_list = make_uniq<DeltaMultiFileList>(context, input_string, version);
 
 	// TODO: this is weird
-	vector<string> _n;
+	vector<Identifier> _n;
 	vector<LogicalType> _t;
 	file_list->Bind(_t, _n);
 
@@ -133,9 +133,11 @@ static unique_ptr<FunctionData> DeltaFileListBind(ClientContext &context, TableF
 
 DeltaFileListFunction::DeltaFileListFunction() : DeltaBaseMetadataFunction("delta_metadata", DeltaFileListBind) {
 	// arguments.push_back(LogicalType::VARCHAR);
-	named_parameters.insert({"transform_expression", LogicalType::BOOLEAN});
-	named_parameters.insert({"delete_count", LogicalType::BOOLEAN});
-	named_parameters.insert({"version", LogicalType::UBIGINT});
+	GetSignature().WithTypedKwargs("options", [&](TypedKwargs &options) {
+		options.Add("transform_expression", LogicalType::BOOLEAN)
+		    .Add("delete_count", LogicalType::BOOLEAN)
+		    .Add("version", LogicalType::UBIGINT);
+	});
 }
 
 TableFunctionSet DeltaFunctions::GetDeltaFileListFunction(ExtensionLoader &loader) {

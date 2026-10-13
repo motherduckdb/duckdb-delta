@@ -6,8 +6,6 @@ require parquet
 
 require delta
 
-require notwindows
-
 # max_catalog_version admits a read, so the refusal has to say why it does not also admit a write.
 # The kernel's own message advises supplying a value the caller has already supplied.
 #

@@ -9,6 +9,8 @@
 #pragma once
 
 #include "delta_utils.hpp"
+#include "duckdb/common/optional_idx.hpp"
+#include "duckdb/common/types/timestamp.hpp"
 #include "duckdb/transaction/transaction.hpp"
 
 namespace duckdb {
@@ -16,6 +18,7 @@ class DeltaCatalog;
 class DeltaSchemaEntry;
 class DeltaTableEntry;
 class DeltaMultiFileList;
+class TableFunctionCatalogEntry;
 struct DeltaDataFile;
 struct DeltaMultiFileColumnDefinition;
 
@@ -41,6 +44,9 @@ public:
 
 	optional_ptr<DeltaTableEntry> GetTableEntry(idx_t version);
 
+	optional_idx GetTimestampVersion(timestamp_tz_t timestamp) const;
+	idx_t SetTimestampVersion(timestamp_tz_t timestamp, idx_t version);
+
 	DeltaTableEntry &InitializeTableEntry(ClientContext &context, DeltaSchemaEntry &schema_entry, idx_t version,
 	                                      optional_ptr<const DeltaMultiFileList> old_snapshot);
 	vector<DeltaMultiFileColumnDefinition> GetWriteSchema(ClientContext &context);
@@ -52,6 +58,11 @@ public:
 	//! CCommit callback for Unity Catalog managed commits - returns None on success, Some(error) on failure
 	static ffi::OptionalValue<ffi::Handle<ffi::ExclusiveRustString>> CommitCallback(ffi::NullableCvoid context,
 	                                                                                ffi::CommitRequest request);
+
+	//! A committer that routes commits through the catalog this table was attached from, for the table id
+	//! given at ATTACH (`table_path` stands in when there is none). The caller passes it to a kernel API
+	//! that consumes it.
+	ffi::Handle<ffi::MutableCommitter> CreateCatalogCommitter(const string &table_path);
 
 	void SetParentTableEntry(TableCatalogEntry &entry) {
 		lock_guard<mutex> guard(lock);
@@ -71,6 +82,9 @@ private:
 
 	//! Cached table entries at specific versions
 	unordered_map<idx_t, unique_ptr<DeltaTableEntry>> versioned_table_entries;
+
+	//! Resolved timestamps by epoch ms, so repeating one does not search the log again
+	unordered_map<int64_t, idx_t> timestamp_versions;
 
 	//	DeltaConnection connection;
 	DeltaTransactionState transaction_state;

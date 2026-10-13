@@ -1,0 +1,345 @@
+# name: test/sql/inlined/time_travel_ict.test
+# description: timestamp time travel picks the latest version committed at or before the timestamp
+# group: [inlined]
+
+#
+# The fixture carries in-commit timestamps, so its commits sit at exactly 2023-11-14 22:13:20,
+# 22:14:20 and 22:15:20 UTC regardless of when the files were checked out. Row counts identify the
+# version: v0 has 10 rows, v1 has 11, v2 has 12.
+
+require parquet
+
+require delta
+
+# -----------------------------------------------------------------------------
+# delta_scan(timestamp => ...)
+#
+
+# Exactly on a commit selects that commit, not the one before it.
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-14 22:13:20+00');
+----
+10
+
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-14 22:15:20+00');
+----
+12
+
+# Between two commits selects the earlier one, right up to the instant before the later one.
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-14 22:13:50+00');
+----
+10
+
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-14 22:14:19.999+00');
+----
+10
+
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-14 22:15:19.999+00');
+----
+11
+
+# Past the last commit stays on it.
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-15 00:00:00+00');
+----
+12
+
+# One millisecond before v0 there is nothing to name.
+statement error
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2023-11-14 22:13:19.999+00');
+----
+LogHistoryError
+
+# -----------------------------------------------------------------------------
+# A timestamp the table cannot have reached yet
+#
+# It would name whatever commit is last at the moment of the read, so it is refused on every surface.
+# now() is the transaction's own clock and names an instant the table has reached, so it is allowed.
+
+statement error
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+----
+later than now
+
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_future (TYPE delta);
+
+statement error
+SELECT count() FROM ict_future AT (TIMESTAMP => TIMESTAMPTZ '2099-01-01 00:00:00+00');
+----
+later than now
+
+query I
+SELECT count() FROM ict_future AT (TIMESTAMP => now());
+----
+12
+
+# A minute either side of now, which a fixed cutoff would not tell apart. Zoneless arithmetic, since
+# adding an interval to a TIMESTAMPTZ needs icu; the session timezone is UTC here, as is now().
+query I
+SELECT count() FROM ict_future AT (TIMESTAMP => now()::TIMESTAMP - INTERVAL '1 minute');
+----
+12
+
+statement error
+SELECT count() FROM ict_future AT (TIMESTAMP => now()::TIMESTAMP + INTERVAL '1 minute');
+----
+later than now
+
+statement ok
+DETACH ict_future;
+
+statement error
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_future_attach (TYPE delta, TIMESTAMP TIMESTAMPTZ '2099-01-01 00:00:00+00');
+----
+later than now
+
+# -----------------------------------------------------------------------------
+# Accepted spellings of the same instant
+#
+
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => '2023-11-14 22:14:20+00');
+----
+11
+
+# An offset elsewhere in the world names the same instant.
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => '2023-11-14 23:14:20+01');
+----
+11
+
+# A value with no zone at all -- naive TIMESTAMP or offset-less string -- resolves through the
+# session timezone, which is UTC when none is set. See time_travel_ict_timezone.test for a session
+# timezone that is not UTC.
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => TIMESTAMP '2023-11-14 22:14:20');
+----
+11
+
+query I
+SELECT count() FROM delta_scan('data/inlined/ict_timetravel/delta_lake', timestamp => '2023-11-14 22:14:20');
+----
+11
+
+# -----------------------------------------------------------------------------
+# AT (TIMESTAMP => ...)
+#
+
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict (TYPE delta);
+
+query I
+SELECT count() FROM ict AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:19.999+00');
+----
+10
+
+query I rowsort
+SELECT i FROM ict AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:15:00+00') WHERE i >= 10;
+----
+10
+
+# The AT clause and the named parameter agree on the same instant.
+query I
+SELECT count() FROM ict AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:15:20+00');
+----
+12
+
+query I
+SELECT count() FROM ict AT (TIMESTAMP => '2023-11-14 22:14:20+00');
+----
+11
+
+statement ok
+DETACH ict;
+
+# -----------------------------------------------------------------------------
+# ATTACH ... (TIMESTAMP => ...)
+#
+
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_v1 (TYPE delta, TIMESTAMP TIMESTAMPTZ '2023-11-14 22:14:20+00');
+
+query I
+SELECT count() FROM ict_v1;
+----
+11
+
+# The attached timestamp is a default: an AT clause in either unit overrides it, and the default
+# survives the override.
+query I
+SELECT count() FROM ict_v1 AT (VERSION => 0);
+----
+10
+
+query I
+SELECT count() FROM ict_v1 AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:15:20+00');
+----
+12
+
+query I
+SELECT count() FROM ict_v1;
+----
+11
+
+statement ok
+DETACH ict_v1;
+
+# Mirrors test/sql/generated/timetravel.test: an attach pinned by version still honours an AT clause.
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_v0 (TYPE delta, VERSION 0);
+
+query I
+SELECT count() FROM ict_v0;
+----
+10
+
+query I
+SELECT count() FROM ict_v0 AT (VERSION => 1);
+----
+11
+
+query I
+SELECT count() FROM ict_v0 AT (VERSION => 2);
+----
+12
+
+query I
+SELECT count() FROM ict_v0 AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+statement ok
+DETACH ict_v0;
+
+# -----------------------------------------------------------------------------
+# Resolving a timestamp costs one snapshot build more than naming the version does
+#
+# A timestamp resolves against the transaction's latest version, so that version is read first; the
+# version it names is then built as a named version is. 22:14:20 resolves to v1, not the latest, so
+# neither build can stand in for the other.
+
+statement ok
+CALL enable_logging(level='debug', storage='memory');
+
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_cost (TYPE delta);
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count() FROM ict_cost AT (VERSION => 1);
+----
+11
+
+query I
+SELECT count() FROM duckdb_logs
+WHERE type = 'delta.DeltaMultiFileList' AND message LIKE '%Loading snapshot%';
+----
+2
+
+statement ok
+DETACH ict_cost;
+
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_cost2 (TYPE delta);
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count() FROM ict_cost2 AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+query I
+SELECT count() FROM duckdb_logs
+WHERE type = 'delta.DeltaMultiFileList' AND message LIKE '%Loading snapshot%';
+----
+3
+
+statement ok
+DETACH ict_cost2;
+
+# -----------------------------------------------------------------------------
+# A timestamp resolves once per transaction
+#
+# Every later lookup of the same instant in the transaction reads the version the first one resolved
+# to, however the instant is spelled. Commit timestamps are milliseconds, so microseconds within the
+# same millisecond are the same instant. The next transaction resolves again.
+
+statement ok
+ATTACH 'data/inlined/ict_timetravel/delta_lake' AS ict_once (TYPE delta);
+
+statement ok
+CALL truncate_duckdb_logs();
+
+statement ok
+BEGIN;
+
+query I
+SELECT count() FROM ict_once AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+query I
+SELECT count() FROM ict_once AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+query I
+SELECT count() FROM ict_once AT (TIMESTAMP => '2023-11-14 23:14:20+01');
+----
+11
+
+query I
+SELECT count() FROM ict_once AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20.000400+00');
+----
+11
+
+statement ok
+COMMIT;
+
+query II
+SELECT count() FILTER (message LIKE '%resolved to version%'), count() FILTER (message LIKE '%reuses version 1%')
+FROM duckdb_logs WHERE type = 'delta.TimeTravel';
+----
+1	3
+
+statement ok
+CALL truncate_duckdb_logs();
+
+query I
+SELECT count() FROM ict_once AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+query I
+SELECT count() FROM ict_once AT (TIMESTAMP => TIMESTAMPTZ '2023-11-14 22:14:20+00');
+----
+11
+
+query II
+SELECT count() FILTER (message LIKE '%resolved to version%'), count() FILTER (message LIKE '%reuses version%')
+FROM duckdb_logs WHERE type = 'delta.TimeTravel';
+----
+2	0
+
+statement ok
+DETACH ict_once;
+
+statement ok
+RESET enable_logging;
+
+statement ok
+CALL truncate_duckdb_logs();
