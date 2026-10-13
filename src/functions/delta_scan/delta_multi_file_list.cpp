@@ -4,6 +4,7 @@
 #include "storage/delta_catalog.hpp"
 
 #include "duckdb/common/local_file_system.hpp"
+#include "duckdb/main/config.hpp"
 #include "duckdb/common/operator/cast_operators.hpp"
 #include "duckdb/common/operator/multiply.hpp"
 #include "duckdb/common/types/interval.hpp"
@@ -591,6 +592,12 @@ void ScanDataCallBack::VisitData(ffi::NullableCvoid engine_context,
 DeltaMultiFileList::DeltaMultiFileList(ClientContext &context_p, const string &path_p, idx_t version_p,
                                        optional_ptr<const DeltaMultiFileList> previous)
     : SimpleMultiFileList({ToDeltaPath(path_p)}), version(version_p) {
+	// delta-kernel resolves the table location using its own file and HTTP I/O, outside of the file systems of DuckDB,
+	// so check the file access settings here before that happens
+	if (!DBConfig::GetConfig(context_p).CanAccessFile(ToDuckDBPath(path_p), FileType::FILE_TYPE_DIR)) {
+		throw PermissionException("Cannot access \"%s\" - file system operations are disabled by configuration",
+		                          path_p);
+	}
 	unique_lock<mutex> lck(lock);
 
 	if (previous) {

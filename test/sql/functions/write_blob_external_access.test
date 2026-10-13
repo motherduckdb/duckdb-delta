@@ -1,0 +1,16 @@
+# name: test/sql/functions/write_blob_external_access.test
+# description: write_blob uses the file system of the client, which checks enable_external_access
+# group: [functions]
+
+require delta
+
+statement ok
+SELECT write_blob('{TEMP_DIR}/write_blob/allowed.bin', 'abc'::BLOB);
+
+statement ok
+SET enable_external_access=false;
+
+statement error
+SELECT write_blob('{TEMP_DIR}/write_blob/disallowed.bin', 'abc'::BLOB);
+----
+<REGEX>:.*Permission Error.*
