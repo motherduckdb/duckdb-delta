@@ -118,6 +118,9 @@ void DeltaTableEntry::ThrowOnUnsupportedFieldForInserting() const {
 		throw NotImplementedException("Inserting into a table with null constraints in arrays is not supported");
 	}
 
+	if (!snapshot->UsesColumnMapping()) {
+		return;
+	}
 	// Column mapping addresses parquet columns by physical name and field id. We supply both for top-level
 	// columns only, so the cases below would produce a file that is mapped in part -- which reads back as nulls
 	// for whatever went unmapped, and in id mode is worse than writing nothing mapped at all: a file carrying

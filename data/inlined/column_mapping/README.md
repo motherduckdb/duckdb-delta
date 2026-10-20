@@ -1,8 +1,8 @@
 # Column-mapping fixtures
 
-Hand-written Delta logs. Each has a `metaData` action whose `schemaString` carries
+Delta logs, hand-written unless named `spark_*`. Each has a `metaData` action whose `schemaString` carries
 `delta.columnMapping.physicalName` and `delta.columnMapping.id` per field, plus a `protocol` action
-enabling the `columnMapping` feature.
+enabling the `columnMapping` feature (except `mode_without_feature*`, which are about its absence).
 
 **Write fixtures start empty**: `write_field_ids.test` and `invalid_annotations.test` inspect parquet
 files they just wrote, so the assertions are about what our writer emits. **Read fixtures carry one
@@ -31,8 +31,14 @@ resolves it. The table says which is which.
 | `invalid_id_string` | `name` | as `name_mode`, `id`'s id is `"1"` | A numeric-looking string is still not a number. Kernel refuses it too. |
 | `invalid_nested_id_range` | `id` | `a`, `l BIGINT[]`, `m MAP`, one nested id above `INT32` max | Read fixture. A nested id that cannot be a parquet field id must be a readable error at bind, not an abort inside the kernel's schema callback. Read by `invalid_annotations.test`. |
 | `invalid_physical_name_empty` | `name` | as `name_mode`, `id`'s physical name is `""` | Kernel accepts an empty physical name on read (delta-spark accepts them); it names no column, so DuckDB refuses it. |
+| `mode_without_feature` | `id`, ignored | `a`, `b`; reader version 1 | Read fixture. The mode property without the `columnMapping` feature, which the protocol says to ignore; the file names its columns by logical name. Read by `mode_without_feature.test`. |
+| `mode_without_feature_v3` | `name`, ignored | `a`, `b`; reader version 3, no `columnMapping` in the feature lists | Read and write fixture, as above. A write must use the logical names too. |
+| `name_mode_legacy_protocol` | `name` | `a`, `b`; reader version 2, no feature lists | Read fixture. Reader version 2 implies the feature; the file names its columns by physical name. |
+| `spark_partitioned_name_mode`, `spark_partitioned_id_mode` | `name`, `id` | `id`, `p`, `v` partitioned on `p` | Read fixture, written by Spark. Partition values are keyed by `p`'s physical name, and the kernel places `p` after the physical name of `id`. Read by `spark_partitioned.test`. |
+| `spark_renamed_name_mode`, `spark_renamed_id_mode` | `name`, `id` | `id`, `who` (was `s`) | Read and write fixture, written by Spark: one row before `RENAME COLUMN s TO who`, one after. Read by `spark_renamed.test`. |
 
-Hand-written rather than generated because the field metadata above is the entire input to the write
+The `spark_*` tables are written by Spark through `scripts/data_generator/generate_column_mapping_data.py` and committed.
+The others are hand-written rather than generated because the field metadata above is the entire input to the write
 path, and because there is no way here to generate with Spark and read back with DuckDB in one run.
 Spark-generated equivalents live under `data/generated/simple_table_column_mapped*` but cannot stand
 in: they were created with type widening, which also enables `checkConstraints`, `generatedColumns`,

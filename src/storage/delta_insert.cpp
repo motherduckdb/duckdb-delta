@@ -51,6 +51,7 @@ public:
 		table.ThrowOnUnsupportedFieldForInserting();
 
 		columns = table.snapshot->GetLazyLoadedGlobalColumns();
+		column_mapped = table.snapshot->UsesColumnMapping();
 	};
 
 	string table_name;
@@ -58,6 +59,8 @@ public:
 	vector<DeltaDataFile> written_files;
 
 	vector<DeltaMultiFileColumnDefinition> columns;
+	//! Whether the copy wrote `columns` under their physical names
+	bool column_mapped = false;
 
 	idx_t insert_count = 0;
 
@@ -213,7 +216,9 @@ static void AddWrittenFiles(DeltaInsertGlobalState &global_state, DataChunk &chu
 			LogicalType coltype;
 			string logical_name;
 			for (auto &col : global_state.columns) {
-				const auto &written_name = col.physical_name.empty() ? col.name.GetIdentifierName() : col.physical_name;
+				const auto &written_name = !global_state.column_mapped || col.physical_name.empty()
+				                               ? col.name.GetIdentifierName()
+				                               : col.physical_name;
 				if (written_name == column_names[0]) {
 					found = true;
 					coltype = col.type;
@@ -456,6 +461,10 @@ static PhysicalOperator &PlanInsertProjection(PhysicalPlanGenerator &planner, Ph
 //! column mapping. Nested and partitioned mapped tables reach here too: they are only mapped in part, and
 //! DeltaTableEntry::ThrowOnUnsupportedFieldForInserting refuses them later, when the insert executes.
 static void ApplyColumnMappingToWriteSchema(DeltaTableEntry &table_entry, CopyInfo &info, vector<string> &names) {
+	// Without the protocol feature, readers ignore the mapping annotations, so the file must not use them either
+	if (!table_entry.snapshot->UsesColumnMapping()) {
+		return;
+	}
 	// The snapshot schema, which the sink resolves its stats against too -- one source of truth for physical
 	// names at both ends of the write. The kernel's write context is the more direct answer but is not usable
 	// here: the only accessor is the unpartitioned one, which throws outright on a partitioned table.
