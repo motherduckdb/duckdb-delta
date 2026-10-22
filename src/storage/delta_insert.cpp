@@ -3,6 +3,7 @@
 #include "duckdb/common/sorting/hashed_sort.hpp"
 #include "duckdb/common/path.hpp"
 #include "duckdb/common/type_visitor.hpp"
+#include "duckdb/common/crypto/md5.hpp"
 
 #include "duckdb/catalog/catalog_entry_retriever.hpp"
 #include "duckdb/execution/physical_plan_generator.hpp"
@@ -271,7 +272,7 @@ static void AddWrittenFiles(DeltaInsertGlobalState &global_state, DataChunk &chu
 				auto &struct_children = StructValue::GetChildren(partition_children[col_idx]);
 
 				DeltaPartition file_partition_info;
-				file_partition_info.partition_column_idx = col_idx;
+				file_partition_info.partition_column = StringValue::Get(struct_children[0]);
 				// The kernel reads a null map value as a null partition and "" as the empty string. The
 				// protocol's "an empty string for any type translates to a null partition value" cannot
 				// hold for STRING columns, where "" is itself a legal value.
@@ -406,6 +407,25 @@ ScalarFunction GetStringWidthCheckFunction() {
 	return function;
 }
 
+//! `part-` and 16 hex digits of a hash over the partition values, so each partition keeps one directory across writes,
+//! as a hive directory would, without the column's physical name in it. ToSQLString keeps NULL and the string 'NULL'
+//! apart.
+static void DeltaPartitionDirectory(DataChunk &args, ExpressionState &state, Vector &result) {
+	for (idx_t row = 0; row < args.size(); row++) {
+		MD5Context md5;
+		for (idx_t col = 0; col < args.ColumnCount(); col++) {
+			md5.Add("\x1f");
+			md5.Add(args.GetValue(col, row).ToSQLString());
+		}
+		result.SetValue(row, Value("part-" + md5.FinishHex().substr(0, 16)));
+	}
+}
+
+//! Not registered in the catalog, for the same reason as GetStringWidthCheckFunction
+static ScalarFunction GetPartitionDirectoryFunction(const vector<LogicalType> &partition_types) {
+	return ScalarFunction("delta_partition_directory", partition_types, LogicalType::VARCHAR, DeltaPartitionDirectory);
+}
+
 } // namespace
 
 //! Adapts the insert child plan to what the parquet copy expects. Any further per-column rewrite on the write path
@@ -458,7 +478,7 @@ static PhysicalOperator &PlanInsertProjection(PhysicalPlanGenerator &planner, Ph
 }
 
 //! Rewrites the parquet column names to their physical names and attaches the field ids, for a table that uses
-//! column mapping. Nested and partitioned mapped tables reach here too: they are only mapped in part, and
+//! column mapping. Nested mapped tables reach here too: they are only mapped in part, and
 //! DeltaTableEntry::ThrowOnUnsupportedFieldForInserting refuses them later, when the insert executes.
 static void ApplyColumnMappingToWriteSchema(DeltaTableEntry &table_entry, CopyInfo &info, vector<string> &names) {
 	// Without the protocol feature, readers ignore the mapping annotations, so the file must not use them either
@@ -467,7 +487,7 @@ static void ApplyColumnMappingToWriteSchema(DeltaTableEntry &table_entry, CopyIn
 	}
 	// The snapshot schema, which the sink resolves its stats against too -- one source of truth for physical
 	// names at both ends of the write. The kernel's write context is the more direct answer but is not usable
-	// here: the only accessor is the unpartitioned one, which throws outright on a partitioned table.
+	// here: for a partitioned table it takes the partition values, which are not known until the copy runs.
 	auto &schema = table_entry.snapshot->GetLazyLoadedGlobalColumns();
 
 	unordered_map<string, const_reference<DeltaMultiFileColumnDefinition>> by_logical_name;
@@ -626,6 +646,20 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 		physical_copy_ref.partition_output = true;
 		physical_copy_ref.partition_columns = partition_columns;
 		physical_copy_ref.write_empty_file = true;
+		// Hive directories would carry the physical names, long and meaningless to a reader of the path. The log holds
+		// the partition values either way, so the directory name is ours to choose.
+		if (table_entry->snapshot->UsesColumnMapping()) {
+			vector<LogicalType> partition_types;
+			vector<unique_ptr<Expression>> partition_refs;
+			for (idx_t i = 0; i < partition_columns.size(); i++) {
+				auto &type = types_to_write[partition_columns[i]];
+				partition_types.push_back(type);
+				partition_refs.push_back(make_uniq<BoundReferenceExpression>(type, i));
+			}
+			physical_copy_ref.partition_path_expression =
+			    make_uniq<BoundFunctionExpression>(BoundScalarFunction(GetPartitionDirectoryFunction(partition_types)),
+			                                       std::move(partition_refs), nullptr);
+		}
 	} else {
 		physical_copy_ref.file_path =
 		    Path::FromString(delta_path).Join("duckdb-" + current_write_uuid + ".parquet").ToString();
@@ -642,7 +676,7 @@ PhysicalOperator &DeltaCatalog::PlanInsert(ClientContext &context, PhysicalPlanG
 	    PlanInsertProjection(planner, *plan, columns, table_entry->snapshot->GetStringWidthBounds()));
 	physical_copy_ref.names = StringsToIdentifiers(names_to_write);
 	physical_copy_ref.expected_types = types_to_write;
-	physical_copy_ref.hive_file_pattern = true;
+	physical_copy_ref.hive_file_pattern = !physical_copy_ref.partition_path_expression;
 
 	insert.children.push_back(physical_copy);
 

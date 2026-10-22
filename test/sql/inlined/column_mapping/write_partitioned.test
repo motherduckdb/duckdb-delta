@@ -1,0 +1,274 @@
+# name: test/sql/inlined/column_mapping/write_partitioned.test
+# description: INSERT into a column-mapped partitioned table keys partition values by physical name, in both modes
+# group: [column_mapping]
+
+require parquet
+
+require delta
+
+require json
+
+# The log must key partition values by the partition column's physical name (PROTOCOL.md, column
+# mapping writer requirements); the kernel refuses an add action keyed any other way.
+
+foreach mode name id
+
+# -----------------------------------------------------------------------------
+# ${mode} mode, a table DuckDB creates
+#
+
+statement ok
+ATTACH '{TEMP_DIR}/cm_part_${mode}' AS part (TYPE delta);
+
+statement ok
+CREATE TABLE part.part (id INTEGER, p VARCHAR, v INTEGER) PARTITIONED BY (p)
+WITH ('delta.columnMapping.mode' = '${mode}');
+
+# The string 'NULL' is a partition of its own, apart from the NULL partition
+statement ok
+INSERT INTO part.part VALUES (1, 'a', 10), (2, 'b', 20), (3, NULL, 30), (4, 'NULL', 40);
+
+query III
+SELECT id, p IS NULL, v FROM part.part ORDER BY id;
+----
+1	false	10
+2	false	20
+3	true	30
+4	false	40
+
+query I
+SELECT id FROM part.part WHERE p = 'b';
+----
+2
+
+# Every add action is keyed by p's physical name, and only by it
+query II
+WITH log AS (
+    SELECT json AS j FROM read_ndjson_objects('{TEMP_DIR}/cm_part_${mode}/_delta_log/*.json')
+), physical AS (
+    SELECT json_extract_string(f, '$.metadata."delta.columnMapping.physicalName"') AS name
+    FROM log, unnest(json_extract(json_extract_string(j, '$.metaData.schemaString'), '$.fields[*]')) AS t(f)
+    WHERE json_extract_string(f, '$.name') = 'p'
+)
+SELECT count(*), bool_and(json_keys(json_extract(j, '$.add.partitionValues')) = [(SELECT name FROM physical)])
+FROM log WHERE json_extract(j, '$.add') IS NOT NULL;
+----
+4	true
+
+# The data files carry physical names and field ids, the partition column included
+query I
+SELECT count(*) FROM parquet_schema('{TEMP_DIR}/cm_part_${mode}/*/*.parquet')
+WHERE name LIKE 'col-%' AND field_id IS NOT NULL;
+----
+12
+
+# Each partition gets a directory of its own, named part- and 16 hex digits, never after the column
+query II
+SELECT count(*), count(DISTINCT regexp_extract(file, '/(part-[0-9a-f]{16})/duckdb_[^/]*\.parquet$', 1))
+FROM glob('{TEMP_DIR}/cm_part_${mode}/**/*.parquet');
+----
+4	4
+
+# A later write puts a partition's files in the directory it already has
+statement ok
+INSERT INTO part.part VALUES (5, 'a', 50);
+
+query II
+SELECT count(*), count(DISTINCT regexp_extract(file, '/(part-[0-9a-f]{16})/', 1))
+FROM glob('{TEMP_DIR}/cm_part_${mode}/**/*.parquet');
+----
+5	4
+
+statement ok
+DETACH part;
+
+# -----------------------------------------------------------------------------
+# ${mode} mode, appending to a table Spark wrote
+#
+
+statement ok
+FROM copy_dir('data/inlined/column_mapping/spark_partitioned_${mode}_mode', '{TEMP_DIR}/spark_part_${mode}');
+
+statement ok
+ATTACH '{TEMP_DIR}/spark_part_${mode}' AS spark_part (TYPE delta);
+
+statement ok
+INSERT INTO spark_part VALUES (5, 'a', 50), (6, 'c', 60);
+
+query III
+SELECT * FROM spark_part ORDER BY id;
+----
+1	a	10
+2	a	20
+3	b	30
+4	NULL	40
+5	a	50
+6	c	60
+
+query II
+SELECT p, count(*) FROM spark_part GROUP BY p ORDER BY p;
+----
+a	3
+b	1
+c	1
+NULL	1
+
+statement ok
+DETACH spark_part;
+
+endloop
+
+# -----------------------------------------------------------------------------
+# A hand-written empty table
+#
+
+statement ok
+FROM copy_dir('data/inlined/column_mapping/partitioned_name_mode', '{TEMP_DIR}/cm_part_fixture');
+
+statement ok
+ATTACH '{TEMP_DIR}/cm_part_fixture' AS fixture (TYPE delta);
+
+statement ok
+INSERT INTO fixture VALUES (1, 'x');
+
+query II
+SELECT * FROM fixture;
+----
+1	x
+
+query I
+SELECT json_keys(json_extract(json, '$.add.partitionValues'))
+FROM read_ndjson_objects('{TEMP_DIR}/cm_part_fixture/_delta_log/00000000000000000001.json')
+WHERE json_extract(json, '$.add') IS NOT NULL;
+----
+[col-bbbb]
+
+statement ok
+DETACH fixture;
+
+# -----------------------------------------------------------------------------
+# icebergCompatV3, which requires name mode and the partition column in the data files
+#
+
+statement ok
+ATTACH '{TEMP_DIR}/cm_part_iceberg' AS iceberg (TYPE delta);
+
+statement ok
+CREATE TABLE iceberg.iceberg (id INTEGER, p VARCHAR) PARTITIONED BY (p) WITH ('delta.enableIcebergCompatV3' = 'true');
+
+statement ok
+INSERT INTO iceberg.iceberg VALUES (1, 'a'), (2, NULL);
+
+query II
+SELECT * FROM iceberg.iceberg ORDER BY id;
+----
+1	a
+2	NULL
+
+query I
+SELECT count(*) FROM parquet_schema('{TEMP_DIR}/cm_part_iceberg/*/*.parquet')
+WHERE name LIKE 'col-%' AND field_id IS NOT NULL;
+----
+4
+
+# -----------------------------------------------------------------------------
+# Two partition columns, keyed by their own physical names
+#
+
+statement ok
+ATTACH '{TEMP_DIR}/cm_part_two' AS two (TYPE delta);
+
+statement ok
+CREATE TABLE two.two (id INTEGER, p1 VARCHAR, p2 INTEGER) PARTITIONED BY (p2, p1) WITH ('delta.columnMapping.mode' = 'id');
+
+statement ok
+INSERT INTO two.two VALUES (1, 'a', 10), (2, 'b', NULL);
+
+query III
+SELECT * FROM two.two ORDER BY id;
+----
+1	a	10
+2	b	NULL
+
+query I
+WITH log AS (
+    SELECT json AS j FROM read_ndjson_objects('{TEMP_DIR}/cm_part_two/_delta_log/*.json')
+), physical AS (
+    SELECT json_extract_string(f, '$.name') AS logical,
+           json_extract_string(f, '$.metadata."delta.columnMapping.physicalName"') AS physical
+    FROM log, unnest(json_extract(json_extract_string(j, '$.metaData.schemaString'), '$.fields[*]')) AS t(f)
+)
+SELECT string_agg(logical || '=' || json_extract_string(j, '$.add.partitionValues."' || physical || '"'), ',' ORDER BY logical)
+FROM log, physical
+WHERE json_extract(j, '$.add') IS NOT NULL AND logical IN ('p1', 'p2')
+GROUP BY json_extract_string(j, '$.add.path') ORDER BY 1;
+----
+p1=a,p2=10
+p1=b
+
+# -----------------------------------------------------------------------------
+# Many files of one partition in one write
+#
+
+# One open file at a time and a tiny flush threshold make the copy close and reopen each partition's file
+statement ok
+SET partitioned_write_max_open_files = 1;
+
+statement ok
+SET partitioned_write_flush_threshold = 100;
+
+statement ok
+ATTACH '{TEMP_DIR}/cm_part_many' AS many (TYPE delta);
+
+statement ok
+CREATE TABLE many.many (id INTEGER, p VARCHAR) PARTITIONED BY (p) WITH ('delta.columnMapping.mode' = 'name');
+
+statement ok
+INSERT INTO many.many SELECT i, 'p' || (i % 3) FROM range(20000) t(i);
+
+# More files than partitions, and still one directory per partition
+query I
+SELECT count(*) > 3 FROM glob('{TEMP_DIR}/cm_part_many/**/*.parquet');
+----
+true
+
+query I
+SELECT count(DISTINCT regexp_extract(file, '/(part-[0-9a-f]{16})/', 1)) FROM glob('{TEMP_DIR}/cm_part_many/**/*.parquet');
+----
+3
+
+query II
+SELECT count(*), count(DISTINCT p) FROM many.many;
+----
+20000	3
+
+statement ok
+RESET partitioned_write_max_open_files;
+
+statement ok
+RESET partitioned_write_flush_threshold;
+
+# -----------------------------------------------------------------------------
+# A partition column name that only column mapping allows
+#
+
+# Kernel refuses ' ' and '=' in an unmapped column name; mapped, the files and the log use the physical name
+statement ok
+ATTACH '{TEMP_DIR}/cm_part_odd' AS odd (TYPE delta);
+
+statement ok
+CREATE TABLE odd.odd (id INTEGER, "p q=r" VARCHAR) PARTITIONED BY ("p q=r") WITH ('delta.columnMapping.mode' = 'name');
+
+statement ok
+INSERT INTO odd.odd VALUES (1, 'a b'), (2, 'x=y/z');
+
+query II
+SELECT * FROM odd.odd ORDER BY id;
+----
+1	a b
+2	x=y/z
+
+query I
+SELECT id FROM odd.odd WHERE "p q=r" = 'x=y/z';
+----
+2
