@@ -701,23 +701,6 @@ KernelSchemaVisitor::ToColumnDefinitions(ffi::Handle<ffi::SharedExternEngine> en
 	return visitor_state.TakeFieldList(result);
 }
 
-vector<DeltaMultiFileColumnDefinition>
-KernelSchemaVisitor::ToColumnDefinitions(ffi::Handle<ffi::SharedExternEngine> engine,
-                                         ffi::SharedWriteContext *write_context) {
-	// Writes address columns through `physical_name` and `field_id`, never `identifier`, so the mode is moot here
-	KernelSchemaVisitor visitor_state(engine, DeltaColumnMappingMode::NONE);
-	auto visitor = CreateSchemaVisitor(visitor_state);
-	auto schema = ffi::get_write_schema(write_context);
-	uintptr_t result = visit_schema(schema, &visitor);
-	free_schema(schema);
-
-	if (visitor_state.error.HasError()) {
-		visitor_state.error.Throw();
-	}
-
-	return visitor_state.TakeFieldList(result);
-}
-
 void KernelSchemaVisitor::VisitDecimal(KernelSchemaVisitor *state, uintptr_t sibling_list_id,
                                        ffi::KernelStringSlice name, bool is_nullable, const ffi::CMetadataMap *metadata,
                                        uint8_t precision, uint8_t scale) {
@@ -770,7 +753,7 @@ void KernelSchemaVisitor::VisitArray(KernelSchemaVisitor *state, uintptr_t sibli
 	list_def.children.front().name = "list";
 
 	ApplyDeltaColumnMapping(state, metadata, list_def);
-	ApplyNestedFieldIds(state, metadata, list_def, list_def.children[0], ".element");
+	ApplyNestedFieldIdsBelow(state, metadata, list_def, list_def, "");
 	if (state->mapping_mode == DeltaColumnMappingMode::ID) {
 		DeltaMultiFileColumnDefinition::FillContainerChildIds(list_def);
 	}
@@ -797,8 +780,7 @@ void KernelSchemaVisitor::VisitMap(KernelSchemaVisitor *state, uintptr_t sibling
 	map_def.default_expression = ConstantExpression::FromValue(Value(map_type));
 
 	ApplyDeltaColumnMapping(state, metadata, map_def);
-	ApplyNestedFieldIds(state, metadata, map_def, map_def.children[0], ".key");
-	ApplyNestedFieldIds(state, metadata, map_def, map_def.children[1], ".value");
+	ApplyNestedFieldIdsBelow(state, metadata, map_def, map_def, "");
 	if (state->mapping_mode == DeltaColumnMappingMode::ID) {
 		DeltaMultiFileColumnDefinition::FillContainerChildIds(map_def);
 	}
