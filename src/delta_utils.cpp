@@ -657,6 +657,9 @@ ffi::EngineSchemaVisitor KernelSchemaVisitor::CreateSchemaVisitor(KernelSchemaVi
 	visitor.visit_geography = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CMetadataMap *,
 	                                    ffi::KernelStringSlice, ffi::KernelStringSlice)) &
 	                          VisitGeography;
+	visitor.visit_user_defined = (void (*)(void *, uintptr_t, ffi::KernelStringSlice, bool, const ffi::CMetadataMap *,
+	                                       uintptr_t, ffi::FfiNullableStringMap)) &
+	                             VisitUserDefined;
 
 	return visitor;
 }
@@ -837,6 +840,15 @@ void KernelSchemaVisitor::VisitGeography(KernelSchemaVisitor *state, uintptr_t s
 	state->RefuseType(name, "geography");
 }
 
+// Kernel parses user-defined types only with its `udt-in-dev` cargo feature, which the build does not enable, so
+// today kernel refuses the schema before this runs.
+void KernelSchemaVisitor::VisitUserDefined(KernelSchemaVisitor *state, uintptr_t sibling_list_id,
+                                           ffi::KernelStringSlice name, bool is_nullable,
+                                           const ffi::CMetadataMap *metadata, uintptr_t child_list_id,
+                                           ffi::FfiNullableStringMap annotation) {
+	state->RefuseType(name, "user-defined type");
+}
+
 uintptr_t KernelSchemaVisitor::MakeFieldListImpl(uintptr_t capacity_hint) {
 	uintptr_t id = next_id++;
 	auto list = vector<DeltaMultiFileColumnDefinition>();
@@ -873,72 +885,42 @@ vector<DeltaMultiFileColumnDefinition> KernelSchemaVisitor::TakeFieldList(uintpt
 	return rval;
 }
 
-ffi::Handle<ffi::EngineError> DuckDBEngineError::AllocateError(ffi::KernelError etype, ffi::KernelStringSlice msg) {
+ffi::Handle<ffi::EngineError> DuckDBEngineError::AllocateError(ffi::FFIKernelError etype, ffi::KernelStringSlice msg) {
 	auto error = new DuckDBEngineError;
 	error->etype = etype;
 	error->error_message = string(msg.ptr, msg.len);
 	return error;
 }
 
-ffi::Handle<ffi::EngineError> DuckDBEngineError::AllocateError(ffi::KernelError etype, const string &msg) {
+ffi::Handle<ffi::EngineError> DuckDBEngineError::AllocateError(ffi::FFIKernelError etype, const string &msg) {
 	auto error = new DuckDBEngineError;
 	error->etype = etype;
 	error->error_message = string(msg.data(), msg.length());
 	return error;
 }
 
-string DuckDBEngineError::KernelErrorEnumToString(ffi::KernelError err) {
-	const char *KERNEL_ERROR_ENUM_STRINGS[] = {"UnknownError",
-	                                           "FFIError",
-	                                           "ArrowError",
-	                                           "EngineDataTypeError",
-	                                           "ExtractError",
-	                                           "GenericError",
-	                                           "IOErrorError",
-	                                           "ParquetError",
-	                                           "ObjectStoreError",
-	                                           "ObjectStorePathError",
-	                                           "ReqwestError",
-	                                           "FileNotFoundError",
-	                                           "MissingColumnError",
-	                                           "UnexpectedColumnTypeError",
-	                                           "MissingDataError",
-	                                           "MissingVersionError",
-	                                           "DeletionVectorError",
-	                                           "InvalidUrlError",
-	                                           "MalformedJsonError",
-	                                           "MissingMetadataError",
-	                                           "MissingProtocolError",
-	                                           "InvalidProtocolError",
-	                                           "MissingMetadataAndProtocolError",
-	                                           "ParseError",
-	                                           "JoinFailureError",
-	                                           "Utf8Error",
-	                                           "ParseIntError",
-	                                           "InvalidColumnMappingModeError",
-	                                           "InvalidTableLocationError",
-	                                           "InvalidDecimalError",
-	                                           "InvalidStructDataError",
-	                                           "InternalError",
-	                                           "InvalidExpression",
-	                                           "InvalidLogPath",
-	                                           "FileAlreadyExists",
-	                                           "UnsupportedError",
-	                                           "ParseIntervalError",
-	                                           "ChangeDataFeedUnsupported",
-	                                           "ChangeDataFeedIncompatibleSchema",
-	                                           "InvalidCheckpoint",
-	                                           "LiteralExpressionTransformError",
-	                                           "CheckpointWriteError",
-	                                           "SchemaError",
-	                                           "LogHistoryError",
-	                                           "RowTrackingChangeFeedUnsupported",
-	                                           "CancelledError",
-	                                           "InvalidTransactionStateError"};
+string DuckDBEngineError::KernelErrorEnumToString(ffi::FFIKernelError err) {
+	const char *KERNEL_ERROR_ENUM_STRINGS[] = {
+	    "UnknownError", "FFIError", "ArrowError", "EngineDataTypeError", "ExtractError", "GenericError", "IOErrorError",
+	    "ParquetError", "ObjectStoreError", "ObjectStorePathError", "ReqwestError", "FileNotFoundError",
+	    "MissingColumnError", "UnexpectedColumnTypeError", "MissingDataError", "MissingVersionError",
+	    "DeletionVectorError", "InvalidUrlError", "MalformedJsonError", "MissingMetadataError", "MissingProtocolError",
+	    "InvalidProtocolError", "MissingMetadataAndProtocolError", "ParseError", "JoinFailureError", "Utf8Error",
+	    "ParseIntError", "InvalidColumnMappingModeError", "InvalidTableLocationError", "InvalidDecimalError",
+	    "InvalidStructDataError", "InternalError", "InvalidExpression", "InvalidLogPath", "FileAlreadyExists",
+	    "UnsupportedError", "ParseIntervalError", "ChangeDataFeedUnsupported", "ChangeDataFeedIncompatibleSchema",
+	    "InvalidCheckpoint",
+	    // 40: kernel removed LiteralExpressionTransformError and left the
+	    // discriminant unused, so this slot keeps the ones after it aligned
+	    "UnusedError", "CheckpointWriteError", "SchemaError", "LogHistoryError", "RowTrackingChangeFeedUnsupported",
+	    "CancelledError", "InvalidTransactionStateError", "InvalidLogSegment", "UnpublishedVersionError",
+	    "EmptyLogError", "InvalidSnapshotHint", "StartVersionNotFound", "InvalidGeoParamsError",
+	    "MaxCatalogVersionError", "TableAlreadyExistsAtPath"};
 
 	static constexpr int KERNEL_ERROR_ENUM_COUNT = (int)(sizeof(KERNEL_ERROR_ENUM_STRINGS) / sizeof(char *));
 
-	static_assert(KERNEL_ERROR_ENUM_COUNT - 1 == (int)ffi::KernelError::InvalidTransactionStateError,
+	// Anchored on the last variant: a bump that appends variants fails here instead of printing EnumOutOfRange
+	static_assert(KERNEL_ERROR_ENUM_COUNT - 1 == (int)ffi::FFIKernelError::TableAlreadyExistsAtPath,
 	              "KernelErrorEnumStrings mismatched with kernel");
 
 	if ((int)err < KERNEL_ERROR_ENUM_COUNT) {
@@ -1057,6 +1039,10 @@ vector<bool> KernelUtils::FromDeltaBoolSlice(const struct ffi::KernelBoolSlice s
 bool KernelUtils::IsMissingMaxCatalogVersion(const ErrorData &error) {
 	return StringUtil::Contains(error.RawMessage(),
 	                            "Max catalog version is required when loading a catalog-managed table");
+}
+
+bool KernelUtils::IsCatalogManaged(ffi::SharedSnapshot *snapshot) {
+	return HasWriterFeature(snapshot, "catalogManaged") || HasWriterFeature(snapshot, "catalogOwned-preview");
 }
 
 optional<Value> KernelUtils::FetchFromMetadataMap(ffi::Handle<ffi::SharedExternEngine> engine,
